@@ -1,0 +1,21 @@
+# Competition data (must not be shared or distributed)
+train+public_test/
+private_test/
+*.zip
+
+# Submissions and scorer output
+submission*.jsonl
+*.details.jsonl
+runs/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# OS
+.DS_Store
+__MACOSX/
+
+# Generated knowledge graph
+graphify-out/

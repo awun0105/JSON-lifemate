@@ -1,0 +1,16 @@
+graph TD
+  T["train: 1.545 mẫu có đáp án"] --> SP["eval/make_splits.py"]
+  SP --> TR["train: 1.106 mẫu<br/>dùng để học"]
+  SP --> VS["val_seen: 195 mẫu<br/>app quen"]
+  SP --> VU["val_unseen: 244 mẫu<br/>8 app bị giấu"]
+  TR --> IMP["Cải thiện agent, rẻ đến đắt<br/>1. code điều khiển<br/>2. system prompt<br/>3. fine-tune LLM<br/>4. fine-tune ASR"]
+  IMP --> AG["Agent"]
+  AG -- "chạy thử" --> VS
+  AG -- "chạy thử" --> VU
+  VS --> SC["eval/score.py<br/>điểm + bảng lỗi"]
+  VU --> SC
+  SC -- "biết sai ở đâu" --> IMP
+  AG -- "nộp file" --> LB["public_test 634 mẫu<br/>leaderboard 5 lượt/ngày, chỉ tham khảo"]
+  AG -- "đóng băng 16/11" --> DK["Docker"]
+  DK -- "chạy 20/11 - 23/11" --> PV["private_test<br/>có thể có app lạ"]
+  PV --> RK["Xếp hạng chung cuộc"]
