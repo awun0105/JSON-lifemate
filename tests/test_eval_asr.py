@@ -85,3 +85,27 @@ def test_evaluate_gold() -> None:
     for key in ("WER", "CER", "entity_miss_rate", "p95"):
         assert key in text
     assert rep.to_dict()["entity_misses"] == []
+
+
+class _EmptyFinal:
+    """Transcriber giả: câu cuối luôn rỗng (như khi VAD cắt mất giọng hoặc bộ lọc xóa nhầm)."""
+
+    def transcribe(self, sample: Sample) -> Transcript:
+        """Trả câu cuối rỗng, không có lịch sử."""
+        return Transcript(final="", history=tuple(None for _ in sample.history), seconds=0.1)
+
+    def warmup(self) -> None:
+        """Không cần khởi động."""
+
+
+def test_evaluate_counts_empty_and_records_hyps() -> None:
+    """Bảo vệ: câu ASR rỗng được đếm riêng (n_empty) và `hyps` ghi đủ ref/hyp từng câu để soi lỗi."""
+    samples = [_sample("s1", "bật đèn", []), _sample("s2", "tắt quạt", [])]
+    hyps: list[dict[str, Any]] = []
+    rep = evaluate(samples, _EmptyFinal(), hyps)
+    assert rep.n_empty == 2 and rep.wer == 1.0
+    assert hyps == [
+        {"id": "s1", "turn": "final", "ref": "bật đèn", "hyp": ""},
+        {"id": "s2", "turn": "final", "ref": "tắt quạt", "hyp": ""},
+    ]
+    assert evaluate(samples, GoldTranscriber()).n_empty == 0

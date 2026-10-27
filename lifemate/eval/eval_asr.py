@@ -171,6 +171,7 @@ class AsrReport:
 
     n_samples: int
     n_utterances: int
+    n_empty: int  # câu có văn bản gold nhưng ASR trả chuỗi rỗng (VAD cắt, bộ lọc xóa, hoặc model im lặng)
     wer: float
     cer: float
     entity_missed: int
@@ -194,33 +195,40 @@ class AsrReport:
     def to_text(self) -> str:
         """Bản tóm tắt ngắn cho người đọc."""
         return (
-            f"samples={self.n_samples} utterances={self.n_utterances}\n"
+            f"samples={self.n_samples} utterances={self.n_utterances} empty={self.n_empty}\n"
             f"WER={self.wer:.4f} CER={self.cer:.4f}\n"
             f"entity_miss_rate={self.entity_miss_rate:.4f} ({self.entity_missed}/{self.entity_total})\n"
             f"seconds p50={self.p50_s:.3f} p95={self.p95_s:.3f} max={self.max_s:.3f}"
         )
 
 
-def evaluate(samples: Sequence[Sample], transcriber: Transcriber) -> AsrReport:
+def evaluate(
+    samples: Sequence[Sample], transcriber: Transcriber, hyps: list[dict[str, Any]] | None = None
+) -> AsrReport:
     """Chép lời mọi mẫu rồi tính WER/CER trên cả kho, gồm câu cuối và các lượt người dùng trong lịch sử.
 
-    Chỉ những câu có văn bản gold mới được tính. Transcriber được khởi động (warmup) trước để độ trễ không gồm thời
+    Chỉ những câu có văn bản gold mới được tính. Khi truyền `hyps`, mỗi câu được thêm vào đó dạng
+    `{"id", "turn", "ref", "hyp"}` (`turn` = "final" hoặc chỉ số lượt trong lịch sử) để soi lỗi từng câu.
+    Transcriber được khởi động (warmup) trước để độ trễ không gồm thời
     gian nạp mô hình.
     """
     transcriber.warmup()
     transcripts = [transcriber.transcribe(s) for s in samples]
-    w_err = w_n = c_err = c_n = n_utt = 0
+    w_err = w_n = c_err = c_n = n_utt = n_empty = 0
     for s, t in zip(samples, transcripts, strict=True):
         # Ghép (tham chiếu, giả thuyết) cho mọi câu có cả hai phía.
-        pairs: list[tuple[str, str]] = []
-        for turn, hyp in zip(s.history, t.history, strict=True):
+        pairs: list[tuple[str, str, str]] = []
+        for i, (turn, hyp) in enumerate(zip(s.history, t.history, strict=True)):
             if turn.role == "user" and turn.audio_text is not None and hyp is not None:
-                pairs.append((turn.audio_text, hyp))
+                pairs.append((str(i), turn.audio_text, hyp))
         if s.audio_text is not None:
-            pairs.append((s.audio_text, t.final))
+            pairs.append(("final", s.audio_text, t.final))
         # Cộng dồn lỗi và độ dài để ra tỷ lệ trên cả kho, không lấy trung bình theo câu.
-        for ref, hyp in pairs:
+        for turn_key, ref, hyp in pairs:
+            if hyps is not None:
+                hyps.append({"id": s.id, "turn": turn_key, "ref": ref, "hyp": hyp})
             r, h = normalize_text(ref), normalize_text(hyp)
+            n_empty += int(bool(r) and not h)
             w_err += _edit_distance(r.split(), h.split())
             w_n += len(r.split())
             c_err += _edit_distance(list(r), list(h))
@@ -231,6 +239,7 @@ def evaluate(samples: Sequence[Sample], transcriber: Transcriber) -> AsrReport:
     return AsrReport(
         n_samples=len(samples),
         n_utterances=n_utt,
+        n_empty=n_empty,
         wer=_rate(w_err, w_n),
         cer=_rate(c_err, c_n),
         entity_missed=missed,
@@ -259,6 +268,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--split", default="train")
     ap.add_argument("--ids", type=Path, default=None)
     ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--hyps", type=Path, default=None, help="jsonl: mỗi câu một dòng {id, turn, ref, hyp}")
     args = ap.parse_args(argv)
     repo_root = REPO_ROOT
     cfg = load_config(args.config)
@@ -274,7 +284,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         transcriber = GoldTranscriber()
     else:
         transcriber = ASRTranscriber(cfg.asr, data_root=root, split=args.split)
-    report = evaluate(samples, transcriber)
+    hyps: list[dict[str, Any]] | None = [] if args.hyps is not None else None
+    report = evaluate(samples, transcriber, hyps)
+    if args.hyps is not None and hyps is not None:
+        args.hyps.parent.mkdir(parents=True, exist_ok=True)
+        args.hyps.write_text("".join(json.dumps(h, ensure_ascii=False) + "\n" for h in hyps), encoding="utf-8")
     print(report.to_text())
     if args.out is not None:
         args.out.parent.mkdir(parents=True, exist_ok=True)

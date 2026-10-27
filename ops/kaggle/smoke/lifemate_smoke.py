@@ -27,6 +27,7 @@ exec file này.
 """
 
 import glob
+import json
 import os
 import re
 import shutil
@@ -155,6 +156,55 @@ if flag("RUN_ASR_EVAL"):
             check=False,
         )
 
+# 5a. So các biến thể cấu hình ASR trên cùng bộ mẫu (ASR_SWEEP="lead,norep,..."; trống = bỏ qua). Mỗi biến thể là
+# một bản sao của cấu hình ASR với vài khóa [asr] được sửa; ghi WER/thực thể và từng câu nghe ra (--hyps).
+# Lý do (28/10): large-v3 với tham số của lead cho WER 44% trên val_seen, có nhiều câu rỗng.
+ASR_VARIANTS = {
+    "lead": {},
+    "norep": {"drop": ["repetition_penalty", "no_repeat_ngram_size"]},
+    "norep_raw": {"drop": ["repetition_penalty", "no_repeat_ngram_size"], "set": {"sanitize": False}},
+    "norep_noprompt": {"drop": ["repetition_penalty", "no_repeat_ngram_size", "initial_prompt"]},
+    "norep_novad": {
+        "drop": ["repetition_penalty", "no_repeat_ngram_size", "vad_parameters"],
+        "gk": {"vad_filter": False},
+    },
+    "phowhisper": {
+        "set": {
+            "engine": "hf_seq2seq",
+            "model": "vinai/PhoWhisper-medium",
+            "revision": "55a7e3eb6c906de891f8f06a107754427dd3be79",
+            "sanitize": False,
+            "generate_kwargs": {"language": "vi", "task": "transcribe"},
+        }
+    },
+}
+sweep = [v.strip() for v in os.environ.get("ASR_SWEEP", "").split(",") if v.strip()]
+if sweep:
+    import tomllib
+
+    sys.path.insert(0, str(CODE))
+    from lifemate.train.llm_pipeline import dump_toml
+
+    base = tomllib.loads(asr_cfg.read_text(encoding="utf-8"))
+    eval_ids = os.environ.get("ASR_EVAL_IDS", "configs/splits/val_seen.txt")
+    for name in sweep:
+        spec = ASR_VARIANTS[name]
+        raw = json.loads(json.dumps(base))  # bản sao sâu
+        gk = dict(raw["asr"].get("generate_kwargs") or {})
+        for k in spec.get("drop", []):
+            gk.pop(k, None)
+        gk.update(spec.get("gk", {}))
+        raw["asr"]["generate_kwargs"] = gk
+        raw["asr"].update(spec.get("set", {}))
+        cfg_path = CODE / f"configs/kaggle_asr_{name}.toml"
+        cfg_path.write_text(dump_toml(raw), encoding="utf-8")
+        out = WORK / "asr_sweep" / name
+        sh(
+            f"python -m lifemate.eval.eval_asr --config {cfg_path} --env kaggle --split train --ids {eval_ids} "
+            f"--out {out}.json --hyps {out}.hyps.jsonl",
+            check=False,
+        )
+
 # 5b. ASR cache cho dữ liệu fine-tune (SPEC 6.2.1), tắt mặc định: chạy ASR một lần trên train, val_seen và
 # val_unseen rồi lưu chữ vào output của kernel (riêng tư). Tải về bằng `kaggle kernels output` và đặt vào
 # data/asr/train_asr.json, hoặc gắn output này làm dataset riêng tư cho notebook train.
@@ -168,26 +218,34 @@ if flag("RUN_ASR_CACHE", "0"):
 # 6. Chạy agent. Giữ log CLI của từng lượt để kiểm tra nhánh xử lý deadline: `llm_step_aborted_at_deadline`
 # nghĩa là một bước bị cắt tại deadline_s; `vllm_abortable_generate_unsupported` nghĩa là vLLM thiếu API
 # step/abort nên không cắt được bước (phải bằng 0 trước khi nộp bài).
-ids = os.environ.get("RUN_IDS", "configs/splits/smoke.txt")
+# RUN_IDS có thể là nhiều file cách nhau bằng dấu phẩy (ví dụ val_seen và val_unseen trong cùng một phiên, đỡ một
+# lượt cài đặt). Với nhiều file, tên lượt chạy là `<RUN_TAG>_<tên file>_<gold|asr>`.
+id_files = [f.strip() for f in os.environ.get("RUN_IDS", "configs/splits/smoke.txt").split(",") if f.strip()]
 tag = os.environ.get("RUN_TAG", "smoke")
-split_args = f"--split train --ids {ids}"
 runs = {}
 cli = "python -m lifemate.run.cli --env kaggle"
 logs = WORK / "logs"
 logs.mkdir(exist_ok=True)
-for kind, enabled, cfg in (("gold", flag("RUN_GOLD"), "configs/v0.toml"), ("asr", flag("RUN_ASR"), asr_cfg)):
-    if enabled:
-        name = f"{tag}_{kind}"
-        # Ghi log ra file qua tee; mã thoát của lượt chạy được lưu để in ở cuối.
-        runs[kind] = sh(f"{cli} --config {cfg} {split_args} --name {name} 2>&1 | tee {logs}/{name}.log", False)
-        text = (logs / f"{name}.log").read_text(encoding="utf-8", errors="replace")
-        # Đếm số lần xuất hiện của từng sự kiện quan trọng trong log.
-        for key in ("llm_step_aborted_at_deadline", "vllm_abortable_generate_unsupported", "sample_exception"):
-            print(f"[{name}] {key}: {text.count(key)}", flush=True)
+for ids in id_files:
+    split_args = f"--split train --ids {ids}"
+    prefix = tag if len(id_files) == 1 else f"{tag}_{Path(ids).stem}"
+    for kind, enabled, cfg in (("gold", flag("RUN_GOLD"), "configs/v0.toml"), ("asr", flag("RUN_ASR"), asr_cfg)):
+        if enabled:
+            name = f"{prefix}_{kind}"
+            # Ghi log ra file qua tee; mã thoát của lượt chạy được lưu để in ở cuối.
+            runs[name] = sh(f"{cli} --config {cfg} {split_args} --name {name} 2>&1 | tee {logs}/{name}.log", False)
+            text = (logs / f"{name}.log").read_text(encoding="utf-8", errors="replace")
+            # Đếm số lần xuất hiện của từng sự kiện quan trọng trong log.
+            for key in ("llm_step_aborted_at_deadline", "vllm_abortable_generate_unsupported", "sample_exception"):
+                print(f"[{name}] {key}: {text.count(key)}", flush=True)
 
 # 7. Báo cáo; output chỉ giữ lại runs/ và asr_eval/ (xoá mã nguồn và cache HF cho gọn).
 sh(f"python -m lifemate.run.report runs {WORK}/runs/index.csv", check=False)
-for path in sorted(glob.glob(f"{WORK}/runs/*/summary.json")) + sorted(glob.glob(f"{WORK}/asr_eval/*.json")):
+for path in (
+    sorted(glob.glob(f"{WORK}/runs/*/summary.json"))
+    + sorted(glob.glob(f"{WORK}/asr_eval/*.json"))
+    + sorted(glob.glob(f"{WORK}/asr_sweep/*.json"))
+):
     print(f"\n== {path}\n" + Path(path).read_text(encoding="utf-8"), flush=True)
 shutil.rmtree(CODE, ignore_errors=True)
 shutil.rmtree(WORK / "hf_cache", ignore_errors=True)

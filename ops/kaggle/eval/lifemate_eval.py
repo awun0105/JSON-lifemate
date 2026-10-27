@@ -19,8 +19,8 @@ import subprocess
 # Tham số truyền cho kịch bản smoke: chỉ chạy nhánh ASR trên val_seen, bỏ nhánh gold và bước đo ASR.
 RUN = {
     "LIFEMATE_REF": "main",
-    "RUN_IDS": "configs/splits/val_seen.txt",
-    "RUN_TAG": "val_seen",
+    "RUN_IDS": "configs/splits/val_seen.txt,configs/splits/val_unseen.txt",
+    "RUN_TAG": "base28",
     "RUN_GOLD": "0",
     "RUN_ASR": "1",
     "RUN_ASR_EVAL": "0",
