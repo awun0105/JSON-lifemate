@@ -28,6 +28,8 @@ revision = ""
 device = "cuda"
 dtype = "auto"
 batch_size = 8
-generate_kwargs = { language = "vi", task = "transcribe", temperature = 0.0, beam_size = 5, best_of = 5, repetition_penalty = 1.2, no_repeat_ngram_size = 3, initial_prompt = "LifeMate: trợ lý ảo tiếng Việt điều khiển smart home, tivi, đặt xe, ngân hàng, HTV7, VTV1, VTV3, deadline, voucher, Zalo.", vad_filter = true, vad_parameters = { min_silence_duration_ms = 500 }, condition_on_previous_text = false }
+# Bỏ initial_prompt, repetition_penalty, no_repeat_ngram_size: sweep val_seen (asr_sweep_v1) cho WER 44.0% -> 29.7%,
+# câu rỗng 190 -> 24, bỏ sót thực thể 52% -> 31%. initial_prompt làm Whisper lặp lại prompt và bị sanitizer xóa.
+generate_kwargs = { language = "vi", task = "transcribe", temperature = 0.0, beam_size = 5, best_of = 5, vad_filter = true, vad_parameters = { min_silence_duration_ms = 500 }, condition_on_previous_text = false }
 sample_rate = 16000
 sanitize = true

@@ -27,6 +27,8 @@ device = "auto"                        # "auto" | "cpu" | "cuda"
 dtype = "auto"                         # auto: bfloat16 trên sm80+ (A30), float16 trên T4, float32 trên CPU
 batch_size = 8                         # số file wav mỗi lần gọi transcribe_batch (faster_whisper vẫn giải mã từng file)
 # Giải mã của team lead: beam 5, nhiệt độ 0 (tất định), chặn lặp, VAD bỏ khoảng lặng, prompt từ vựng miền, không nối ngữ cảnh lượt trước.
-generate_kwargs = { language = "vi", task = "transcribe", temperature = 0.0, beam_size = 5, best_of = 5, repetition_penalty = 1.2, no_repeat_ngram_size = 3, initial_prompt = "LifeMate: trợ lý ảo tiếng Việt điều khiển smart home, tivi, đặt xe, ngân hàng, HTV7, VTV1, VTV3, deadline, voucher, Zalo.", vad_filter = true, vad_parameters = { min_silence_duration_ms = 500 }, condition_on_previous_text = false }
+# Bỏ initial_prompt, repetition_penalty, no_repeat_ngram_size: sweep val_seen (asr_sweep_v1) cho WER 44.0% -> 29.7%,
+# câu rỗng 190 -> 24, bỏ sót thực thể 52% -> 31%. initial_prompt làm Whisper lặp lại prompt và bị sanitizer xóa.
+generate_kwargs = { language = "vi", task = "transcribe", temperature = 0.0, beam_size = 5, best_of = 5, vad_filter = true, vad_parameters = { min_silence_duration_ms = 500 }, condition_on_previous_text = false }
 sample_rate = 16000                    # WAV 16 kHz mono 16-bit (data README 2.1)
 sanitize = true                        # lọc ảo giác kiểu phụ đề YouTube và vòng lặp (lifemate/backends/asr_sanitizer.py)

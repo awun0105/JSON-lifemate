@@ -240,7 +240,9 @@ for ids in id_files:
                 print(f"[{name}] {key}: {text.count(key)}", flush=True)
 
 # 7. Báo cáo; output chỉ giữ lại runs/ và asr_eval/ (xoá mã nguồn và cache HF cho gọn).
-sh(f"python -m lifemate.run.report runs {WORK}/runs/index.csv", check=False)
+# Chỉ dựng báo cáo khi có lần chạy agent (kernel chỉ đo ASR thì không có index.csv).
+if (WORK / "runs" / "index.csv").is_file():
+    sh(f"python -m lifemate.run.report runs {WORK}/runs/index.csv", check=False)
 for path in (
     sorted(glob.glob(f"{WORK}/runs/*/summary.json"))
     + sorted(glob.glob(f"{WORK}/asr_eval/*.json"))
