@@ -1,7 +1,7 @@
 [project]
 name = "lifemate"
 version = "0.1.0"
-description = "LifeMate agent for Zalo AI Challenge 2026: Vietnamese voice requests to tool calls"
+description = "Offline voice-to-action agent: Vietnamese speech to tool calls with small models"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 license = { text = "MIT" }
