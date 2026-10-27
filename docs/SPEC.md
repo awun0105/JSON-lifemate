@@ -28,10 +28,14 @@ Cho một yêu cầu bằng giọng nói tiếng Việt, agent phải gọi đú
 | Đề bài, EDA, hướng làm | Có | `docs/overview.md`, `docs/eda.md`, `docs/approach.md` |
 | Chia dữ liệu | Có | `eval/make_splits.py`, `splits/`: train 1098, val_seen 193, val_unseen 254 |
 | Bộ chấm local | Có | `eval/score.py`: gold được 100, toàn `[]` được 7,18 |
-| Agent v0 (`lifemate/`), CLI, hạ tầng đo | **Có, 27/10/2026** | 164 test pass; FakeLLM qua CLI được 100,00 (strict và canon) trên `val_seen`, `val_unseen`; `configs/fake.toml` chạy không cần model |
-| ASR | Khung có (`asr.py`, `eval_asr.py`), **chưa chọn model, chưa chạy thật** | |
-| Docker | Dockerfile, entrypoint, smoke script có; **chưa build** (không có GPU/docker ở máy dev) | `docs/docker.md` |
-| Fine-tune | Khung có (`lifemate/train/`), `sft_data` và `asr_data` đã chạy trên dữ liệu thật; train/merge **chưa chạy** | |
+| Agent v0 (`lifemate/`), CLI, hạ tầng đo | **Có, 27/10/2026** | 171 test pass; FakeLLM qua CLI được 100,00 (strict và canon) trên `val_seen`, `val_unseen`; `configs/fake.toml` chạy không cần model |
+| Chọn model | **Đã chọn 27/10/2026** (mục 6.0, `approach.md` 5.5): Qwen3-4B-Instruct-2507 + PhoWhisper-medium, đã điền `configs/v0.toml`, `docker.toml`, `train/*.toml` | Chưa chạy thật model nào (không có GPU ở máy dev) |
+| vLLM thật | `VLLMBackend` viết theo API 0.32, **chỉ test với engine giả** (Q3) | |
+| ASR | `ASRTranscriber` + 3 engine (`hf_seq2seq`, `chunkformer`, `viegem`), `eval_asr.py`; **chưa chạy model thật** | Test với backend giả |
+| Docker | Dockerfile, entrypoint, `configs/docker.toml`, smoke script; **chưa build** | `docs/docker.md` |
+| Fine-tune | Khung có (`lifemate/train/`), 4 notebook train, `requirements/train.txt`; `sft_data` và `asr_data` đã chạy trên dữ liệu thật; **train/merge chưa chạy** | `approach.md` 5.5.2 ghi kế hoạch và thứ tự |
+| Môi trường | Profile local/kaggle/colab/rented/runpod/docker, notebook run và train, `scripts/runpod_setup.sh` | Chỉ profile local đã chạy |
+| Báo cáo | `lifemate/report.py` (`make report`, `make report-train`) | Test với dữ liệu giả |
 
 ### 1.4. Số liệu dữ liệu dùng để thiết kế
 
