@@ -44,3 +44,16 @@ pack:            ## Pack code for Kaggle/Colab into dist/
 	scripts/pack_code.sh
 
 .PHONY: help install install-gpu lint format typecheck check test splits run score pack
+
+# Docker (SPEC 6.3). Build/run on a GPU box with docker + nvidia-container-toolkit.
+DATA_SPLIT_DIR ?= train+public_test/train+public_test/public_test
+IMAGE          ?= lifemate:dev
+
+docker-build:    ## Build the inference image with weights from ./models
+	docker build --build-arg MODEL_DIR=models --build-arg CODE_VERSION=$(shell git rev-parse HEAD) -t $(IMAGE) .
+
+docker-run:      ## Organisers-style run: make docker-run DATA_SPLIT_DIR=<split dir>
+	mkdir -p result && chmod a+rwx result
+	docker run --rm --gpus all --network none -v $(abspath $(DATA_SPLIT_DIR)):/data:ro -v $(CURDIR)/result:/app/result $(IMAGE)
+
+.PHONY: docker-build docker-run

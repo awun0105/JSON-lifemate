@@ -1,0 +1,18 @@
+# Keep the build context small and free of data, runs and secrets.
+.git/
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+**/__pycache__/
+*.pyc
+train+public_test/
+runs/
+result/
+dist/
+graphify-out/
+.codegraph/
+diagrams/
+notebooks/
+.env
+*.env

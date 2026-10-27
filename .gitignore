@@ -22,3 +22,9 @@ graphify-out/
 
 # Packed code for Kaggle/Colab
 dist/
+
+# Docker run output and baked model weights
+result/
+models/*
+!models/registry.csv
+!models/README.md
