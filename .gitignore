@@ -28,3 +28,9 @@ result/
 models/*
 !models/registry.csv
 !models/README.md
+
+# Built training data (SPEC 6.2.1, 6.4.1); keep meta files so builds are reproducible
+data/**/*.jsonl
+data/**/*.txt
+models/*/merged/
+*.safetensors

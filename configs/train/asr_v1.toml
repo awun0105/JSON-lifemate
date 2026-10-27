@@ -1,0 +1,18 @@
+# configs/train/asr_v1.toml (mặc định ban đầu, chốt sau khi chọn model ASR) — SPEC 6.4.3
+[base]
+model = ""                  # CHƯA CHỌN, cùng model với [asr] của configs/v0.toml
+revision = ""
+[data]
+train = "data/asr/v1.jsonl"
+[method]
+kind = "lora"               # "lora" | "full"; chọn theo kích thước model và bộ nhớ T4
+freeze_encoder = false
+spec_augment = true
+[train]
+lr = 1e-5
+epochs = 3
+batch_size = 8
+grad_accum = 2
+seed = 0
+eval_every_steps = 200
+save_every_steps = 200
