@@ -467,7 +467,7 @@ Thứ tự kiểm tra một `Action` loại `call`. Bước đầu tiên không 
 - **G4 không nằm trong danh sách guard mặc định** (A3): vòng lặp đã dừng ngay sau call `sys.ask_missing_info` (`StopReason.ASKED`), nên G4 không bao giờ chạy tới. Lớp `AfterAskGuard` vẫn tồn tại làm ví dụ cho T18 và để dùng nếu sau này đổi quy tắc dừng.
 - Bị chặn ở G1–G2 thì không gọi `env.call`, nên call đó **không** vào bài nộp. LLM nhận lại `LỖI (chưa gọi tool): ...` và được thử lại.
 - G3 không chặn vì gold có 2 mẫu gọi cùng một call `write` hai lần hợp lệ (`train_0922`, `train_1447`: `loyalty.redeem`). Đã kiểm bằng cách chạy toàn bộ gold train qua G2–G4: 0 call bị G2 chặn, 0 call sau `ask_missing_info`, 2 call trùng. Mã `duplicate_write` dùng để xem trong trace có phải agent bị lặp hay không.
-- Mỗi mẫu được thử lại tối đa `max_retries = 2` lần. Quá số đó thì dừng vòng lặp với những call đã gọi.
+- Mỗi mẫu được thử lại tối đa `max_retries = 2` lần, **tính chung** cho cả lỗi parse lẫn call bị chặn. Quá số đó thì dừng vòng lặp với những call đã gọi.
 - Loại tool (`read`, `write`, `meta`) lấy từ trường `kind` trong catalog.
 
 **Cấu trúc code (Chain of Responsibility):**
@@ -502,8 +502,8 @@ Bốn lớp `AllowedToolGuard` (G1), `SchemaGuard` (G2), `DuplicateWriteGuard` (
 ```python
 class Agent:
     def __init__(self, llm: LLMBackend, transcriber: Transcriber, prompts: PromptBuilder,
-                 guards: GuardChain, catalog_index: CatalogIndex, cfg: AgentConfig,
-                 observer: AgentObserver = NullObserver()): ...
+                 guards: GuardChain, index: CatalogIndex, cfg: AgentConfig, llm_cfg: LLMConfig,
+                 observer: AgentObserver | None = None): ...   # None → NullObserver
     def run(self, sample: Sample, env: ToolEnvLike, *, step_estimate_s: float | None = None,
             clock: Clock = time.monotonic) -> SampleResult
 ```
@@ -519,8 +519,9 @@ observer.on_sample_start(sample, transcript)
 loop:
     reason = budget.before_step(conv.prompt_tokens())   # None nghĩa là được chạy tiếp
     nếu reason: stop(reason)                   # MAX_STEPS | TIMEOUT | CONTEXT_OVERFLOW
-    gen = llm.generate(conv.messages, schema)
+    gen = llm.generate(conv.messages, schema, sample_id=sample.id)
     budget.after_step(gen.seconds)
+    conv.reconcile(gen.prompt_tokens)          # số của vLLM là mốc, trước khi thêm câu trả lời
     conv.append_assistant(gen.text, gen.completion_tokens)
     action = parse(gen.text)
     ParseError           → budget.retry() hoặc stop(PARSE_ERROR); conv.append_user("LỖI ...")
@@ -538,10 +539,10 @@ observer.on_stop(result)
 **`Budget` (hạn giờ dự đoán, quyết định S12):**
 
 ```python
-class Budget:
+class Budget:   # Budget(cfg: AgentConfig, llm_cfg: LLMConfig, clock, *, step_estimate_s)
     def before_step(self, prompt_tokens: int) -> StopReason | None
         # MAX_STEPS        khi đã chạy cfg.max_steps bước
-        # CONTEXT_OVERFLOW khi prompt_tokens + cfg.max_tokens > cfg.max_model_len
+        # CONTEXT_OVERFLOW khi prompt_tokens + llm_cfg.max_tokens > llm_cfg.max_model_len
         # TIMEOUT          khi elapsed + estimate > cfg.hard_limit_s
     def after_step(self, seconds: float) -> None
     def retry(self) -> bool                        # False khi đã dùng hết cfg.max_retries
