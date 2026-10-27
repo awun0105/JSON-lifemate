@@ -1143,5 +1143,5 @@ Cả `sft.py` và `asr.py` dùng các thành phần này, không tự viết l�
 |---|---|---|---|
 | Q1 | Hướng dẫn Docker chi tiết của BTC: lệnh chạy, đường dẫn kết quả tuyệt đối hay tương đối | Mục 6.3 | Chờ tài liệu riêng của BTC. Entrypoint viết sao cho đổi đường dẫn dễ |
 | Q2 | Chọn LLM và ASR | Toàn bộ #4, #8 và mục 6.1 | So sánh ứng viên theo mục 6.0, ghi lựa chọn vào `approach.md` mục 5.5 và điền vào `configs/v0.toml` |
-| Q3 | vLLM phiên bản được khóa có chạy được trên cả T4 (dev) và sm80+ (chấm) không | #4, Docker | Chạy thử `--limit 30` trên cả hai loại GPU |
+| Q3 | vLLM phiên bản được khóa có chạy được trên cả T4 (dev) và sm80+ (chấm) không; các tên API mà `VLLMBackend` dùng (`LLM(...)`, `SamplingParams(structured_outputs=StructuredOutputsParams(json=...))` với fallback `guided_decoding=GuidedDecodingParams`, `LLM.chat(..., chat_template_kwargs=)`, `RequestOutput.prompt_token_ids`) mới chỉ được test với engine giả | #4, Docker | Chạy thử `--limit 30` trên cả hai loại GPU ngay khi chọn model; sửa `_structured_kwargs` nếu API khác |
 | Q4 | Tổng token của prompt với mẫu nhiều tool nhất (59 tool ở public) | Có cần lọc tool không | Đo bằng `HFTokenCounter` trên mọi mẫu train và public trước khi chạy v0 |
