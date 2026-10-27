@@ -19,3 +19,6 @@ __MACOSX/
 
 # Generated knowledge graph
 graphify-out/
+
+# Packed code for Kaggle/Colab
+dist/

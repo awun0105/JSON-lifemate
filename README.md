@@ -17,3 +17,10 @@ make run ENV=local SPLIT=train IDS=splits/smoke.txt
 ```
 
 Competition data lives in `train+public_test/` (git-ignored). Runs are written under `runs/`.
+
+## Running on Kaggle / Colab
+
+1. Pack the code: `make pack` (or `scripts/pack_code.sh`). It prints `dist/lifemate-code-<sha>[-dirty].zip` and its sha256; the zip carries `VERSION` (commit hash) and `VERSION_STATUS` (clean/dirty).
+2. Kaggle: upload the zip as a private Kaggle Dataset (e.g. `lifemate-code`), attach it and the competition data to a notebook built from `notebooks/kaggle_run.ipynb`, add the `HF_TOKEN` secret, and run all cells. The last cell saves `runs/` as a new version of a private dataset (create it once, see the cell comment).
+3. Colab: copy the zip to `MyDrive/zac2026/` (or git-clone), open `notebooks/colab_run.ipynb`, set `HF_TOKEN` in Colab secrets and run all; runs go straight to Drive.
+4. Notebooks only run commands (install, EnvInfo, quick tests, smoke, val_seen, val_unseen). Dependencies come from `requirements/notebook.txt`; regenerate it with `uv run python scripts/export_notebook_requirements.py` after changing `uv.lock`.
