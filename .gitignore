@@ -34,3 +34,6 @@ data/**/*.jsonl
 data/**/*.txt
 models/*/merged/
 *.safetensors
+
+# local-only notes (not shared)
+docs/notes/

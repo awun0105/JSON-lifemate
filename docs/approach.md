@@ -311,6 +311,16 @@ Tổng 4,79B < 6B, LLM 4,02B < 5B. Ứng viên A/B (chưa dùng khi nộp): LLM 
 | Chọn checkpoint | Theo tỉ lệ nghe sai thực thể trên `val_unseen`, rồi WER; checkpoint tốt nhất chạy agent thật | Lỗi thực thể là lỗi làm sai tham số tool, ảnh hưởng điểm trực tiếp; WER chung không phản ánh |
 | Đưa vào hệ thống | Lưu snapshot transformers, trỏ `[asr].model` (Docker: `/app/models/asr`), giữ `engine = "hf_seq2seq"` | Cùng đường nạp với model gốc |
 
+**Thứ tự làm, rút ra từ phân tích nguyên lý gốc (27/10/2026):**
+
+1. Cắm ASR gốc, đo WER, tỉ lệ nghe sai thực thể, thời gian.
+2. LLM v1: QLoRA trên `audio_text` gold.
+3. **LLM v2: dựng lại dữ liệu với chữ ASR thật** (`transcript_source = "asr"`), nhãn vẫn gold. Lý do: danh bạ, tên thiết bị, app đã cài nằm trong ngữ cảnh mẫu mà chỉ LLM nhìn thấy, ASR thì không. LLM train trên chữ ASR học được quy ước "chọn tên trong danh bạ gần nhất với chữ nghe được", tức sửa lỗi nghe bằng thông tin chỉ nó có, không tốn thêm thời gian lúc chạy.
+4. **Chỉ sau LLM v2** mới đo điểm mất do ASR và tỉ lệ nghe sai thực thể để quyết định fine-tune ASR. Đo sớm hơn thì con số gồm cả phần LLM v2 tự sửa được, dẫn tới tốn 1–2 ngày GPU vào thứ có thể biến mất.
+5. Nếu fine-tune ASR: làm dữ liệu TTS nhắm vào ba nhóm thực thể (tên người, thiết bị và địa điểm, số tiền và giờ) với encoder đóng băng **trước** khi nghĩ tới mở encoder, vì đó là lớp rẻ, rủi ro thấp và đo được ngay; mở encoder là bước rủi ro cao nhất với 13 giờ audio.
+
+Điểm yếu của lập luận: với địa chỉ tự do hay tên không có trong danh bạ thì LLM không có gì để đối chiếu, chỉ ASR mới cứu được; bảng lỗi sau LLM v2 sẽ cho biết nhóm này chiếm bao nhiêu.
+
 **Nếu đổi sang ChunkFormer hoặc VieGem-ASR:** cả hai là CTC, không có decoder tự hồi quy, nên fine-tune là train CTC loss trên cùng 3547 cặp với encoder đóng băng phần lớn (VieGem chỉ mở 4 lớp conformer trên cùng như tác giả làm). Cần viết thêm script train riêng vì `lifemate/train/asr.py` hiện chỉ hỗ trợ seq2seq của transformers. Chỉ làm khi số đo cho thấy hai model này thắng PhoWhisper trên `val_unseen` **và** BTC chấp nhận giấy phép phi thương mại.
 
 ### 5.6. Vòng private (20/11 – 23/11)

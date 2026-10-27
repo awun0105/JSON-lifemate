@@ -142,7 +142,8 @@ configs/docker.toml   # như v0.toml nhưng model trỏ vào /app/models/* và a
 configs/env/       # local.toml, kaggle.toml, colab.toml, rented.toml, docker.toml (mục 4.16)
 requirements/notebook.txt   # sinh từ uv.lock, bỏ torch/CUDA, dùng cho Kaggle và Colab
 scripts/pack_code.sh
-notebooks/         # kaggle_run.ipynb, colab_run.ipynb: chỉ gọi lệnh
+notebooks/         # {kaggle,colab}_run.ipynb chạy agent; {kaggle,colab}_train_{llm,asr}.ipynb gọi pipeline train: chỉ gọi lệnh
+requirements/train.txt      # unsloth, trl, peft, datasets, soundfile, bitsandbytes, jiwer cho notebook train
 lifemate/train/    # sau v0: sft_data, sft, llm_pipeline, asr_data, asr, asr_pipeline, common (mục 6.2, 6.4, 6.5)
 configs/train/     # sau v0: llm_vN.toml, asr_vN.toml
 data/sft/, data/asr/   # sau v0: dữ liệu train đã dựng + file meta (nộp kèm theo yêu cầu BTC)
@@ -784,6 +785,8 @@ Phiên bản thật của các gói được ghi vào `config.json` (`EnvInfo.pa
 
 Notebook chỉ gọi lệnh, không chứa logic. Mọi logic nằm trong `lifemate/`.
 
+**Notebook train (`notebooks/{kaggle,colab}_train_{llm,asr}.ipynb`)** theo cùng mẫu: cài `requirements/notebook.txt` + `requirements/train.txt`, in `EnvInfo`, chạy `pytest tests/train`, khôi phục `runs/` của phiên trước (Kaggle: chép từ dataset `lifemate-runs` đã đính kèm; Colab: work dir nằm sẵn trên Drive), gọi `lifemate.train.llm_pipeline` hoặc `asr_pipeline` một lệnh, in `models/registry.csv` và metric, lưu `runs/` theo `persist`. Pipeline đọc `pipeline_progress.json` nên phiên sau chạy tiếp từ stage dở dang.
+
 **Nơi không chạy được:** Kaggle và Colab không chạy được Docker. Việc kiểm tra Docker (mục 6.3) làm trên máy thuê.
 
 ---
@@ -999,7 +1002,7 @@ Chỉ đánh giá bằng agent thật trên 2 checkpoint, để hạn chế vi�
 
 ### 6.4. Fine-tune ASR (C3)
 
-**Chỉ làm khi số đo cho thấy cần.** Sau khi có ASR gốc (mục 6.1), so điểm agent khi dùng `GoldTranscriber` và khi dùng ASR trên `val_seen` và `val_unseen`. Fine-tune ASR khi **một trong hai** điều sau đúng:
+**Chỉ làm khi số đo cho thấy cần, và đo sau LLM v2.** Thứ tự: ASR gốc (mục 6.1) → LLM v1 trên `audio_text` → LLM v2 trên chữ ASR thật (`transcript_source = "asr"`, mục 6.2.1) → so điểm agent khi dùng `GoldTranscriber` và khi dùng ASR trên `val_seen` và `val_unseen` với LLM v2. Lý do ở `approach.md` 5.5.2: LLM nhìn thấy danh bạ và tên thiết bị nên tự sửa được phần lớn lỗi thực thể của ASR; đo trước v2 sẽ phóng đại phần mất do ASR. Fine-tune ASR khi **một trong hai** điều sau đúng:
 
 - Điểm mất do ASR ≥ 3 điểm trên một trong hai bộ val. Ngưỡng 3 điểm này chốt lại sau khi biết độ dao động của điểm giữa các lần chạy.
 - Tỉ lệ nghe sai thực thể (bên dưới) ≥ 10%.
@@ -1048,7 +1051,7 @@ save_every_steps = 200
 - Chọn checkpoint theo **tỉ lệ nghe sai thực thể** trên `val_unseen`, sau đó WER. Checkpoint tốt nhất được chạy agent thật để đo điểm.
 - Merge (nếu dùng LoRA) và nạp vào `ASRTranscriber` qua `[asr].model` trong config.
 
-#### 6.4.4. Dữ liệu tổng hợp bằng TTS (tùy chọn)
+#### 6.4.4. Dữ liệu tổng hợp bằng TTS (làm trước khi mở encoder)
 
 - Luật cho phép dùng TTS lúc phát triển, cấm dùng lúc chạy thi.
 - Chỉ sinh cho loại lỗi mà bảng đo 6.4.2 chỉ ra, ví dụ tên người, địa danh, số tiền đọc bằng chữ, từ tiếng Anh xen kẽ.
