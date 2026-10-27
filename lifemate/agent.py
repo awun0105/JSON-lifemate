@@ -12,6 +12,7 @@ from lifemate.asr import GoldTranscriber
 from lifemate.budget import Budget
 from lifemate.config import AgentConfig, LLMConfig
 from lifemate.guards import GuardChain
+from lifemate.observers import NullObserver
 from lifemate.prompt import Conversation, PromptBuilder, truncate_result
 from lifemate.protocol import output_schema, parse
 from lifemate.tooldocs import ASK_TOOL, CatalogIndex
@@ -30,27 +31,15 @@ from lifemate.types import (
     StopReason,
     ToolEnvLike,
     Transcriber,
-    Transcript,
 )
+
+__all__ = ["Agent", "NullObserver", "transcript_source"]
 
 log = structlog.get_logger(__name__)
 
 PARSE_ERROR_MSG = "LỖI: đầu ra không phải JSON hợp lệ, hãy trả về đúng một JSON"
 BLOCK_PREFIX = "LỖI (chưa gọi tool): "
 RESULT_PREFIX = "KẾT QUẢ: "
-
-
-class NullObserver:
-    """Observer that ignores every event."""
-
-    def on_sample_start(self, sample: Sample, transcript: Transcript) -> None:
-        """Ignore."""
-
-    def on_step(self, step: StepRecord) -> None:
-        """Ignore."""
-
-    def on_stop(self, result: SampleResult) -> None:
-        """Ignore."""
 
 
 def transcript_source(transcriber: Transcriber) -> str:

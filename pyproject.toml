@@ -48,7 +48,7 @@ markers = [
 [tool.ruff]
 line-length = 120
 target-version = "py311"
-exclude = ["train+public_test", "runs", "graphify-out", "*.ipynb"]
+exclude = ["train+public_test", "runs", "graphify-out", "docs", "*.ipynb"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF", "PL"]

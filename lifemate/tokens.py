@@ -19,7 +19,7 @@ class HFTokenCounter:
 
     def count(self, messages: list[dict[str, Any]]) -> int:
         """Prompt tokens of `messages` rendered with the chat template plus the generation prompt."""
-        ids = self._tok.apply_chat_template(messages, tokenize=True, add_generation_prompt=True)
+        ids: Any = self._tok.apply_chat_template(messages, tokenize=True, add_generation_prompt=True)
         if isinstance(ids, dict) or hasattr(ids, "input_ids"):
             ids = ids["input_ids"]
         return len(ids)
@@ -37,3 +37,11 @@ class HFTokenCounter:
             grown = [*base, {"role": role, "content": _PROBE}]
             self._overhead[role] = self.count(grown) - self.count(base) - self.count_text(_PROBE)
         return self._overhead[role]
+
+
+class SimpleTokenCounter:
+    """Whitespace tokens of each message content plus 4 per message; used with FakeLLM or without transformers."""
+
+    def count(self, messages: list[dict[str, Any]]) -> int:
+        """Approximate prompt tokens of `messages`."""
+        return sum(len(str(m.get("content") or "").split()) + 4 for m in messages)

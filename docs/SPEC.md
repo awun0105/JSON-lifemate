@@ -215,7 +215,7 @@ class AgentObserver(Protocol):
 |---|---|---|
 | Strategy | `LLMBackend`, `Transcriber`, `TokenCounter`, cách render tool docs | Đổi bằng config để so sánh thí nghiệm |
 | Chain of Responsibility | `GuardChain` gồm danh sách `Guard` | Thêm hoặc bớt guard không phải sửa `Agent` |
-| Observer | `AgentObserver`: `Tracer`, `NullObserver` | Agent không biết định dạng trace. Docker dùng tracer nhẹ hơn |
+| Observer | `AgentObserver`: `NullObserver`, `CompositeObserver`, `Tracer` (tùy chọn, ghi luồng phụ) | Agent không biết định dạng trace. `trace.jsonl` chính do `RunStore.append` ghi từ `Runner`, vì mẫu bị exception không đi qua `on_stop` |
 | Decorator | `Timed(backend)`, `Timed(transcriber)`; `lru_cache` cho tool docs | Đo giờ và cache không phải chép vào từng lớp |
 | Factory + registry | `factory.build(config)`, registry `{"vllm": VLLMBackend, "fake": FakeLLM, "gold": GoldTranscriber}` | Một chỗ duy nhất biết cách lắp hệ thống |
 
@@ -569,7 +569,7 @@ uv run python -m lifemate.cli --config configs/v0.toml --env local \
 uv run python -m lifemate.cli --config configs/v0.toml --env kaggle --root /kaggle/input/other/train+public_test ...
 ```
 
-`--name` là tên thư mục con trong `runs_dir` của profile; `--out` (đường dẫn đầy đủ) ghi đè. Có thêm profile `local.toml` cho máy phát triển (đường dẫn tương đối trong repo).
+`--name` là tên thư mục con trong `runs_dir` của profile; `--out` là **chính thư mục run** (ghi đè `runs_dir/name`, khớp với `--out result/` ở Docker). Khi có `--out`, `index.csv` nằm ở thư mục cha của nó. Có thêm profile `local.toml` cho máy phát triển (đường dẫn tương đối trong repo).
 
 `cli.py` chỉ parse tham số, đọc `Config`, gọi `factory.build(config)` rồi `Runner.run(...)`.
 
@@ -588,7 +588,7 @@ uv run python -m lifemate.cli --config configs/v0.toml --env kaggle --root /kagg
 - `--resume`: đọc `trace.jsonl`, bỏ qua dòng cuối nếu dòng đó hỏng (bị ngắt giữa chừng), bỏ qua các id đã có. `submission.jsonl` được dựng lại từ `trace.jsonl` ở `finalize()`.
 - Thư mục `--out` đã có `trace.jsonl` mà không truyền `--resume` thì báo lỗi và thoát, không ghi đè.
 - `--ids` không truyền thì chạy mọi mẫu của split. `--limit` lấy N id đầu tiên, dùng để chạy thử.
-- Split có nhãn (train) thì cuối lần chạy tự gọi `eval/score.py submission.jsonl --ids <ids> --details details.jsonl` và ghi kết quả ra `score.txt`.
+- Split có nhãn (train) thì cuối lần chạy tự gọi `eval/score.py submission.jsonl --ids <run>/ids.txt --match both --details details.jsonl` và ghi kết quả ra `score.txt`. `ids.txt` là danh sách id thực sự đã chạy (sau `--limit`), để các id chưa chạy không bị chấm 0. `summary.json.score` = `{total, by_mode: {strict, canon}, by_category}`.
 - Thêm một dòng vào `runs/index.csv`: `run, date, git_commit, model, prompt_hash, split, ids_file, n, score, p95_seconds`.
 - Split **không có nhãn** (public, private): `finalize()` chạy `check_submission` (B3) thay cho chấm điểm, ghi kết quả ra `check.txt`:
   1. Mọi id của split có mặt đúng một lần, JSON hợp lệ.
