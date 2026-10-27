@@ -235,9 +235,10 @@ def _ctx(tmp_path: Path) -> llm_pipeline.PipelineContext:
 def test_default_name_and_registry(tmp_path: Path) -> None:
     cfg = load_llm_train_config(CFG)
     reg = tmp_path / "registry.csv"
-    assert llm_pipeline.default_name(cfg, reg) == "ft-base-sft1-r01"
-    llm_pipeline.append_registry(reg, {"name": "ft-base-sft1-r01", "base": "b"})
-    assert llm_pipeline.default_name(cfg, reg) == "ft-base-sft1-r02"
+    name1 = "ft-qwen34binstruct2507-sft1-r01"
+    assert llm_pipeline.default_name(cfg, reg) == name1
+    llm_pipeline.append_registry(reg, {"name": name1, "base": "b"})
+    assert llm_pipeline.default_name(cfg, reg) == "ft-qwen34binstruct2507-sft1-r02"
     assert reg.read_text(encoding="utf-8").splitlines()[0] == ",".join(llm_pipeline.REGISTRY_FIELDS)
 
 

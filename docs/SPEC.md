@@ -138,6 +138,7 @@ lifemate/
 └── cli.py         # chỉ parse tham số rồi gọi Runner; chạy bằng `python -m lifemate.cli`
 prompts/system_v0.md
 configs/v0.toml
+configs/docker.toml   # như v0.toml nhưng model trỏ vào /app/models/* và asr.backend = "asr"; mặc định của image (mục 6.3)
 configs/env/       # local.toml, kaggle.toml, colab.toml, rented.toml, docker.toml (mục 4.16)
 requirements/notebook.txt   # sinh từ uv.lock, bỏ torch/CUDA, dùng cho Kaggle và Colab
 scripts/pack_code.sh
@@ -687,7 +688,8 @@ guards = ["allowed_tool", "schema", "duplicate_write"]   # "after_ask" có sẵn
 
 [asr]
 backend = "gold"                       # "gold" | "asr" (sau v0)
-model = ""                             # CHƯA CHỌN: chỉ cần khi backend = "asr"
+engine = "hf_seq2seq"                  # "hf_seq2seq" | "chunkformer" | "viegem": cách nạp model khi backend = "asr" (mục 6.1)
+model = "vinai/PhoWhisper-medium"      # bắt buộc khi backend = "asr" (mục 6.0)
 revision = ""
 ```
 
@@ -826,7 +828,7 @@ Mỗi test ghi rõ ba ý: **bảo vệ** điều gì, **bắt lỗi** khi nào, 
 
 ## 6. Các khối sau v0 (mức interface)
 
-### 6.0. Điều kiện chọn LLM và ASR (chưa chọn)
+### 6.0. Điều kiện chọn LLM và ASR (đã chọn 27/10/2026)
 
 | Điều kiện | LLM | ASR |
 |---|---|---|
@@ -836,13 +838,13 @@ Mỗi test ghi rõ ba ý: **bảo vệ** điều gì, **bắt lỗi** khi nào, 
 | Chạy được | vLLM bản đã khóa, trên cả T4 (fp16) và sm80+ (bf16); có chat template | Chạy offline trong Docker, giải mã greedy |
 | Tiếng Việt | Hiểu tiếng Việt, kể cả câu xen tiếng Anh | Nhận dạng tiếng Việt, kể cả từ tiếng Anh xen kẽ |
 
-Khi chọn xong: điền `model` và `revision` vào `configs/v0.toml`, ghi tên, số tham số, ngày phát hành, giấy phép vào `approach.md` mục 5.5.
+**Đã chọn** (lý do và kế hoạch fine-tune ở `approach.md` mục 5.5): LLM `Qwen/Qwen3-4B-Instruct-2507` (4,02B, Apache-2.0, không có chế độ thinking), ASR `vinai/PhoWhisper-medium` (0,77B, BSD-3, `engine = "hf_seq2seq"`). Tổng 4,79B. Đã điền `model` và `revision` vào `configs/v0.toml`, `configs/docker.toml` (đường dẫn `/app/models/*`) và `configs/train/*.toml`. Ứng viên A/B: `Qwen/Qwen3.5-4B`; ASR `chunkformer` và `viegem` (hai engine tùy chọn trong `lifemate/asr.py`, extras `asr-chunkformer` / `asr-viegem`, giấy phép phi thương mại cần BTC xác nhận).
 
 **Trước khi chọn LLM, v0 vẫn làm được:** mọi việc trừ #4 (VLLMBackend chạy thật) và #8 (chạy v0 trên Kaggle) đều không cần model. `config.py` báo lỗi rõ ràng nếu `llm.backend = "vllm"` mà `model` còn trống.
 
 ### 6.1. ASR (A2, A3, B5)
 
-- `ASRTranscriber` cài theo interface `Transcriber`. Model ASR **chưa chọn**, điều kiện ở mục 6.0.
+- `ASRTranscriber` cài theo interface `Transcriber`. Model được nạp qua `[asr].engine` (`ASR_ENGINES` trong `asr.py`): `hf_seq2seq` (transformers pipeline, dùng cho PhoWhisper), `chunkformer` (gói `chunkformer`, CTC), `viegem` (code trong snapshot `5CD-AI/VieGem-ASR`, CTC). Engine mới chỉ cần một class có `transcribe_batch` và `warmup` rồi đăng ký vào `ASR_ENGINES`.
 - Chạy chung GPU với vLLM. **Thứ tự nạp (B2):** nạp vLLM trước với `gpu_memory_utilization` đã chừa chỗ cho ASR (vLLM tính tỉ lệ trên tổng VRAM lúc khởi động), nạp ASR sau, rồi warm-up cả hai. `Runner` đo VRAM còn trống sau khi nạp xong và ghi vào `config.json`; ASR hết chỗ thì báo lỗi ngay, không chạy mẫu nào.
 - Chép chữ cho **mọi** lượt user trong history, tối đa 13 file mỗi mẫu. Thời gian ASR tính vào 30 giây.
 - Tổng thời lượng audio mỗi mẫu (đo 27/10/2026): train p50 13 s, p95 41 s, max 69 s; public p50 13 s, p95 40 s, max 83 s (11 file).
@@ -900,7 +902,7 @@ uv run python -m lifemate.train.sft_data --config configs/train/llm_v1.toml --en
 #### 6.2.2. Che loss
 
 - Chỉ tính loss trên token của các lượt **assistant**, gồm cả token kết thúc lượt của chat template. Không tính trên system, user, `KẾT QUẢ`.
-- Chat template render với cùng tham số như lúc chạy, ví dụ `enable_thinking=False` (quyết định S6).
+- Chat template render với cùng tham số như lúc chạy (quyết định S6). Qwen3-4B-Instruct-2507 không có chế độ thinking nên không cần `enable_thinking`; nếu A/B với Qwen3.5-4B thì truyền `enable_thinking=False` ở cả train và chạy.
 - Thiếu bước che loss thì model học thuộc mô tả tool và kết quả tool, làm hỏng khả năng đọc app lạ.
 
 #### 6.2.3. Script train (`lifemate/train/sft.py`)
@@ -908,8 +910,8 @@ uv run python -m lifemate.train.sft_data --config configs/train/llm_v1.toml --en
 ```toml
 # configs/train/llm_v1.toml (các số là mặc định ban đầu, chốt sau v0)
 [base]
-model = ""                  # CHƯA CHỌN, cùng model với [llm] của configs/v0.toml
-revision = ""
+model = "Qwen/Qwen3-4B-Instruct-2507"   # cùng model với [llm] của configs/v0.toml
+revision = "cdbee75f17c01a7cc42f958dc650907174af0554"
 run_config = "configs/v0.toml"   # lấy prompt, max_result_chars, max_model_len, max_tokens từ đúng config lúc chạy
 [data]
 train = "data/sft/v1.jsonl"
@@ -986,7 +988,7 @@ Chỉ đánh giá bằng agent thật trên 2 checkpoint, để hạn chế vi�
 - BTC mount thư mục test vào `/data`, với cùng cấu trúc như `public_test`. Nhưng `ToolEnv` cần dạng `<root>/<split>/...`. Vì vậy entrypoint phải:
   1. Tìm `/data/*_tools_catalog.json` để biết tên split.
   2. Tạo thư mục `/tmp/zaic_root/<split>` là symlink trỏ tới `/data`.
-  3. Chạy `python -m lifemate.cli --env docker --split <split> --out result/`. `RunStore` ghi `submission.jsonl` cùng `trace.jsonl`, `summary.json`, `config.json`, `check.txt` vào `result/`; BTC chỉ lấy `submission.jsonl`.
+  3. Chạy `python -m lifemate.cli --config configs/docker.toml --env docker --split <split> --out result/` (`LIFEMATE_CONFIG` đổi được config). `RunStore` ghi `submission.jsonl` cùng `trace.jsonl`, `summary.json`, `config.json`, `check.txt` vào `result/`; BTC chỉ lấy `submission.jsonl`.
   4. `zaic.py` so sánh đường dẫn sau `Path.resolve()` nên symlink không làm hỏng kiểm tra (B5).
 - Trọng số model nằm sẵn trong image. Đặt `HF_HUB_OFFLINE=1` và `TRANSFORMERS_OFFLINE=1`.
 - **Nghiệm thu:**
@@ -1024,13 +1026,13 @@ Chỉ đánh giá bằng agent thật trên 2 checkpoint, để hạn chế vi�
 ```toml
 # configs/train/asr_v1.toml (mặc định ban đầu, chốt sau khi chọn model ASR)
 [base]
-model = ""                  # CHƯA CHỌN, cùng model với [asr] của configs/v0.toml
-revision = ""
+model = "vinai/PhoWhisper-medium"       # cùng model với [asr] của configs/v0.toml
+revision = "55a7e3eb6c906de891f8f06a107754427dd3be79"
 [data]
 train = "data/asr/v1.jsonl"
 [method]
-kind = "lora"               # "lora" | "full"; chọn theo kích thước model và bộ nhớ T4
-freeze_encoder = false
+kind = "full"               # "lora" | "full"; 0,77B full fine-tune vừa T4 (approach 5.5.2)
+freeze_encoder = true       # giai đoạn 1 chỉ train decoder; giai đoạn 2 mở encoder nếu WER còn cao
 spec_augment = true
 [train]
 lr = 1e-5
@@ -1147,6 +1149,6 @@ Cả `sft.py` và `asr.py` dùng các thành phần này, không tự viết l�
 | # | Câu hỏi | Ảnh hưởng | Cách giải quyết |
 |---|---|---|---|
 | Q1 | Hướng dẫn Docker chi tiết của BTC: lệnh chạy, đường dẫn kết quả tuyệt đối hay tương đối | Mục 6.3 | Chờ tài liệu riêng của BTC. Entrypoint viết sao cho đổi đường dẫn dễ |
-| Q2 | Chọn LLM và ASR | Toàn bộ #4, #8 và mục 6.1 | So sánh ứng viên theo mục 6.0, ghi lựa chọn vào `approach.md` mục 5.5 và điền vào `configs/v0.toml` |
+| Q2 | ~~Chọn LLM và ASR~~ Đã chọn 27/10/2026 (mục 6.0, `approach.md` 5.5). Còn lại: BTC đếm tham số Qwen3.5-4B theo tổng checkpoint hay chỉ phần ngôn ngữ; giấy phép phi thương mại của ChunkFormer / VieGem có được chấp nhận không | A/B sau v0 | Hỏi BTC; trong lúc chờ chỉ nộp bằng bộ mặc định |
 | Q3 | vLLM phiên bản được khóa có chạy được trên cả T4 (dev) và sm80+ (chấm) không; các tên API mà `VLLMBackend` dùng (`LLM(...)`, `SamplingParams(structured_outputs=StructuredOutputsParams(json=...))` với fallback `guided_decoding=GuidedDecodingParams`, `LLM.chat(..., chat_template_kwargs=)`, `RequestOutput.prompt_token_ids`) mới chỉ được test với engine giả | #4, Docker | Chạy thử `--limit 30` trên cả hai loại GPU ngay khi chọn model; sửa `_structured_kwargs` nếu API khác |
 | Q4 | Tổng token của prompt với mẫu nhiều tool nhất (59 tool ở public) | Có cần lọc tool không | Đo bằng `HFTokenCounter` trên mọi mẫu train và public trước khi chạy v0 |

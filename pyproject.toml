@@ -14,10 +14,18 @@ dependencies = [
 tokenizer = [
     "transformers>=4.45",
     "tokenizers>=0.20",
+    "jinja2>=3.1",          # chat templates (apply_chat_template) in sft_data
 ]
 # LLM inference. Installed on GPU machines only; the version is pinned in uv.lock.
 gpu = [
     "vllm>=0.9",
+]
+# Optional ASR engines (SPEC 6.1, approach 5.5); install on the GPU box only when that engine is chosen.
+asr-chunkformer = [
+    "chunkformer",
+]
+asr-viegem = [
+    "soundfile",
 ]
 
 [dependency-groups]
@@ -75,5 +83,5 @@ files = ["lifemate"]
 warn_unreachable = true
 # Optional heavy libraries have no stubs; they are imported inside the backend that needs them.
 [[tool.mypy.overrides]]
-module = ["vllm", "vllm.*", "transformers", "transformers.*", "torch", "torch.*", "structlog", "structlog.*"]
+module = ["vllm", "vllm.*", "transformers", "transformers.*", "torch", "torch.*", "structlog", "structlog.*", "chunkformer", "chunkformer.*"]
 ignore_missing_imports = true

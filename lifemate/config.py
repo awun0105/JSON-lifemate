@@ -50,13 +50,15 @@ class ASRConfig:
     backend: str
     model: str
     revision: str
+    engine: str = "hf_seq2seq"  # how `model` is loaded when backend = "asr"; see lifemate.asr.ASR_ENGINES
     device: str = "auto"
     batch_size: int = 8
     generate_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
     sample_rate: int = 16000
 
 
-_ASR_OPTIONAL = frozenset({"device", "batch_size", "generate_kwargs", "sample_rate"})
+ASR_ENGINE_NAMES = frozenset({"hf_seq2seq", "chunkformer", "viegem"})
+_ASR_OPTIONAL = frozenset({"engine", "device", "batch_size", "generate_kwargs", "sample_rate"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +144,8 @@ def load_config(path: Path) -> Config:
     _check(not (llm.backend == "vllm" and llm.model == ""), "llm.model: required when llm.backend = 'vllm'")
     _check(llm.dtype in {"auto", "float16", "bfloat16"}, f"llm.dtype: {llm.dtype!r} not in auto|float16|bfloat16")
     _check(asr.backend in {"gold", "asr"}, f"asr.backend: {asr.backend!r} not in gold|asr")
+    _check(asr.engine in ASR_ENGINE_NAMES, f"asr.engine: {asr.engine!r} not in {'|'.join(sorted(ASR_ENGINE_NAMES))}")
+    _check(not (asr.backend == "asr" and asr.model == ""), "asr.model: required when asr.backend = 'asr'")
     _check(asr.device in {"auto", "cpu", "cuda"}, f"asr.device: {asr.device!r} not in auto|cpu|cuda")
     _check(isinstance(asr.batch_size, int) and asr.batch_size >= 1, "asr.batch_size: must be an int >= 1")
     _check(isinstance(asr.generate_kwargs, dict), "asr.generate_kwargs: must be a table")

@@ -96,7 +96,7 @@ def test_write_train_config(tmp_path: Path) -> None:
 
 def test_llm_train_config_strict(tmp_path: Path, repo_root: Path) -> None:
     cfg = load_llm_train_config(repo_root / "configs" / "train" / "llm_v1.toml")
-    assert cfg.base.model == "" and cfg.lora.r == 16 and cfg.train.max_len == 16384
+    assert cfg.base.model == "Qwen/Qwen3-4B-Instruct-2507" and cfg.lora.r == 16 and cfg.train.max_len == 16384
     bad = tmp_path / "bad.toml"
     text = (repo_root / "configs" / "train" / "llm_v1.toml").read_text(encoding="utf-8")
     bad.write_text(text.replace("r = 16", "r = 16\nrank = 3"), encoding="utf-8")
@@ -108,6 +108,6 @@ def test_asr_train_config(repo_root: Path) -> None:
     from lifemate.train.asr import load_asr_train_config, wer
 
     cfg = load_asr_train_config(repo_root / "configs" / "train" / "asr_v1.toml")
-    assert cfg.method.kind == "lora" and cfg.method.spec_augment and cfg.base.model == ""
+    assert cfg.method.kind == "full" and cfg.method.spec_augment and cfg.base.model == "vinai/PhoWhisper-medium"
     assert wer(["Xin chào, Lan!"], ["xin chào lan"]) == 0.0
     assert wer(["a b c d"], ["a x c"]) == 0.5

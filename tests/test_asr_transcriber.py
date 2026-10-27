@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from lifemate.asr import ASRTranscriber
+import lifemate.asr as asr_mod
+from lifemate.asr import ASRTranscriber, make_backend
 from lifemate.config import ASRConfig
 from lifemate.types import Sample, Turn
 
@@ -82,3 +83,19 @@ def test_warmup_once() -> None:
     tr.warmup()
     tr.warmup()
     assert fake.warmups == 1 and fake.calls == []
+
+
+def test_engine_registry_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Protects: `engine` picks the backend; ASRTranscriber builds it when none is injected."""
+    built: list[ASRConfig] = []
+
+    def factory(cfg: ASRConfig) -> FakeASRBackend:
+        built.append(cfg)
+        return FakeASRBackend()
+
+    monkeypatch.setitem(asr_mod.ASR_ENGINES, "scripted", factory)
+    cfg = ASRConfig(backend="asr", model="m", revision="r", engine="scripted")
+    tr = ASRTranscriber(cfg, data_root=Path("/data"), split="train")
+    assert built == [cfg] and tr.transcribe(SAMPLE).final == "text:t1.wav"
+    with pytest.raises(ValueError, match="engine"):
+        make_backend(ASRConfig(backend="asr", model="m", revision="r", engine="nope"))

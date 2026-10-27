@@ -59,7 +59,7 @@ def test_detects_split_links_and_execs_cli(tmp_path: Path) -> None:
         "-m",
         "lifemate.cli",
         "--config",
-        "configs/v0.toml",
+        "configs/docker.toml",
         "--env",
         "docker",
         "--split",

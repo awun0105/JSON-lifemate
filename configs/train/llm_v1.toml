@@ -1,7 +1,7 @@
 # configs/train/llm_v1.toml (các số là mặc định ban đầu, chốt sau v0) — SPEC 6.2.3
 [base]
-model = ""                  # CHƯA CHỌN, cùng model với [llm] của configs/v0.toml
-revision = ""
+model = "Qwen/Qwen3-4B-Instruct-2507"   # cùng model với [llm] của configs/v0.toml
+revision = "cdbee75f17c01a7cc42f958dc650907174af0554"
 run_config = "configs/v0.toml"   # prompt, max_result_chars, max_model_len lấy từ config lúc chạy (giống từng byte)
 [data]
 train = "data/sft/v1.jsonl"

@@ -63,7 +63,8 @@ ARG MODEL_DIR=models
 COPY --chown=appuser:appuser ${MODEL_DIR}/ /app/models/
 
 # Fail the build when the run config has no model, or points at a path that is not in the image.
-ARG LIFEMATE_CONFIG=configs/v0.toml
+# configs/docker.toml expects /app/models/llm (and /app/models/asr when [asr].backend = "asr").
+ARG LIFEMATE_CONFIG=configs/docker.toml
 ENV LIFEMATE_CONFIG=${LIFEMATE_CONFIG}
 RUN python -c "import tomllib,sys,os; c=tomllib.load(open(os.environ['LIFEMATE_CONFIG'],'rb')); m=c['llm']['model']; m or sys.exit('[llm].model is empty in '+os.environ['LIFEMATE_CONFIG']+'; set it to a path under /app/models'); m.startswith('/') and not os.path.isdir(m) and sys.exit('[llm].model '+m+' is not a folder in the image')"
 

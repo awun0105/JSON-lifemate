@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import time
 import wave
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, ClassVar, Protocol
 
 from lifemate.config import ASRConfig
 from lifemate.types import Sample, Transcript
@@ -69,8 +69,6 @@ class HFSeq2SeqASR:
     def __init__(self, cfg: ASRConfig) -> None:
         from transformers import pipeline
 
-        if not cfg.model:
-            raise ValueError("asr.model: required when asr.backend = 'asr'")
         self._cfg = cfg
         device: int | str
         if cfg.device == "auto":
@@ -107,6 +105,126 @@ class HFSeq2SeqASR:
         self._run([{"raw": np.zeros(sr, dtype=np.float32), "sampling_rate": sr}])
 
 
+class ChunkFormerASR:
+    """ChunkFormer CTC (khanhld/chunkformer-ctc-large-vie) via the `chunkformer` package; greedy CTC.
+
+    `cfg.model` is a HF id or a local snapshot folder; `cfg.revision` is ignored by the package, so pin
+    the snapshot folder in Docker. `generate_kwargs` may override chunk_size / left_context_size /
+    right_context_size / total_batch_duration.
+    """
+
+    _DEFAULTS: ClassVar[dict[str, Any]] = {
+        "chunk_size": 64,
+        "left_context_size": 128,
+        "right_context_size": 128,
+        "total_batch_duration": 1800,
+    }
+
+    def __init__(self, cfg: ASRConfig) -> None:
+        from chunkformer import ChunkFormerModel
+
+        self._cfg = cfg
+        self._model: Any = ChunkFormerModel.from_pretrained(cfg.model)
+        self._kwargs = {**self._DEFAULTS, **cfg.generate_kwargs}
+
+    def transcribe_batch(self, wav_paths: Sequence[Path]) -> list[str]:
+        """The package reads the files itself; one text per path, input order."""
+        out = self._model.batch_decode(audio_paths=[str(p) for p in wav_paths], **self._kwargs)
+        return [str(t).strip() for t in out]
+
+    def warmup(self) -> None:
+        """One pass over 1 s of silence written to a temp WAV."""
+        import tempfile
+
+        import numpy as np
+
+        sr = self._cfg.sample_rate
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "silence.wav"
+            with wave.open(str(p), "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(sr)
+                w.writeframes(np.zeros(sr, dtype="<i2").tobytes())
+            self.transcribe_batch([p])
+
+
+class VieGemASR:
+    """VieGem-ASR (5CD-AI/VieGem-ASR): streaming CTC on the EmbeddingGemma 2 audio encoder; greedy, offline mode.
+
+    `cfg.model` is a local snapshot folder holding `viegem_asr.pt` and the `asr/` code folder (the repo ships
+    its own model code, not a transformers architecture). Files are decoded one by one: the published code
+    takes a single utterance, and ≤ 30 s clips keep that cheap.
+    """
+
+    def __init__(self, cfg: ASRConfig) -> None:
+        import sys
+
+        import torch
+        from transformers import AutoTokenizer
+
+        root = Path(cfg.model)
+        if not (root / "viegem_asr.pt").is_file():
+            raise ValueError(f"asr.model: {root} has no viegem_asr.pt (engine = 'viegem' needs the snapshot folder)")
+        if str(root) not in sys.path:
+            sys.path.insert(0, str(root))
+        from asr.model import CTCModel, ModelConfig, greedy_decode  # type: ignore[import-not-found]
+        from asr.text import Units  # type: ignore[import-not-found]
+
+        self._cfg = cfg
+        use_cuda = cfg.device == "cuda" or (cfg.device == "auto" and torch.cuda.is_available())
+        self._device = torch.device("cuda" if use_cuda else "cpu")
+        ck = torch.load(root / "viegem_asr.pt", map_location="cpu")
+        model_cfg = ModelConfig.from_dict(ck["model_config"])
+        self._units = Units(ck["gemma_ids"])
+        self._tok = AutoTokenizer.from_pretrained(model_cfg.encoder_id)
+        model = CTCModel(model_cfg, self._units.gemma_ids)
+        model.load_state_dict(ck["model"], strict=False)
+        self._model = model.to(self._device).eval()
+        self._greedy_decode = greedy_decode
+        self._torch = torch
+
+    def _one(self, audio: Any) -> str:
+        torch = self._torch
+        x = torch.from_numpy(audio)[None].to(self._device)
+        lens = torch.tensor([x.shape[1]], device=self._device)
+        with torch.no_grad():
+            if self._device.type == "cuda":
+                with torch.autocast("cuda", dtype=torch.bfloat16):
+                    logits, out_lens = self._model(x, lens, streaming=False)
+            else:
+                logits, out_lens = self._model(x, lens, streaming=False)
+        ids = self._greedy_decode(logits, out_lens)[0]
+        return str(self._units.decode(self._tok, ids)).strip()
+
+    def transcribe_batch(self, wav_paths: Sequence[Path]) -> list[str]:
+        """Decode each WAV in order."""
+        sr = self._cfg.sample_rate
+        return [self._one(read_wav(p, sr)) for p in wav_paths]
+
+    def warmup(self) -> None:
+        """One pass over 1 s of silence."""
+        import numpy as np
+
+        self._one(np.zeros(self._cfg.sample_rate, dtype=np.float32))
+
+
+ASR_ENGINES: dict[str, Callable[[ASRConfig], ASRBackend]] = {
+    "hf_seq2seq": HFSeq2SeqASR,
+    "chunkformer": ChunkFormerASR,
+    "viegem": VieGemASR,
+}
+
+
+def make_backend(cfg: ASRConfig) -> ASRBackend:
+    """Build the ASR model backend named by `cfg.engine`."""
+    try:
+        factory = ASR_ENGINES[cfg.engine]
+    except KeyError:
+        raise ValueError(f"asr.engine: unknown engine {cfg.engine!r}") from None
+    return factory(cfg)
+
+
 class ASRTranscriber:
     """Real ASR over the sample WAV files (SPEC 6.1); one backend batch per sample."""
 
@@ -115,7 +233,7 @@ class ASRTranscriber:
     def __init__(self, cfg: ASRConfig, *, data_root: Path, split: str, backend: ASRBackend | None = None) -> None:
         self._cfg = cfg
         self._base = Path(data_root) / split
-        self._backend: ASRBackend = backend if backend is not None else HFSeq2SeqASR(cfg)
+        self._backend: ASRBackend = backend if backend is not None else make_backend(cfg)
         self._warmed = False
 
     def wav_paths(self, sample: Sample) -> list[Path]:

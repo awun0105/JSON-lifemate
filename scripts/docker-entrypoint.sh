@@ -5,7 +5,7 @@ set -euo pipefail
 
 DATA_DIR="${DATA_DIR:-/data}"
 ZAIC_ROOT="${ZAIC_ROOT:-/tmp/zaic_root}"
-CONFIG="${LIFEMATE_CONFIG:-configs/v0.toml}"
+CONFIG="${LIFEMATE_CONFIG:-configs/docker.toml}"
 
 shopt -s nullglob
 catalogs=("${DATA_DIR}"/*_tools_catalog.json)

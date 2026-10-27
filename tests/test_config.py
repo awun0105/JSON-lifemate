@@ -53,10 +53,48 @@ def test_v0_config_loads_with_fake(tmp_path: Path, repo_root: Path) -> None:
     assert cfg.agent.guards == ["allowed_tool", "schema", "duplicate_write"]
 
 
-def test_vllm_empty_model_raises(repo_root: Path) -> None:
+def test_v0_and_docker_configs_load(repo_root: Path) -> None:
+    """v0.toml and docker.toml parse with the chosen models filled in (SPEC 6.0)."""
+    v0 = load_config(repo_root / "configs" / "v0.toml")
+    assert v0.llm.model and v0.llm.revision and v0.asr.model and v0.asr.revision
+    assert v0.asr.engine == "hf_seq2seq"
+    dk = load_config(repo_root / "configs" / "docker.toml")
+    assert dk.llm.model.startswith("/app/models/") and dk.asr.backend == "asr"
+    assert dk.agent == v0.agent and dk.llm.max_model_len == v0.llm.max_model_len
+
+
+def test_vllm_empty_model_raises(tmp_path: Path, repo_root: Path) -> None:
     """Catches: starting vLLM with no model chosen."""
+    text = (
+        (repo_root / "configs" / "v0.toml")
+        .read_text(encoding="utf-8")
+        .replace('model = "Qwen/Qwen3-4B-Instruct-2507"', 'model = ""', 1)
+    )
+    p = tmp_path / "c.toml"
+    p.write_text(text, encoding="utf-8")
     with pytest.raises(ConfigError, match=r"llm\.model"):
-        load_config(repo_root / "configs" / "v0.toml")
+        load_config(p)
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "key"),
+    [
+        ('engine = "hf_seq2seq"', 'engine = "nemo"', r"asr\.engine"),
+        ('model = "vinai/PhoWhisper-medium"', 'model = ""', r"asr\.model"),
+    ],
+)
+def test_asr_engine_and_model_validated(tmp_path: Path, repo_root: Path, old: str, new: str, key: str) -> None:
+    """Catches: unknown ASR engine, or backend=asr with no model."""
+    text = (repo_root / "configs" / "v0.toml").read_text(encoding="utf-8")
+    text = (
+        text.replace('backend = "vllm"', 'backend = "fake"')
+        .replace('backend = "gold"', 'backend = "asr"')
+        .replace(old, new, 1)
+    )
+    p = tmp_path / "c.toml"
+    p.write_text(text, encoding="utf-8")
+    with pytest.raises(ConfigError, match=key):
+        load_config(p)
 
 
 @pytest.mark.parametrize(

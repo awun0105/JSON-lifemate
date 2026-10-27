@@ -266,11 +266,52 @@ Agent tự theo dõi thời gian: khi một mẫu chạy khoảng 25 giây thì 
 
 ### 5.5. Danh sách model được dùng
 
-| Model | Vai trò | Số tham số | Ngày phát hành | Giấy phép |
-|---|---|---|---|---|
-| | | | | |
+Chọn ngày 27/10/2026 theo điều kiện ở SPEC 6.0. Số tham số lấy từ metadata safetensors trên HF.
 
-Kiểm tra: tổng < 6B, LLM < 5B, phát hành trước 26/10/2026, giấy phép cho phép.
+| Model | Vai trò | Số tham số | Ngày phát hành | Giấy phép | Revision |
+|---|---|---|---|---|---|
+| `Qwen/Qwen3-4B-Instruct-2507` | LLM (mặc định) | 4,02B | 05/08/2025 | Apache-2.0 | `cdbee75f` |
+| `vinai/PhoWhisper-medium` | ASR (mặc định) | 0,77B | 18/02/2024 | BSD-3 | `55a7e3eb` |
+
+Tổng 4,79B < 6B, LLM 4,02B < 5B. Ứng viên A/B (chưa dùng khi nộp): LLM `Qwen/Qwen3.5-4B` (4,66B kể cả vision encoder, Apache-2.0, 02/03/2026); ASR `khanhld/chunkformer-ctc-large-vie` (0,11B, CC-BY-NC-4.0, 02/2025) và `5CD-AI/VieGem-ASR` (0,36B, CC-BY-NC-SA-4.0, 19/10/2026). Hai ASR này có `engine` riêng trong `lifemate/asr.py`; giấy phép phi thương mại phải được BTC xác nhận trước khi nộp.
+
+#### 5.5.1. Vì sao chọn như vậy
+
+**LLM.** Không có LLM ≤ 5B nào phát hành năm 2026 được huấn luyện riêng cho tiếng Việt và tool calling (Sailor2 1B/8B, SeaLLMs-v3 1.5B, PhoGPT-4B đều cũ hơn và không có tool calling). Trong họ Qwen, bản Instruct-2507 được chọn thay bản Thinking-2507 (BFCL-v3 61,9 so với 71,2) vì:
+
+- Ngân sách 30 giây/mẫu đã gồm ASR cho tối đa 13 file audio và 3–6 bước gọi tool. Mỗi bước thinking sinh thêm vài trăm đến vài nghìn token không ép được bằng JSON schema, nên thời gian không đoán trước được (quyết định S6).
+- Nhãn SFT là chuỗi tool call trực tiếp, không có lời suy nghĩ. Fine-tune bản Thinking bằng dữ liệu không có think sẽ dạy nó bỏ think, mất luôn lợi thế của bản đó.
+- Instruct-2507 là Transformer chuẩn, chạy trên vLLM ≥ 0,8.5 và fp16 trên T4; Qwen3.5-4B dùng Gated DeltaNet, cần vLLM ≥ 0,17 (bản khóa 0,32 đủ) nhưng chưa rõ fp16/T4, và 4,66B sát trần 5B nếu BTC đếm cả vision encoder. Nên Qwen3.5-4B chỉ là ứng viên A/B sau khi có baseline.
+
+**ASR.** PhoWhisper-medium được chọn mặc định vì cắm thẳng vào `HFSeq2SeqASR` (transformers pipeline) không cần code thêm, giấy phép BSD, và đầu ra chữ thường, số viết bằng chữ, cùng văn phong với `audio_text`. Điểm yếu: WER khi xen tiếng Anh cao (PhoWhisper-large 31% trên ViMedCSS) và Whisper hay bịa chữ ở đoạn im lặng. ChunkFormer (N-WER 6,89, tốt nhất trong bài EACL 2026, nhẹ 110M) và VieGem-ASR (WER trung bình 6,34, xen tiếng Anh 14,3%) tốt hơn trên benchmark công khai nhưng cần adapter và vướng giấy phép phi thương mại. Cả ba được đo trên `val_seen` / `val_unseen` theo SPEC 6.4.2 trước khi chốt.
+
+#### 5.5.2. Kế hoạch fine-tune cho từng model
+
+**LLM: Qwen3-4B-Instruct-2507, QLoRA (SPEC 6.2).**
+
+| Việc | Cách làm | Vì sao |
+|---|---|---|
+| Phương pháp | QLoRA: model gốc nf4, LoRA r=16, alpha=32 trên 7 ma trận attention + MLP; Unsloth trên T4 fp16 | Full fine-tune 4B cần > 40 GB VRAM, không vừa T4/Kaggle. LoRA trên cả attention và MLP giữ được kiến thức chung, chỉ dạy định dạng và quy tắc gọi tool. 1098 mẫu train là ít, r=16 đủ và ít overfit hơn r lớn |
+| Dữ liệu | 1098 mẫu `splits/train.txt` dựng bằng đúng `PromptBuilder` lúc chạy, xóa 8 app bị rút; transcript là `audio_text`; kết quả tool phát lại qua `zaic_tools` | Prompt lúc train và lúc chạy phải giống từng byte, nếu không model học một phân bố và chạy trên phân bố khác. Xóa app bị rút để `val_unseen` vẫn đo được khả năng đọc app lạ |
+| Che loss | Chỉ trên token của lượt assistant | Không che thì model học thuộc mô tả tool và kết quả tool, làm hỏng khả năng đọc tool docs mới |
+| Chat template | Render với tham số như lúc chạy; Instruct-2507 không có chế độ thinking nên không cần `enable_thinking` | Giữ đúng token đặc biệt mà vLLM sẽ sinh lúc chạy |
+| Siêu tham số ban đầu | lr 2e-4, 2 epoch, batch 1 × grad_accum 8, max_len 16384, seed 0 | Mặc định quen thuộc của QLoRA cho SFT nhỏ; chốt lại sau khi có số đo v0 |
+| Chọn checkpoint | 2 checkpoint có loss `eval_unseen` thấp nhất, merge, chạy agent thật, lấy điểm `val_unseen` cao nhất | Loss không phản ánh đúng điểm thi; nhưng chỉ chạy agent thật 2 lần để không chọn model theo val quá nhiều |
+| Đưa vào hệ thống | Merge adapter vào bf16, lưu safetensors, trỏ `[llm].model` (Docker: `/app/models/llm`) | vLLM nạp model đã merge như model thường, không tốn thêm thời gian chạy, Docker đơn giản |
+| Giai đoạn 2 (nếu bảng lỗi cần) | `transcript_source = "asr"`: dựng lại dữ liệu bằng chữ ASR thật; thêm dữ liệu tổng hợp từ catalog train | Model quen lỗi ASR thật; chỉ làm khi điểm mất do ASR lớn |
+
+**ASR: PhoWhisper-medium, full fine-tune hai giai đoạn (SPEC 6.4). Chỉ làm khi điểm mất do ASR ≥ 3 hoặc tỉ lệ nghe sai thực thể ≥ 10%.**
+
+| Việc | Cách làm | Vì sao |
+|---|---|---|
+| Phương pháp | Full fine-tune, không LoRA. Giai đoạn 1: đóng băng encoder, train decoder. Giai đoạn 2 (nếu WER còn cao): mở encoder với lr nhỏ hơn 10 lần | 0,77B vừa T4 với fp16 + gradient checkpointing. Decoder quyết định cách viết số, tên riêng, từ tiếng Anh, là thứ ta cần chỉnh để khớp `audio_text`; encoder đã học 844 giờ tiếng Việt, mở sớm với 3547 cặp dễ làm hỏng |
+| Dữ liệu | 3547 cặp (wav, `audio_text`) từ lượt cuối và mọi lượt user trong history của `splits/train.txt`; chia theo id mẫu | Đích là `audio_text` nguyên văn để ASR nghe ra đúng văn phong mà LLM được train |
+| Tăng dữ liệu | SpecAugment; TTS chỉ cho loại lỗi mà bảng đo chỉ ra (tên người, địa danh, số tiền, từ tiếng Anh), câu lấy từ `audio_text` train rồi thay thực thể | Dữ liệu ít, SpecAugment chống overfit. TTS được phép lúc phát triển, cấm lúc thi |
+| Siêu tham số ban đầu | lr 1e-5, 3 epoch, batch 8 × grad_accum 2, greedy decode, seed 0 | lr nhỏ vì full fine-tune trên model đã tốt; 3 epoch trên 3547 cặp là khoảng 660 bước |
+| Chọn checkpoint | Theo tỉ lệ nghe sai thực thể trên `val_unseen`, rồi WER; checkpoint tốt nhất chạy agent thật | Lỗi thực thể là lỗi làm sai tham số tool, ảnh hưởng điểm trực tiếp; WER chung không phản ánh |
+| Đưa vào hệ thống | Lưu snapshot transformers, trỏ `[asr].model` (Docker: `/app/models/asr`), giữ `engine = "hf_seq2seq"` | Cùng đường nạp với model gốc |
+
+**Nếu đổi sang ChunkFormer hoặc VieGem-ASR:** cả hai là CTC, không có decoder tự hồi quy, nên fine-tune là train CTC loss trên cùng 3547 cặp với encoder đóng băng phần lớn (VieGem chỉ mở 4 lớp conformer trên cùng như tác giả làm). Cần viết thêm script train riêng vì `lifemate/train/asr.py` hiện chỉ hỗ trợ seq2seq của transformers. Chỉ làm khi số đo cho thấy hai model này thắng PhoWhisper trên `val_unseen` **và** BTC chấp nhận giấy phép phi thương mại.
 
 ### 5.6. Vòng private (20/11 – 23/11)
 

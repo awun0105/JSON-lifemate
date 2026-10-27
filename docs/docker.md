@@ -25,7 +25,7 @@ Weights are baked in: put them in a folder of the build context (default `models
 docker build --build-arg MODEL_DIR=models -t lifemate:dev .     # or: make docker-build
 ```
 
-`MODEL_DIR` is copied to `/app/models`. `configs/v0.toml` must point at those paths before the build:
+`MODEL_DIR` is copied to `/app/models`. `configs/docker.toml` (the image default) points at those paths; keep its other keys in step with `configs/v0.toml`:
 
 ```toml
 [llm]
@@ -55,7 +55,7 @@ links `/tmp/zaic_root/<split> -> /data` (ToolEnv wants `<root>/<split>/...`; `za
 paths so the link is fine), then execs
 
 ```
-python -m lifemate.cli --config ${LIFEMATE_CONFIG:-configs/v0.toml} --env docker --split <split> --out result --resume [extra args]
+python -m lifemate.cli --config ${LIFEMATE_CONFIG:-configs/docker.toml} --env docker --split <split> --out result --resume [extra args]
 ```
 
 `--resume` is always passed: `RunStore` creates an empty `result/` and finds no done ids, and after an
@@ -97,5 +97,5 @@ Nothing here has been built or run: the dev machine has no Docker and no GPU. Op
 - vLLM loading from `/app/models/llm` fully offline, and whether it tries to write caches outside `$HOME`
   (`/home/appuser` exists; the root filesystem is otherwise writable only where the image allows).
 - 634 lines, `--validate` clean, two identical runs, all samples under 30 s.
-- `[llm].model` is still empty in `configs/v0.toml`, so the build fails until the model is chosen (SPEC 6.0).
+- `/app/models/llm` and `/app/models/asr` must be real snapshots (`huggingface-cli download <id> --revision <sha> --local-dir models/llm`); the build only checks that the folders exist.
 - `result/` and `models/` are not in `.gitignore` yet.
