@@ -20,7 +20,8 @@ Cách hoạt động, theo thứ tự trong file:
 Đẩy lên:  kaggle kernels push -p ops/kaggle/smoke --accelerator NvidiaTeslaT4
 Dữ liệu:  dataset riêng tư quanlam/zac2026-lifemate (tuyệt đối không công khai).
 Tham số (biến môi trường, đọc lúc chạy): LIFEMATE_REF (git ref, mặc định main),
-RUN_GOLD / RUN_ASR / RUN_ASR_EVAL ("1" để chạy, mặc định đều là "1"), RUN_IDS (file danh sách id,
+RUN_GOLD / RUN_ASR / RUN_ASR_EVAL ("1" để chạy, mặc định đều là "1"), RUN_ASR_CACHE (mặc định "0"),
+ASR_EVAL_DTYPES ("auto" hoặc "auto,fp32"), ASR_EVAL_IDS (mặc định val_seen), RUN_IDS (file danh sách id,
 mặc định là 30 mẫu smoke), RUN_TAG (hậu tố của tên lượt chạy). ops/kaggle/eval đặt các biến này rồi
 exec file này.
 """
@@ -42,9 +43,9 @@ CODE = WORK / "lifemate"
 INPUT = Path("/kaggle/input")
 
 
-def flag(name: str) -> bool:
-    """Đọc cờ bật/tắt từ biến môi trường; thiếu biến thì coi là bật ("1")."""
-    return os.environ.get(name, "1") == "1"
+def flag(name: str, default: str = "1") -> bool:
+    """Đọc cờ bật/tắt từ biến môi trường; thiếu biến thì dùng `default` (mặc định là bật, "1")."""
+    return os.environ.get(name, default) == "1"
 
 
 def sh(cmd: str, check: bool = True) -> int:
@@ -142,14 +143,27 @@ sh(f"python -m lifemate.eval.make_splits --root {data_root} --smoke 30")
 # Chạy kiểm thử offline (bỏ qua nhóm cần dữ liệu và tokenizer); lỗi kiểm thử không dừng kịch bản.
 sh('python -m pytest -q -p no:cacheprovider -m "not data and not tokenizer"', check=False)
 
-# 5. Chất lượng ASR: float32 (hành vi cũ) so với auto (float16 trên T4, bfloat16 trên sm80+), cùng một bộ mẫu.
+# 5. Chất lượng ASR trên cùng một bộ mẫu. ASR_EVAL_DTYPES chọn kiểu số: mặc định chỉ "auto" (float16 trên T4,
+# bfloat16 trên sm80+); thêm "fp32" khi cần so lại với float32 (đã so với PhoWhisper ngày 27/10, chậm gấp ~3 lần).
 if flag("RUN_ASR_EVAL"):
-    for name, cfg in (("fp32", asr_fp32), ("auto", asr_cfg)):
+    eval_ids = os.environ.get("ASR_EVAL_IDS", "configs/splits/val_seen.txt")
+    cfgs = {"fp32": asr_fp32, "auto": asr_cfg}
+    for name in os.environ.get("ASR_EVAL_DTYPES", "auto").split(","):
         sh(
-            f"python -m lifemate.eval.eval_asr --config {cfg} --env kaggle --split train "
-            f"--ids configs/splits/val_seen.txt --out {WORK}/asr_eval/val_seen_{name}.json",
+            f"python -m lifemate.eval.eval_asr --config {cfgs[name.strip()]} --env kaggle --split train "
+            f"--ids {eval_ids} --out {WORK}/asr_eval/{Path(eval_ids).stem}_{name.strip()}.json",
             check=False,
         )
+
+# 5b. ASR cache cho dữ liệu fine-tune (SPEC 6.2.1), tắt mặc định: chạy ASR một lần trên train, val_seen và
+# val_unseen rồi lưu chữ vào output của kernel (riêng tư). Tải về bằng `kaggle kernels output` và đặt vào
+# data/asr/train_asr.json, hoặc gắn output này làm dataset riêng tư cho notebook train.
+if flag("RUN_ASR_CACHE", "0"):
+    sh(
+        f"python -m lifemate.train.asr_cache --config {asr_cfg} --env kaggle --out {WORK}/asr_cache/train_asr.json "
+        "--ids configs/splits/train.txt configs/splits/val_seen.txt configs/splits/val_unseen.txt",
+        check=False,
+    )
 
 # 6. Chạy agent. Giữ log CLI của từng lượt để kiểm tra nhánh xử lý deadline: `llm_step_aborted_at_deadline`
 # nghĩa là một bước bị cắt tại deadline_s; `vllm_abortable_generate_unsupported` nghĩa là vLLM thiếu API
