@@ -23,3 +23,7 @@ guards = ["allowed_tool", "schema", "duplicate_write"]   # "after_ask" có sẵn
 backend = "gold"                       # "gold" | "asr" (sau v0)
 model = ""                             # CHƯA CHỌN: chỉ cần khi backend = "asr"
 revision = ""
+device = "auto"                        # "auto" | "cpu" | "cuda"
+batch_size = 8                         # số file wav mỗi lần gọi model (giữ thứ tự)
+generate_kwargs = {}                   # vd {language = "vi", task = "transcribe"}; luôn greedy
+sample_rate = 16000                    # WAV 16 kHz mono 16-bit (data README 2.1)

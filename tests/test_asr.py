@@ -2,7 +2,7 @@ import dataclasses
 
 import pytest
 
-from lifemate.asr import ASRTranscriber, GoldTranscriber
+from lifemate.asr import GoldTranscriber
 from lifemate.types import Sample, Turn
 
 
@@ -36,8 +36,3 @@ def test_gold_missing_final() -> None:
 def test_gold_missing_history() -> None:
     with pytest.raises(ValueError):
         GoldTranscriber().transcribe(dataclasses.replace(SAMPLE, history=(_turn("user", None),)))
-
-
-def test_asr_placeholder() -> None:
-    with pytest.raises(NotImplementedError):
-        ASRTranscriber()

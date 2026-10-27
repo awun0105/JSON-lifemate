@@ -50,6 +50,13 @@ class ASRConfig:
     backend: str
     model: str
     revision: str
+    device: str = "auto"
+    batch_size: int = 8
+    generate_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
+    sample_rate: int = 16000
+
+
+_ASR_OPTIONAL = frozenset({"device", "batch_size", "generate_kwargs", "sample_rate"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,11 +137,15 @@ def load_config(path: Path) -> Config:
         _check(key in raw, f"missing key {key}")
     llm = _build(LLMConfig, "llm", raw["llm"])
     agent = _build(AgentConfig, "agent", raw["agent"])
-    asr = _build(ASRConfig, "asr", raw["asr"])
+    asr = _build(ASRConfig, "asr", raw["asr"], optional=_ASR_OPTIONAL)
     _check(llm.backend in {"vllm", "fake"}, f"llm.backend: {llm.backend!r} not in vllm|fake")
     _check(not (llm.backend == "vllm" and llm.model == ""), "llm.model: required when llm.backend = 'vllm'")
     _check(llm.dtype in {"auto", "float16", "bfloat16"}, f"llm.dtype: {llm.dtype!r} not in auto|float16|bfloat16")
     _check(asr.backend in {"gold", "asr"}, f"asr.backend: {asr.backend!r} not in gold|asr")
+    _check(asr.device in {"auto", "cpu", "cuda"}, f"asr.device: {asr.device!r} not in auto|cpu|cuda")
+    _check(isinstance(asr.batch_size, int) and asr.batch_size >= 1, "asr.batch_size: must be an int >= 1")
+    _check(isinstance(asr.generate_kwargs, dict), "asr.generate_kwargs: must be a table")
+    _check(isinstance(asr.sample_rate, int) and asr.sample_rate > 0, "asr.sample_rate: must be a positive int")
     _check(
         isinstance(agent.guards, list) and all(isinstance(g, str) for g in agent.guards),
         "agent.guards: must be a list of str",

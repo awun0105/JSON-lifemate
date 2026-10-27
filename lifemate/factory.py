@@ -62,9 +62,9 @@ LLM_BACKENDS: dict[str, Callable[[Config, EnvProfile, Sequence[Sample], EnvInfo,
     "vllm": _vllm,
     "fake": _fake_llm,
 }
-TRANSCRIBERS: dict[str, Callable[[Config], Transcriber]] = {
-    "gold": lambda cfg: GoldTranscriber(),
-    "asr": lambda cfg: ASRTranscriber(cfg.asr),
+TRANSCRIBERS: dict[str, Callable[[Config, Path, str], Transcriber]] = {
+    "gold": lambda cfg, root, split: GoldTranscriber(),
+    "asr": lambda cfg, root, split: ASRTranscriber(cfg.asr, data_root=root, split=split),
 }
 
 
@@ -122,7 +122,7 @@ def build(
     if config.llm.backend == "fake" and fake_samples is None:
         fake_samples = load_split(root, split)
     llm = TimedLLM(llm_factory(config, profile, fake_samples or (), env_info, dtype))
-    transcriber = TimedTranscriber(asr_factory(config))
+    transcriber = TimedTranscriber(asr_factory(config, root, split))
     agent = Agent(llm, transcriber, prompts, guards, index, config.agent, config.llm, observer=observer)
     return Built(
         agent=agent,
