@@ -1,0 +1,25 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: "Noto Sans", "DejaVu Sans", sans-serif; background: #ffffff; color: #1f2933; }
+.canvas { width: 1600px; padding: 40px 48px 44px; background: #ffffff; }
+h1 { font-size: 34px; font-weight: 700; margin-bottom: 6px; }
+.sub { font-size: 18px; color: #52606d; margin-bottom: 30px; }
+.box { border-radius: 14px; padding: 16px 18px; border: 2px solid; position: relative; }
+.box .n { display: inline-flex; width: 30px; height: 30px; border-radius: 50%; align-items: center; justify-content: center; font-weight: 700; font-size: 16px; color: #fff; margin-right: 8px; vertical-align: middle; }
+.box .t { font-size: 20px; font-weight: 700; vertical-align: middle; }
+.box .d { font-size: 15.5px; color: #3e4c59; margin-top: 8px; line-height: 1.45; }
+.box .code { font-family: "Noto Sans Mono", "CaskaydiaMono NFM", "Liberation Mono", monospace; font-size: 13.5px; color: #616e7c; margin-top: 8px; }
+.green { border-color: #2f9e6e; background: #eefaf4; } .green .n { background: #2f9e6e; }
+.blue { border-color: #2b6cb0; background: #eef5fc; } .blue .n { background: #2b6cb0; }
+.red { border-color: #c53030; background: #fdf0f0; } .red .n { background: #c53030; }
+.purple { border-color: #6b46c1; background: #f4f0fd; } .purple .n { background: #6b46c1; }
+.orange { border-color: #c05621; background: #fdf4ec; } .orange .n { background: #c05621; }
+.gray { border-color: #7b8794; background: #f5f7fa; } .gray .n { background: #7b8794; }
+.arrow { font-size: 34px; color: #7b8794; display: flex; align-items: center; justify-content: center; }
+.legend { display: flex; gap: 26px; margin-top: 26px; font-size: 15px; color: #52606d; }
+.legend span::before { content: ""; display: inline-block; width: 14px; height: 14px; border-radius: 4px; margin-right: 7px; vertical-align: -2px; border: 2px solid; }
+.lg-green::before { border-color: #2f9e6e !important; background: #eefaf4; }
+.lg-blue::before { border-color: #2b6cb0 !important; background: #eef5fc; }
+.lg-red::before { border-color: #c53030 !important; background: #fdf0f0; }
+.lg-purple::before { border-color: #6b46c1 !important; background: #f4f0fd; }
+.lg-orange::before { border-color: #c05621 !important; background: #fdf4ec; }
+.lg-gray::before { border-color: #7b8794 !important; background: #f5f7fa; }

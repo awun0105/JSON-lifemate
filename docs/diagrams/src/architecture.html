@@ -1,0 +1,39 @@
+<!doctype html><html lang="vi"><head><meta charset="utf-8"><link rel="stylesheet" href="style.css">
+<style>
+.row { display: grid; grid-template-columns: 1fr 38px 1fr 38px 1fr 38px 1fr 38px 1fr 38px 1fr; align-items: stretch; }
+.loop { margin: 6px 0 0; display: grid; grid-template-columns: 1fr 38px 1fr 38px 1fr 38px 1fr 38px 1fr 38px 1fr; }
+.loopbar { grid-column: 5 / 10; border: 2.5px dashed #c53030; border-top: none; height: 34px; border-radius: 0 0 16px 16px; position: relative; }
+.loopbar b { position: absolute; left: 50%; transform: translateX(-50%); bottom: -14px; background: #fff; padding: 0 10px; color: #c53030; font-size: 15px; }
+.zone { border: 2px dashed #9aa5b1; border-radius: 18px; padding: 34px 22px 24px; position: relative; margin-top: 8px; }
+.zone > .zt { position: absolute; top: -14px; left: 22px; background: #fff; padding: 0 10px; font-size: 16px; font-weight: 700; color: #52606d; }
+.support { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 28px; margin-top: 46px; }
+.links { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 28px; margin-top: 16px; font-size: 15px; color: #52606d; text-align: center; }
+.factory { margin-top: 20px; font-size: 15.5px; color: #52606d; text-align: center; }
+</style></head><body><div class="canvas" id="cv">
+<h1>Kiến trúc tổng quan của LifeMate</h1>
+<div class="sub">Hàng trên là việc hệ thống làm với mỗi yêu cầu khi chấm bài. Ba khối dưới là các công cụ hỗ trợ: đo điểm, dạy thêm mô hình, đóng gói để nộp.</div>
+<div class="zone"><div class="zt">Pha chạy: xử lý một yêu cầu (lặp lại cho từng mẫu) · lệnh chạy python -m lifemate.run.cli</div>
+<div class="row">
+  <div class="box gray"><span class="n">1</span><span class="t">Đọc mẫu</span><div class="d">File âm thanh, ngữ cảnh (giờ, hồ sơ, app đã cài), lịch sử hội thoại</div><div class="code">io/data.py</div></div>
+  <div class="arrow">→</div>
+  <div class="box green"><span class="n">2</span><span class="t">Nghe</span><div class="d">ASR (whisper-large-v3) chuyển âm thanh thành chữ, lọc câu ảo giác</div><div class="code">backends/asr.py</div></div>
+  <div class="arrow">→</div>
+  <div class="box green"><span class="n">3</span><span class="t">Dựng prompt</span><div class="d">Quy tắc, tài liệu tool, ngữ cảnh kèm lịch, lịch sử, câu nói</div><div class="code">agent/prompt.py</div></div>
+  <div class="arrow">→</div>
+  <div class="box blue"><span class="n">4</span><span class="t">LLM chọn lệnh</span><div class="d">Qwen3-4B qua vLLM trả đúng một lệnh dạng JSON</div><div class="code">backends/llm.py</div></div>
+  <div class="arrow">→</div>
+  <div class="box red"><span class="n">5</span><span class="t">Kiểm tra và thực thi</span><div class="d">Guard chặn lệnh sai; trình mô phỏng chạy lệnh đúng</div><div class="code">agent/guards.py · io/zaic.py</div></div>
+  <div class="arrow">→</div>
+  <div class="box purple"><span class="n">6</span><span class="t">Ghi kết quả</span><div class="d">Danh sách lệnh + mã băm trạng thái thành một dòng nộp bài</div><div class="code">io/store.py</div></div>
+</div>
+<div class="loop"><div class="loopbar"><b>kết quả lệnh quay lại cho LLM, lặp tới khi xong hoặc hết 29 giây</b></div></div>
+</div>
+<div class="factory">Mọi thành phần được lắp ở một chỗ duy nhất, <b>run/factory.py</b>, theo file cấu hình trong <b>configs/</b>. Vòng lặp nằm trong <b>agent/agent.py</b>.</div>
+<div class="support">
+  <div class="box orange"><span class="t">Đánh giá</span><div class="d">Chia dữ liệu có nhãn thành tập học và tập kiểm tra; chấm điểm giống công thức chính thức (mã băm trạng thái + F1 trên danh sách lệnh); đo riêng chất lượng ASR.</div><div class="code">eval/score.py · eval/make_splits.py · eval/eval_asr.py</div></div>
+  <div class="box orange"><span class="t">Huấn luyện</span><div class="d">Dựng dữ liệu bằng đúng prompt lúc chạy, fine-tune LLM bằng QLoRA, chọn bản tốt nhất bằng điểm thật, ghi sổ đăng ký mô hình.</div><div class="code">train/sft_data.py · train/sft.py · train/llm_pipeline.py</div></div>
+  <div class="box orange"><span class="t">Nộp bài</span><div class="d">Đóng gói toàn bộ pha chạy cùng trọng số mô hình vào một ảnh Docker, chạy không có mạng.</div><div class="code">ops/docker/</div></div>
+</div>
+<div class="links"><div>↑ đọc file nộp ở bước 6 để chấm</div><div>↑ trả mô hình tốt hơn cho bước 2 và 4</div><div>↑ đóng gói các bước 1–6</div></div>
+<div class="legend"><span class="lg-gray">Dữ liệu vào</span><span class="lg-green">Xử lý trong mã</span><span class="lg-blue">Mô hình ngôn ngữ</span><span class="lg-red">Kiểm tra và trình mô phỏng</span><span class="lg-purple">Ghi ra đĩa</span><span class="lg-orange">Công cụ hỗ trợ</span></div>
+</div></body></html>

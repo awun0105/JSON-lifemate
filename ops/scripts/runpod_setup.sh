@@ -18,8 +18,8 @@ CODE_DIR="${CODE_DIR:-$WORKSPACE/lifemate}"
 DATA_DIR="$WORKSPACE/zac2026/train+public_test"
 LLM_ID="${LLM_ID:-Qwen/Qwen3-4B-Instruct-2507}"
 LLM_REV="${LLM_REV:-cdbee75f17c01a7cc42f958dc650907174af0554}"
-ASR_ID="${ASR_ID:-vinai/PhoWhisper-medium}"
-ASR_REV="${ASR_REV:-55a7e3eb6c906de891f8f06a107754427dd3be79}"
+ASR_ID="${ASR_ID:-Systran/faster-whisper-large-v3}"
+ASR_REV="${ASR_REV:-edaa852ec7e145841d8ffdb056a99866b5f0a478}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -70,6 +70,9 @@ if [[ ! -d "$DATA_DIR/train" ]]; then
     log "data missing: upload the package to $DATA_DIR (runpodctl send <zip> / rclone copy), then rerun with --no-clone --no-smoke"
     exit 0
 fi
+
+# Split id lists are git-ignored; rebuild them from the data (deterministic).
+uv run python -m lifemate.eval.make_splits --root "$DATA_DIR" --smoke 30
 
 # 6. Offline tests, then the 30-sample smoke with the real LLM (gold transcripts).
 uv run pytest -q -m "not data and not tokenizer"

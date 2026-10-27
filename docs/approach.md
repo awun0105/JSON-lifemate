@@ -369,6 +369,12 @@ Tổng 4,79B < 6B, LLM 4,02B < 5B. Ứng viên A/B (chưa dùng khi nộp): LLM 
 | 27/10/2026 (sau đo Kaggle) | Giữ nguyên chữ ASR nghe ra, không chuẩn hóa; LLM nộp bài học trên chữ ASR (v2) | `audio_text` viết số bằng chữ số, PhoWhisper viết bằng chữ; BTC không chấm chữ ASR. Sửa giả định "ASR nhắm tới `audio_text` nguyên văn" ở dòng trên |
 | 27/10/2026 | ASR chạy bfloat16/float16 trên GPU (`asr.dtype = "auto"`) | Mặc định float32 tốn khoảng 3 GB, hết bộ nhớ cạnh vLLM trên T4; WER float32 với auto đo bằng kernel Kaggle |
 | 27/10/2026 | Python 3.11 + `uv`, ruff + mypy strict, pre-commit; lấy quy ước kỹ thuật từ `ai-kit`, không lấy layer ứng dụng | Kit là app cloud FastAPI + LangGraph, không khớp với agent offline |
+| 28/10/2026 | Theo team lead (ThanhDanh1510/ZaloAI2026@7033c9f): chia 5 fold theo cụm câu gần trùng, giữ lại 6 app (medication, fitness, flights, bike_rental, library, subscriptions) làm `val_unseen`; sửa lỗi của bản gốc: train chỉ lấy fold 1-4 của phần đã loại 6 app | Bản gốc để 137/173 mẫu `val_unseen` lọt vào tập train. Sau bản sửa @733f7c1, `train_seen` của lead vẫn chứa 273/309 mẫu val (fold 0) |
+| 28/10/2026 | Danh sách id trong `configs/splits/` không đưa lên git; `make splits` sinh lại giống từng byte | Suy ra từ dữ liệu thi; kernel Kaggle và script RunPod tự sinh lại |
+| 28/10/2026 | ASR: whisper-large-v3 bản CTranslate2 (faster-whisper), beam 5, VAD, kèm bộ lọc ảo giác của lead | Lead đo 98% lỗi nặng của Whisper là câu ảo giác kiểu phụ đề. Chưa đo tốc độ và bộ nhớ trên T4 cạnh vLLM |
+| 28/10/2026 | Fine-tune theo lead: LoRA r=32, alpha=64, lr 2e-4 cosine, warmup 5%, 3 epoch, batch hiệu dụng 16, max_len 10240 | Chưa đo trên pipeline này; so với bộ cũ (r=16, 2 epoch) ở lượt train đầu |
+| 28/10/2026 | Dữ liệu SFT theo lead @c703bd9: 70% chữ ASR (mẫu mất tên hoặc số thì dùng chữ chuẩn), 3% mẫu phục hồi lỗi (lượt gọi sai không tính loss, câu lỗi lấy từ guard thật). Nhân bản ca khó, app gây nhiễu, lọc cụm trùng có sẵn nhưng tắt | Theo lộ trình của lead: baseline trước, bật từng kỹ thuật ở lượt sau để đo riêng. Thay cho quyết định "LLM v2 học trên toàn chữ ASR" ở trên |
+| 28/10/2026 | Không làm theo lead: định dạng tool-call gốc của Qwen, ms-swift, xáo thứ tự tool | Giữ JSON ép schema và prompt giống từng byte giữa train và chạy thật. App gây nhiễu được thêm vào ngữ cảnh mẫu nên vẫn giữ quy tắc này |
 
 ## 8. Nhật ký thí nghiệm
 

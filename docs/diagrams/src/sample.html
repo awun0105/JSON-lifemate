@@ -1,0 +1,36 @@
+<!doctype html><html lang="vi"><head><meta charset="utf-8"><link rel="stylesheet" href="style.css">
+<style>
+.steps { display: grid; grid-template-columns: 560px 1fr; gap: 14px 30px; align-items: stretch; }
+.ex { border-radius: 12px; background: #f8fafc; border: 1.5px solid #d9e2ec; padding: 14px 18px; font-size: 16px; line-height: 1.5; display: flex; flex-direction: column; justify-content: center; }
+.ex .k { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: #7b8794; margin-bottom: 4px; }
+.ex code { font-family: "Noto Sans Mono", "CaskaydiaMono NFM", "Liberation Mono", monospace; font-size: 14.5px; color: #1f2933; white-space: pre-wrap; }
+.down { grid-column: 1; text-align: center; color: #9aa5b1; font-size: 22px; line-height: 10px; height: 10px; }
+.loopnote { grid-column: 1 / 3; border: 2.5px dashed #c53030; border-radius: 12px; padding: 10px 16px; color: #9b2c2c; font-size: 16px; background: #fffafa; }
+.head { display: grid; grid-template-columns: 560px 1fr; gap: 30px; font-size: 15px; font-weight: 700; color: #52606d; margin-bottom: 10px; }
+</style></head><body><div class="canvas" id="cv">
+<h1>Một mẫu đi qua hệ thống, từng bước</h1>
+<div class="sub">Ví dụ minh hoạ (không phải dữ liệu thật). Người dùng nói: "nhắc tôi uống thuốc lúc tám giờ kém mười lăm tối mai".</div>
+<div class="head"><div>Bước</div><div>Giá trị cụ thể ở bước đó</div></div>
+<div class="steps">
+  <div class="box gray"><span class="n">1</span><span class="t">Nhận mẫu</span><div class="d">Runner mở một trình mô phỏng mới cho mẫu này; đồng hồ 29 giây bắt đầu chạy.</div></div>
+  <div class="ex"><div class="k">Đầu vào</div>audio/sample_01.wav · giờ hiện tại 24/11/2026 07:10 (thứ Ba) · app đã cài: reminders, alarm, contacts, …</div>
+  <div class="box green"><span class="n">2</span><span class="t">ASR nghe</span><div class="d">whisper-large-v3 chép âm thanh thành chữ, bộ lọc bỏ câu ảo giác. Số được viết bằng chữ, có thể sai chính tả.</div></div>
+  <div class="ex"><div class="k">Chữ nghe được</div>"nhắc tôi uống thuốc lúc tám giờ kém mười lăm tối mai"</div>
+  <div class="box green"><span class="n">3</span><span class="t">Dựng prompt</span><div class="d">Ghép quy tắc, tài liệu tool của app đã cài, ngữ cảnh kèm bảng lịch 14 ngày, lịch sử và câu nói. Tổng dưới 16.000 token.</div></div>
+  <div class="ex"><div class="k">Một phần prompt</div><code>Lịch: 2026-11-25 thứ Tư (tuần này, mai)
+- reminders.create [write]  content: string | time: string [format=date-time] | repeat?: once|daily|weekly</code></div>
+  <div class="box blue"><span class="n">4</span><span class="t">LLM chọn lệnh</span><div class="d">Qwen3-4B trả đúng một JSON. vLLM ép đầu ra theo khuôn nên không có chữ thừa.</div></div>
+  <div class="ex"><div class="k">LLM trả</div><code>{"action":"call","name":"reminders.create",
+ "arguments":{"content":"uống thuốc","time":"2026-11-25T19:45:00+07:00"}}</code></div>
+  <div class="box red"><span class="n">5</span><span class="t">Guard kiểm tra</span><div class="d">Tool có được phép? Tham số đúng khuôn? Có gọi trùng? Sai thì báo lỗi cho LLM sửa, không chạm trình mô phỏng.</div></div>
+  <div class="ex"><div class="k">Kết quả kiểm tra</div>PASS: tool được phép, đủ tham số bắt buộc, đúng kiểu dữ liệu.</div>
+  <div class="box red"><span class="n">6</span><span class="t">Trình mô phỏng thực thi</span><div class="d">ToolEnv.validate rồi ToolEnv.call. Kết quả được thêm vào hội thoại.</div></div>
+  <div class="ex"><div class="k">Trình mô phỏng trả</div><code>KẾT QUẢ: {"ok":true,"id":"rem_01","item":{"content":"uống thuốc","time":"2026-11-25T19:45:00+07:00"}}</code></div>
+  <div class="loopnote">Bước 4 → 6 lặp lại: LLM đọc kết quả rồi chọn lệnh tiếp theo. Một yêu cầu thường cần 3 đến 6 lượt. Tới giây 29 mà chưa xong thì bước đang chạy bị ngắt, các lệnh đã gọi vẫn được nộp.</div>
+  <div class="box blue"><span class="n">7</span><span class="t">LLM báo xong</span><div class="d">Việc người dùng yêu cầu đã làm xong (hoặc đã hỏi lại người dùng).</div></div>
+  <div class="ex"><div class="k">LLM trả</div><code>{"action":"done"}</code></div>
+  <div class="box purple"><span class="n">8</span><span class="t">Ghi kết quả và chấm</span><div class="d">Lấy danh sách lệnh và mã băm trạng thái, ghi vào trace.jsonl rồi submission.jsonl; bộ chấm so với đáp án.</div></div>
+  <div class="ex"><div class="k">Một dòng nộp bài</div><code>{"id":"sample_01","tool_calls":[{"name":"reminders.create","arguments":{…}}],"state_hash":"9f2c…"}</code></div>
+</div>
+<div class="legend"><span class="lg-gray">Dữ liệu vào</span><span class="lg-green">Xử lý trong mã</span><span class="lg-blue">Mô hình ngôn ngữ</span><span class="lg-red">Kiểm tra và trình mô phỏng</span><span class="lg-purple">Ghi ra đĩa</span></div>
+</div></body></html>

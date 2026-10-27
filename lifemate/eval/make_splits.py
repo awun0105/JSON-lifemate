@@ -1,16 +1,23 @@
-"""Split the labelled train set into train / val_seen / val_unseen id lists.
+"""Split the labelled train set into train / val_seen / val_unseen id lists, plus k stratified folds.
 
-  val_unseen: every sample whose gold calls use one of the held-out apps (simulates apps never seen in training),
-              plus the hand-tagged empty-gold samples about those apps (UNSEEN_OUT_OF_SCOPE)
-  val_seen:   a stratified share of the remaining samples (by answer type and by whether there is history)
-  train:      the rest; when building prompts for these samples, drop the held-out apps from installed_apps
-              (their gold never calls them, so the label stays correct and the model never sees those apps)
+Adapted from the team lead's repo ThanhDanh1510/ZaloAI2026 src/preprocessing/dataset/split.py@7033c9f
+(near-duplicate clustering, iterative stratified group k-fold, 6 held-out apps), with one fix: train is built
+only from samples that do not touch a held-out app, so val_unseen never leaks into training.
 
-Writes configs/splits/{train,val_seen,val_unseen}.txt (one id per line) and configs/splits/meta.json.
+  val_unseen: every sample whose gold calls use one of the held-out apps (simulates the new apps of the private
+              test), plus the hand-tagged empty-gold samples about those apps (UNSEEN_OUT_OF_SCOPE)
+  folds:      the remaining samples, grouped into clusters of near-duplicate requests (audio_text similarity
+              >= --dup-threshold) and spread over k folds so each fold keeps the same mix of call counts
+              (0, 1, 2-3, >= 4) and of ask_missing_info; a cluster never spans two folds
+  val_seen:   fold 0
+  train:      folds 1..k-1; when building prompts for these samples, drop the held-out apps from installed_apps
+
+Writes configs/splits/{train,val_seen,val_unseen}.txt, configs/splits/folds/fold_<i>.txt (i = 0..k-1, one id per
+line) and configs/splits/meta.json.
 
 Usage (from the repo root):
-  python -m lifemate.eval.make_splits
-  python -m lifemate.eval.make_splits --held-out medication fitness --val-frac 0.2 --seed 7
+  python -m lifemate.eval.make_splits --smoke 30
+  python -m lifemate.eval.make_splits --held-out medication fitness --folds 5 --seed 7
 """
 
 from __future__ import annotations
@@ -22,6 +29,7 @@ import random
 from pathlib import Path
 
 from lifemate.core.paths import REPO_ROOT as REPO
+from lifemate.core.textsim import cluster_near_duplicates
 
 
 def default_data_root() -> Path:
@@ -35,32 +43,53 @@ def default_data_root() -> Path:
 
 
 DEFAULT_ROOT = default_data_root()
-DEFAULT_HELD_OUT = [
-    "medication",
-    "fitness",
-    "door_lock",
-    "home_security",
-    "robot_vacuum",
-    "library",
-    "loyalty",
-    "learning",
-]
+# Team lead's choice: one app per domain (health, sport, travel, mobility, personal, finance).
+DEFAULT_HELD_OUT = ["medication", "fitness", "flights", "bike_rental", "library", "subscriptions"]
 
 # Empty-gold samples whose request is about a held-out app (cancelled, condition-dependent, or the app is missing).
 # Their gold calls nothing, so gold_apps() cannot route them; without this list val_unseen has no out_of_scope case.
-# Tagged by hand from audio_text. train_1606 (library hold, gold []) looks mislabelled and is left out on purpose.
+# Tagged by hand from audio_text. train_1606 (library hold, gold []) looks mislabelled and is left out on purpose;
+# train_0736 is a course sign-up (learning), not a subscription.
 UNSEEN_OUT_OF_SCOPE = {
-    "train_0863": "home_security",  # camera recognition, home_security not installed
-    "train_0926": "door_lock",  # gate code, then cancelled
-    "train_0982": "home_security",  # away-mode alarm, home_security not installed
+    "train_0856": "flights",  # book two plane tickets, flights not installed
     "train_1114": "library",  # find a book, then cancelled
+    "train_1172": "flights",  # check in for a flight, flights not installed
     "train_1185": "medication",  # mark pill taken, then cancelled
-    "train_1286": "door_lock",  # door code, then cancelled
-    "train_1360": "loyalty",  # redeem seat upgrade only if enough points
-    "train_1446": "learning",  # book an English lesson only if not booked yet
     "train_1655": "library",  # place a library hold, library not installed
-    "train_1707": "home_security",  # check offline camera, then cancelled
 }
+
+
+def call_bucket(gold_calls: list[dict]) -> str:
+    n = len(gold_calls)
+    return "0" if n == 0 else "1" if n == 1 else "2-3" if n <= 3 else ">=4"
+
+
+def stratified_group_folds(clusters: list[list[str]], by_id: dict[str, dict], k: int, seed: int) -> list[list[str]]:
+    """Assign whole clusters to k folds, balancing fold size and the cluster's main label (call bucket, + "_ask" when
+    any member asks for missing info). Rarest labels and biggest clusters are placed first (greedy)."""
+    rng = random.Random(seed)
+    records = []
+    for ids in clusters:
+        calls = [by_id[i]["label"]["tool_calls"] for i in ids]
+        buckets = collections.Counter(call_bucket(c) for c in calls)
+        label = max(sorted(buckets.items()), key=lambda kv: kv[1])[0]
+        if any(any(c["name"] == "sys.ask_missing_info" for c in cs) for cs in calls):
+            label += "_ask"
+        records.append((ids, label))
+    rng.shuffle(records)
+    freq = collections.Counter(label for _, label in records)
+    records.sort(key=lambda r: (freq[r[1]], -len(r[0])))
+    target = sum(len(ids) for ids, _ in records) / k
+    folds: list[list[str]] = [[] for _ in range(k)]
+    sizes = [0] * k
+    label_counts = [collections.Counter() for _ in range(k)]
+    for ids, label in records:
+        score = [label_counts[f][label] * 2.0 + 3.0 * (sizes[f] + len(ids) - target) / target for f in range(k)]
+        best = min(range(k), key=lambda f: (score[f], f))
+        folds[best] += ids
+        sizes[best] += len(ids)
+        label_counts[best][label] += 1
+    return [sorted(f) for f in folds]
 
 
 def category(gold_calls: list[dict]) -> str:
@@ -108,7 +137,8 @@ def main() -> None:
     ap.add_argument(
         "--held-out", nargs="+", default=DEFAULT_HELD_OUT, metavar="APP", help="apps reserved for val_unseen"
     )
-    ap.add_argument("--val-frac", type=float, default=0.15, help="share of the remaining samples put in val_seen")
+    ap.add_argument("--folds", type=int, default=5, help="k stratified group folds; fold 0 is val_seen")
+    ap.add_argument("--dup-threshold", type=float, default=0.85, help="audio_text similarity that makes a cluster")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument(
         "--smoke",
@@ -126,6 +156,8 @@ def main() -> None:
     unknown = set(args.held_out) - {a["id"] for a in catalog["apps"]}
     if unknown:
         ap.error(f"apps not in the train catalog: {sorted(unknown)}")
+    if args.folds < 2:
+        ap.error("--folds must be at least 2")
     held_out = set(args.held_out)
 
     def is_unseen(it: dict) -> bool:
@@ -133,24 +165,22 @@ def main() -> None:
 
     val_unseen = [it for it in items if is_unseen(it)]
     rest = [it for it in items if not is_unseen(it)]
-
-    # stratify val_seen by (answer type, has history) so it mirrors the remaining data
-    rng = random.Random(args.seed)
-    strata = collections.defaultdict(list)
-    for it in rest:
-        strata[(category(it["label"]["tool_calls"]), bool(it["history"]))].append(it)
-    val_seen = []
-    for key in sorted(strata):
-        group = strata[key]
-        rng.shuffle(group)
-        val_seen += group[: round(len(group) * args.val_frac)]
-    seen_ids = {it["id"] for it in val_seen}
-    train = [it for it in rest if it["id"] not in seen_ids]
+    by_id = {it["id"]: it for it in rest}
+    clusters = cluster_near_duplicates(rest, args.dup_threshold)
+    folds = stratified_group_folds(clusters, by_id, args.folds, args.seed)
+    val_seen = [by_id[i] for i in folds[0]]
+    train = [by_id[i] for f in folds[1:] for i in f]
 
     args.out.mkdir(parents=True, exist_ok=True)
     splits = {"train": train, "val_seen": val_seen, "val_unseen": val_unseen}
     for name, part in splits.items():
         (args.out / f"{name}.txt").write_text("".join(f"{it['id']}\n" for it in sorted(part, key=lambda x: x["id"])))
+    fold_dir = args.out / "folds"
+    fold_dir.mkdir(exist_ok=True)
+    for old in fold_dir.glob("fold_*.txt"):
+        old.unlink()
+    for i, fold in enumerate(folds):
+        (fold_dir / f"fold_{i}.txt").write_text("".join(f"{x}\n" for x in fold))
 
     if args.smoke:
         smoke = smoke_sample(val_seen, args.smoke, args.seed)
@@ -158,28 +188,40 @@ def main() -> None:
         print(f"  smoke      {len(smoke):>5}  -> {args.out / 'smoke.txt'}")
 
     def mix(part):
-        return dict(collections.Counter(category(it["label"]["tool_calls"]) for it in part))
+        return dict(sorted(collections.Counter(category(it["label"]["tool_calls"]) for it in part).items()))
 
+    def buckets(ids):
+        return dict(sorted(collections.Counter(call_bucket(by_id[i]["label"]["tool_calls"]) for i in ids).items()))
+
+    multi = [c for c in clusters if len(c) > 1]
     meta = {
         "held_out_apps": sorted(held_out),
-        "val_frac": args.val_frac,
+        "folds": args.folds,
+        "dup_threshold": args.dup_threshold,
         "seed": args.seed,
         "counts": {name: len(part) for name, part in splits.items()},
         "categories": {name: mix(part) for name, part in splits.items()},
+        "fold_sizes": [len(f) for f in folds],
+        "fold_call_buckets": [buckets(f) for f in folds],
+        "near_duplicate_clusters": {"clusters": len(multi), "samples": sum(len(c) for c in multi)},
         "train_samples_with_held_out_installed": sum(
             bool(held_out & set(it["context"]["installed_apps"])) for it in train
         ),
+        "leak_check": {
+            "train_and_val_unseen": len({it["id"] for it in train} & {it["id"] for it in val_unseen}),
+            "train_and_val_seen": len({it["id"] for it in train} & {it["id"] for it in val_seen}),
+        },
         "note": "For train samples, remove held_out_apps from context.installed_apps when building prompts.",
+        "source": "adapted from ThanhDanh1510/ZaloAI2026 src/preprocessing/dataset/split.py@7033c9f",
     }
     (args.out / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
 
     print(f"held-out apps: {', '.join(sorted(held_out))}")
+    print(f"near-duplicate clusters: {meta['near_duplicate_clusters']}")
     for name, part in splits.items():
         print(f"  {name:<11}{len(part):>5}  {mix(part)}")
-    print(
-        "train samples that have a held-out app installed (strip it from the prompt): "
-        f"{meta['train_samples_with_held_out_installed']}"
-    )
+    print(f"  folds      {meta['fold_sizes']}")
+    print(f"leak check: {meta['leak_check']}")
     print(f"-> {args.out}/")
 
 

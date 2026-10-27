@@ -8,6 +8,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, ClassVar, Protocol
 
+from lifemate.backends.asr_sanitizer import sanitize
 from lifemate.core.config import ASRConfig
 from lifemate.core.types import Sample, Transcript
 
@@ -230,7 +231,49 @@ class VieGemASR:
         self._one(np.zeros(self._cfg.sample_rate, dtype=np.float32))
 
 
+class FasterWhisperASR:
+    """Whisper on CTranslate2 (`faster-whisper`, extra `asr-faster-whisper`), one file at a time.
+
+    Team lead's choice (ThanhDanh1510/ZaloAI2026 src/preprocessing/asr/inference.py@7033c9f): whisper-large-v3,
+    beam 5, VAD, a domain `initial_prompt`, no conditioning on previous text. Decoding options come from
+    `[asr].generate_kwargs` unchanged; `cfg.model` is a CTranslate2 model repo (e.g. Systran/faster-whisper-large-v3)
+    pinned at `cfg.revision`, or a local folder with the converted model (Docker: /app/models/asr).
+    """
+
+    def __init__(self, cfg: ASRConfig) -> None:
+        import torch
+        from faster_whisper import WhisperModel  # type: ignore[import-not-found,unused-ignore]  # extra asr-faster-whisper
+
+        self._cfg = cfg
+        on_gpu = cfg.device == "cuda" or (cfg.device == "auto" and torch.cuda.is_available())
+        cc = tuple(torch.cuda.get_device_capability(0)) if on_gpu else None
+        self.dtype = resolve_asr_dtype(cfg.dtype, on_gpu, cc)
+        path = cfg.model
+        if cfg.revision and not Path(cfg.model).is_dir():
+            from huggingface_hub import snapshot_download
+
+            path = snapshot_download(cfg.model, revision=cfg.revision)
+        self._model = WhisperModel(path, device="cuda" if on_gpu else "cpu", compute_type=self.dtype)
+        self._kwargs = dict(cfg.generate_kwargs)
+
+    def _one(self, audio: Any) -> str:
+        segments, _info = self._model.transcribe(audio, **self._kwargs)
+        return " ".join(s.text.strip() for s in segments).strip()
+
+    def transcribe_batch(self, wav_paths: Sequence[Path]) -> list[str]:
+        """Each WAV in order."""
+        sr = self._cfg.sample_rate
+        return [self._one(read_wav(p, sr)) for p in wav_paths]
+
+    def warmup(self) -> None:
+        """One pass over 1 s of silence."""
+        import numpy as np
+
+        self._one(np.zeros(self._cfg.sample_rate, dtype=np.float32))
+
+
 ASR_ENGINES: dict[str, Callable[[ASRConfig], ASRBackend]] = {
+    "faster_whisper": FasterWhisperASR,
     "hf_seq2seq": HFSeq2SeqASR,
     "chunkformer": ChunkFormerASR,
     "viegem": VieGemASR,
@@ -281,6 +324,8 @@ class ASRTranscriber:
             if len(got) != len(chunk):
                 raise ValueError(f"{sample.id}: ASR returned {len(got)} texts for {len(chunk)} files")
             texts.extend(got)
+        if self._cfg.sanitize:
+            texts = [sanitize(t, is_history=i < len(texts) - 1) for i, t in enumerate(texts)]
         it = iter(texts[:-1])
         history = tuple(next(it) if t.role == "user" else None for t in sample.history)
         return Transcript(final=texts[-1], history=history, seconds=time.perf_counter() - start)

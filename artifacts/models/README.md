@@ -1,12 +1,12 @@
-# models/
+# artifacts/models/
 
-Trained models (SPEC 6.2.6). Weights never go into git; they live on Kaggle Models or a private HF repo.
+Sổ đăng ký các mô hình đã fine-tune. Trọng số không bao giờ vào git; chúng nằm trên Kaggle Models hoặc HF riêng tư, cột `location` ghi chỗ lưu.
 
-- `registry.csv`: one row per trained model: `name, base, data_version, checkpoint, val_seen, val_unseen, location`.
-  Appended by `python -m lifemate.train.llm_pipeline` (stage `register`).
-- `<name>/train_config.json`: full train config, `code_version`, data sha256, seed, GPU and package versions,
-  chosen checkpoint and its eval_unseen loss.
-- `<name>/metrics.jsonl`: train and eval loss per logging step.
-- `<name>/eval.json`: agent scores of the candidate checkpoints on val_seen / val_unseen, with run folders.
+| File | Nội dung |
+|---|---|
+| `registry.csv` | Mỗi mô hình một dòng: `name, base, data_version, checkpoint, val_seen, val_unseen, location`. Do `python -m lifemate.train.llm_pipeline` thêm vào ở bước `register`. |
+| `<name>/train_config.json` | (không trong git) Cấu hình huấn luyện đầy đủ, phiên bản mã, sha256 dữ liệu, seed, GPU, phiên bản thư viện, checkpoint được chọn. |
+| `<name>/metrics.jsonl` | (không trong git) Loss học và loss kiểm tra theo từng bước. |
+| `<name>/eval.json` | (không trong git) Điểm agent của các checkpoint ứng viên trên `val_seen`, `val_unseen`. |
 
-Name format: `ft-<base>-sft<v>-r<nn>`, e.g. `ft-base4b-sft1-r01`.
+Tên mô hình có dạng `ft-<base>-sft<v>-r<nn>`, ví dụ `ft-qwen34binstruct2507-sft1-r01`.

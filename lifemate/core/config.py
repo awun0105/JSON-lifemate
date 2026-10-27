@@ -55,11 +55,12 @@ class ASRConfig:
     batch_size: int = 8
     generate_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
     sample_rate: int = 16000
+    sanitize: bool = False  # strip subtitle hallucinations and loops (lifemate.backends.asr_sanitizer)
 
 
-ASR_ENGINE_NAMES = frozenset({"hf_seq2seq", "chunkformer", "viegem"})
+ASR_ENGINE_NAMES = frozenset({"faster_whisper", "hf_seq2seq", "chunkformer", "viegem"})
 ASR_DTYPES = frozenset({"auto", "float32", "float16", "bfloat16"})
-_ASR_OPTIONAL = frozenset({"engine", "device", "dtype", "batch_size", "generate_kwargs", "sample_rate"})
+_ASR_OPTIONAL = frozenset({"engine", "device", "dtype", "batch_size", "generate_kwargs", "sample_rate", "sanitize"})
 
 
 @dataclass(frozen=True, slots=True)

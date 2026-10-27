@@ -1,5 +1,8 @@
 # competition data and everything built from it (never shared)
 data/
+# split id lists are derived from the competition data: regenerate with `make splits` (deterministic, seed 42)
+configs/splits/*
+!configs/splits/README.md
 # run outputs, model weights, packed code: regenerable
 artifacts/*
 !artifacts/models/
@@ -25,3 +28,6 @@ docs/notes/
 .deck/
 video/
 
+.gstack/# full 42-slide deck kept locally only; v2 is the shared one
+# slide decks are being reworked; kept local for now
+docs/slides/

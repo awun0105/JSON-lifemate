@@ -120,6 +120,12 @@ def stage_data(ctx: PipelineContext, state: dict[str, Any]) -> None:
     for out, ids, allow_eval in jobs:
         argv = ["--config", str(ctx.config_path), "--env", ctx.env, "--ids", ids, "--out", out]
         argv += ["--split", ctx.data_split] + (["--allow-eval"] if allow_eval else [])
+        argv += ["--transcript-source", ctx.cfg.data.transcript_source, "--asr-ratio", str(ctx.cfg.data.asr_ratio)]
+        if ctx.cfg.data.asr_cache:
+            argv += ["--asr-cache", ctx.cfg.data.asr_cache]
+        d = ctx.cfg.data  # augment flags apply to the train file only (sft_data ignores them with --allow-eval)
+        argv += ["--error-recovery", str(d.error_recovery_ratio), "--oversample-hard", str(d.oversample_hard)]
+        argv += ["--distractor-apps", str(d.distractor_apps), "--dedup-max-k", str(d.dedup_max_k)]
         meta = sft_data.run(sft_data.parse_args(argv), ctx.repo_root, argv=["lifemate.train.sft_data", *argv])
         metas[out] = {k: meta[k] for k in ("sha256", "n_rows", "n_dropped", "n_replay_warnings")}
     state["data"] = metas
@@ -265,7 +271,7 @@ def stage_register(ctx: PipelineContext, state: dict[str, Any]) -> None:
     data_sha = {
         k: sha256_file(abs_path(v, ctx.repo_root))
         for k, v in dataclasses.asdict(ctx.cfg.data).items()
-        if abs_path(v, ctx.repo_root).is_file()
+        if isinstance(v, str) and v and abs_path(v, ctx.repo_root).is_file()
     }
     write_train_config(
         ctx.model_dir / "train_config.json",

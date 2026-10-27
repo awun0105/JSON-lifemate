@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import argparse
 import copy
+import dataclasses
 import hashlib
 import json
+import math
 import os
 import sys
 import tomllib
@@ -21,18 +23,22 @@ from typing import Any
 
 import structlog
 
+from lifemate.agent.agent import BLOCK_PREFIX
 from lifemate.agent.prompt import HeldOutLeak, PromptBuilder, truncate_result
 from lifemate.agent.protocol import DONE_TEXT, call_text
 from lifemate.agent.tooldocs import ASK_TOOL, CatalogIndex
 from lifemate.backends.asr import GoldTranscriber
+from lifemate.backends.asr_sanitizer import entities_preserved
 from lifemate.core.config import AgentConfig, ConfigError, LLMConfig, load_profile
 from lifemate.core.envinfo import code_version
 from lifemate.core.jsonutil import canonical_json
 from lifemate.core.paths import REPO_ROOT
+from lifemate.core.textsim import cluster_near_duplicates
 from lifemate.core.tokens import HFTokenCounter, SimpleTokenCounter
-from lifemate.core.types import Sample, TokenCounter, Transcriber
+from lifemate.core.types import Sample, TokenCounter, Transcriber, Transcript
 from lifemate.io.data import load_split, read_ids
 from lifemate.io.zaic import EnvRegistry, ZaicLoader, load_catalog
+from lifemate.train.asr_cache import CachedTranscriber
 from lifemate.train.common import abs_path, build_section, read_held_out, sha256_file
 from lifemate.train.sft import LLMTrainConfig, load_llm_train_config
 
@@ -95,10 +101,121 @@ def make_builder(
     )
 
 
-def _transcriber(source: str) -> Transcriber:
+TRANSCRIPT_SOURCES = ("gold", "asr", "mix")
+
+
+def _frac(seed: int, tag: str, sample_id: str) -> float:
+    """Stable number in [0, 1) from (seed, tag, id): the same choice on every rebuild."""
+    h = hashlib.sha256(f"{seed}:{tag}:{sample_id}".encode()).digest()
+    return int.from_bytes(h[:4], "big") / 2**32
+
+
+def category(sample: Sample) -> str:
+    """`execute`, `ask_missing_info` or `out_of_scope` (empty gold)."""
+    calls = (sample.label or {}).get("tool_calls") or []
+    if not calls:
+        return "out_of_scope"
+    return "ask_missing_info" if any(c.get("name") == ASK_TOOL for c in calls) else "execute"
+
+
+@dataclass(frozen=True, slots=True)
+class Augment:
+    """Train-only data augmentation, adapted from the team lead's repo ThanhDanh1510/ZaloAI2026
+    (src/preprocessing/dataset/builder.py and docs/llm_finetuning.md@c703bd9). Every choice is a hash of
+    (seed, id), so a rebuild gives the same file. All of it keeps the prompt built by the run-time PromptBuilder.
+
+    - error_recovery_ratio: share of samples that get one failed call first (a required argument dropped, the real
+      guard error text from `env.validate`), then the correct call. The failed call has `"loss": false`: the model
+      learns to recover from the error, never to make it.
+    - oversample_hard: copies of `ask_missing_info` and `out_of_scope` rows (1.0 = none, 1.5 = half get a 2nd copy).
+    - distractor_apps: extra installed apps (never held-out ones) added to the context so the model has to read
+      the schema. Not applied to `out_of_scope` samples: an added app could serve the request and make the empty
+      label wrong.
+    - dedup_max_k: keep at most k samples per near-duplicate cluster (0 = keep all)."""
+
+    error_recovery_ratio: float = 0.0
+    oversample_hard: float = 1.0
+    distractor_apps: int = 0
+    dedup_max_k: int = 0
+    seed: int = 0
+
+
+def dedup_clusters(samples: Sequence[Sample], max_k: int, threshold: float = 0.85) -> list[Sample]:
+    """At most `max_k` samples (lowest ids first) per near-duplicate cluster; order kept."""
+    if max_k <= 0:
+        return list(samples)
+    items = [{"id": s.id, "audio_text": s.audio_text or ""} for s in samples]
+    keep = {sid for group in cluster_near_duplicates(items, threshold) for sid in sorted(group)[:max_k]}
+    return [s for s in samples if s.id in keep]
+
+
+def with_distractors(
+    sample: Sample, index: CatalogIndex, held_out: frozenset[str], k: int, seed: int
+) -> tuple[Sample, list[str]]:
+    """`sample` with `k` extra installed apps picked by hash among apps that are neither installed nor held out."""
+    if k <= 0 or category(sample) == "out_of_scope":
+        return sample, []
+    installed: dict[str, Any] = dict(sample.context.get("installed_apps") or {})
+    pool = [a for a in index.apps if a not in installed and a not in held_out]
+    picked = sorted(pool, key=lambda a: _frac(seed, "distractor:" + a, sample.id))[:k]
+    for app in picked:
+        installed[app] = {"tools": [t["name"] for t in index.app_spec(app)["tools"]]}
+    return dataclasses.replace(sample, context={**sample.context, "installed_apps": installed}), picked
+
+
+def hard_copies(sample: Sample, factor: float, seed: int) -> int:
+    """Extra copies of a hard (`ask_missing_info`, `out_of_scope`) sample for `oversample_hard = factor`."""
+    if factor <= 1.0 or category(sample) == "execute":
+        return 0
+    extra = factor - 1.0
+    return math.floor(extra) + (1 if _frac(seed, "oversample", sample.id) < extra - math.floor(extra) else 0)
+
+
+class MixedTranscriber:
+    """Team lead's data mix (ThanhDanh1510/ZaloAI2026 builder.py@7033c9f): a fixed share of samples use the saved
+    ASR transcript, the rest the gold `audio_text`. A sample falls back to gold when its ASR text is empty or lost a
+    gold entity (a name, amount or phone number the calls need), so the model is never taught to call tools with
+    arguments the transcript does not contain. The choice per sample is a hash of (seed, id): stable across rebuilds.
+    `chosen` records what each sample got."""
+
+    def __init__(self, asr: CachedTranscriber, ratio: float, seed: int = 0) -> None:
+        self._asr, self._gold = asr, GoldTranscriber()
+        self._ratio, self._seed = ratio, seed
+        self.chosen: dict[str, str] = {}
+
+    def _picked(self, sample_id: str) -> bool:
+        h = hashlib.sha256(f"{self._seed}:{sample_id}".encode()).digest()
+        return int.from_bytes(h[:4], "big") / 2**32 < self._ratio
+
+    def transcribe(self, sample: Sample) -> Transcript:
+        """ASR transcript for picked samples that keep every gold entity, gold otherwise."""
+        if self._ratio > 0 and self._asr.has(sample.id) and self._picked(sample.id):
+            t = self._asr.transcribe(sample)
+            calls = (sample.label or {}).get("tool_calls") or []
+            if t.final.strip() and entities_preserved(calls, t.final):
+                self.chosen[sample.id] = "asr"
+                return t
+            self.chosen[sample.id] = "gold_fallback"
+            return self._gold.transcribe(sample)
+        self.chosen[sample.id] = "gold"
+        return self._gold.transcribe(sample)
+
+    def warmup(self) -> None:
+        """Nothing to warm up."""
+
+
+def _transcriber(source: str, asr_cache: Path | None = None, asr_ratio: float = 0.7, seed: int = 0) -> Transcriber:
     if source == "gold":
         return GoldTranscriber()
-    raise NotImplementedError("transcript_source='asr' needs the ASR model (SPEC 6.1, 6.2.1 item 2)")
+    if source not in TRANSCRIPT_SOURCES:
+        raise ValueError(f"transcript_source: {source!r} not in {'|'.join(TRANSCRIPT_SOURCES)}")
+    if asr_cache is None or not asr_cache.is_file():
+        raise FileNotFoundError(
+            f"transcript_source={source!r} needs an ASR cache ({asr_cache}); build it on a GPU box with "
+            "python -m lifemate.train.asr_cache (SPEC 6.2.1 item 2)"
+        )
+    cache = CachedTranscriber.from_file(asr_cache)
+    return cache if source == "asr" else MixedTranscriber(cache, asr_ratio, seed)
 
 
 def build_sample(
@@ -113,8 +230,10 @@ def build_sample(
     train_mode: bool,
     source: str,
     result: BuildResult,
+    inject_error: bool = False,
 ) -> None:
-    """Append one row (or one dropped entry) for `sample` to `result`."""
+    """Append one row (or one dropped entry) for `sample` to `result`. With `inject_error`, the first call that has
+    a required argument is preceded by the same call without it and the guard's error turn (see `Augment`)."""
     label = sample.label or {}
     calls: list[dict[str, Any]] = list(label.get("tool_calls") or [])
     gold_results: list[Any] = list(label.get("tool_results") or [])
@@ -128,8 +247,18 @@ def build_sample(
         result.dropped.append((sample.id, "ask_missing_info_not_last"))
         return
     env = loader.open_env(sample.id)
+    no_loss: list[int] = []
     for i, call in enumerate(calls):
         name, arguments = str(call["name"]), dict(call.get("arguments") or {})
+        if inject_error and not no_loss and name != ASK_TOOL:
+            for key in arguments:
+                faulty = {k: v for k, v in arguments.items() if k != key}
+                verdict = env.validate(name, copy.deepcopy(faulty))
+                if not verdict.get("ok"):
+                    no_loss.append(len(conv.as_list()))
+                    conv.append_assistant(call_text(name, faulty), 0)
+                    conv.append_user(BLOCK_PREFIX + str(verdict.get("error")))
+                    break
         conv.append_assistant(call_text(name, arguments), 0)
         replayed = env.call(name, copy.deepcopy(arguments))
         if i >= len(gold_results) or canonical_json(replayed) != canonical_json(gold_results[i]):
@@ -141,6 +270,8 @@ def build_sample(
     else:
         conv.append_assistant(DONE_TEXT, 0)
     messages = conv.as_list()
+    for k in no_loss:
+        messages[k]["loss"] = False  # sft.build_labels trains no token of this turn
     n_tokens = counter.count(messages)
     if n_tokens > max_model_len:
         result.dropped.append((sample.id, f"too_long:{n_tokens}>{max_model_len}"))
@@ -150,6 +281,8 @@ def build_sample(
         {
             "id": sample.id,
             "source": source,
+            "category": category(sample),
+            "error_recovery": bool(no_loss),
             "messages": messages,
             "n_tokens": n_tokens,
             "n_assistant_turns": sum(1 for m in messages if m["role"] == "assistant"),
@@ -168,11 +301,21 @@ def build_rows(
     train_mode: bool,
     source: str = "train",
     transcript_source: str = "gold",
+    transcriber: Transcriber | None = None,
+    augment: Augment | None = None,
+    index: CatalogIndex | None = None,
+    held_out: frozenset[str] = frozenset(),
 ) -> BuildResult:
-    """Rows for every sample in order; one fresh env per sample from `loader`."""
-    transcriber = _transcriber(transcript_source)
+    """Rows for every sample in order; one fresh env per sample from `loader`. `augment` applies only in train
+    mode (eval files stay plain); distractors need `index`."""
+    transcriber = transcriber if transcriber is not None else _transcriber(transcript_source)
+    aug = augment if (augment is not None and train_mode) else Augment()
     result = BuildResult()
-    for sample in samples:
+    for original in dedup_clusters(samples, aug.dedup_max_k):
+        sample = original
+        if aug.distractor_apps > 0 and index is not None:
+            sample, _ = with_distractors(original, index, held_out, aug.distractor_apps, aug.seed)
+        n_before = len(result.rows)
         build_sample(
             sample,
             builder,
@@ -184,7 +327,13 @@ def build_rows(
             train_mode=train_mode,
             source=source,
             result=result,
+            inject_error=_frac(aug.seed, "error", sample.id) < aug.error_recovery_ratio,
         )
+        if len(result.rows) > n_before:
+            row = result.rows[-1]
+            result.rows.extend(
+                {**row, "copy": c + 1} for c in range(hard_copies(sample, aug.oversample_hard, aug.seed))
+            )
     return result
 
 
@@ -247,7 +396,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--split", default="train", help="data split folder holding the ids")
     ap.add_argument("--root", help="data root override")
     ap.add_argument("--allow-eval", action="store_true", help="allow val ids (eval-loss files only; no train mode)")
-    ap.add_argument("--transcript-source", choices=("gold", "asr"), default="gold")
+    ap.add_argument("--transcript-source", choices=TRANSCRIPT_SOURCES, default="gold")
+    ap.add_argument("--asr-cache", type=Path, help="ASR cache from lifemate.train.asr_cache (for asr and mix)")
+    ap.add_argument("--asr-ratio", type=float, default=0.7, help="mix: share of samples that use the ASR transcript")
+    ap.add_argument("--mix-seed", type=int, default=0, help="mix: seed of the per-sample choice (and of augment)")
+    ap.add_argument("--error-recovery", type=float, default=0.0, help="train: share of samples with a failed call")
+    ap.add_argument("--oversample-hard", type=float, default=1.0, help="train: copies of ask/out_of_scope rows")
+    ap.add_argument("--distractor-apps", type=int, default=0, help="train: extra installed apps per sample")
+    ap.add_argument("--dedup-max-k", type=int, default=0, help="train: max samples per near-duplicate cluster")
     return ap.parse_args(argv)
 
 
@@ -262,7 +418,8 @@ def run(args: argparse.Namespace, repo_root: Path = REPO_ROOT, argv: Sequence[st
     if leaked and not args.allow_eval:
         raise SystemExit(f"refusing: {len(leaked)} ids are in val_seen/val_unseen (e.g. {leaked[:3]}); --allow-eval")
     train_mode = not args.allow_eval  # SPEC 4.5: held-out rule only for train ids
-    _transcriber(args.transcript_source)  # fail fast for "asr"
+    asr_cache = abs_path(args.asr_cache, repo_root) if args.asr_cache else None
+    transcriber = _transcriber(args.transcript_source, asr_cache, args.asr_ratio, args.mix_seed)  # fail fast
     counter = make_counter(cfg.base.model, cfg.base.revision)
     index = CatalogIndex(load_catalog(root, args.split))
     builder = make_builder(run_cfg, repo_root, index, counter)
@@ -280,6 +437,12 @@ def run(args: argparse.Namespace, repo_root: Path = REPO_ROOT, argv: Sequence[st
         train_mode=train_mode,
         source="train" if train_mode else "eval",
         transcript_source=args.transcript_source,
+        transcriber=transcriber,
+        augment=Augment(
+            args.error_recovery, args.oversample_hard, args.distractor_apps, args.dedup_max_k, args.mix_seed
+        ),
+        index=index,
+        held_out=read_held_out(repo_root),
     )
     template = (repo_root / run_cfg.agent.system_prompt).read_bytes()
     meta = write_outputs(
@@ -293,6 +456,21 @@ def run(args: argparse.Namespace, repo_root: Path = REPO_ROOT, argv: Sequence[st
             "split": args.split,
             "train_mode": train_mode,
             "transcript_source": args.transcript_source,
+            "asr_cache": str(args.asr_cache) if args.asr_cache else None,
+            "asr_ratio": args.asr_ratio if args.transcript_source == "mix" else None,
+            "transcript_choice": dict(sorted(Counter(transcriber.chosen.values()).items()))
+            if isinstance(transcriber, MixedTranscriber)
+            else None,
+            "augment": dataclasses.asdict(
+                Augment(
+                    args.error_recovery, args.oversample_hard, args.distractor_apps, args.dedup_max_k, args.mix_seed
+                )
+            )
+            if train_mode
+            else None,
+            "rows_by_category": dict(sorted(Counter(r["category"] for r in result.rows).items())),
+            "n_error_recovery_rows": sum(1 for r in result.rows if r["error_recovery"] and "copy" not in r),
+            "n_oversample_copies": sum(1 for r in result.rows if "copy" in r),
             "token_counter": type(counter).__name__,
             "base_model": cfg.base.model,
             "base_revision": cfg.base.revision,

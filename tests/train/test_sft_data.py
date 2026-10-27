@@ -24,7 +24,7 @@ from lifemate.train.sft import IGNORE_INDEX, build_labels, load_llm_train_config
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DATA_ROOT = REPO_ROOT / "data" / "train+public_test"
-LEAK_ID = "train_0682"  # history calls a held-out app (SPEC 4.5)
+LEAK_ID = "train_0655"  # history calls a held-out app (SPEC 4.5)
 CFG = REPO_ROOT / "configs" / "train" / "llm_v1.toml"
 
 
@@ -131,12 +131,12 @@ def test_cli_writes_files_and_refuses_eval_ids(tmp_path: Path) -> None:
     if not DATA_ROOT.is_dir():
         pytest.skip("data package missing")
     ids = tmp_path / "ids.txt"
-    ids.write_text("train_0002\ntrain_0682\n", encoding="utf-8")
+    ids.write_text(f"train_0002\n{LEAK_ID}\n", encoding="utf-8")
     out = tmp_path / "sft.jsonl"
     argv = ["--config", str(CFG), "--ids", str(ids), "--out", str(out)]
     meta = sft_data.run(sft_data.parse_args(argv), REPO_ROOT, argv=argv)
     assert meta["n_rows"] == 1 and meta["n_dropped"] == 1 and meta["train_mode"] is True
-    assert (tmp_path / "sft.jsonl.dropped.txt").read_text(encoding="utf-8").startswith("train_0682\theld_out_leak:")
+    assert (tmp_path / "sft.jsonl.dropped.txt").read_text(encoding="utf-8").startswith(f"{LEAK_ID}\theld_out_leak:")
     assert json.loads((tmp_path / "sft.jsonl.meta.json").read_text(encoding="utf-8"))["sha256"] == meta["sha256"]
     val = read_ids(REPO_ROOT / "configs" / "splits" / "val_unseen.txt")[:1]
     ids.write_text(val[0] + "\n", encoding="utf-8")
@@ -146,9 +146,9 @@ def test_cli_writes_files_and_refuses_eval_ids(tmp_path: Path) -> None:
     assert meta["train_mode"] is False and meta["n_rows"] == 1
 
 
-def test_asr_transcript_source_not_implemented() -> None:
-    with pytest.raises(NotImplementedError, match=r"6\.1"):
-        sft_data._transcriber("asr")
+def test_asr_transcript_source_needs_cache(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        sft_data._transcriber("asr", tmp_path / "missing.json", 0.3, 0)
 
 
 # ---------------------------------------------------------------- loss masking with a fake tokenizer

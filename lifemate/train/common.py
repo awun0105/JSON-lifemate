@@ -320,8 +320,9 @@ def load_toml(path: Path, sections: Sequence[str]) -> dict[str, Any]:
 
 
 def read_held_out(repo_root: Path) -> frozenset[str]:
-    """`held_out_apps` from configs/splits/meta.json (empty when the file is absent)."""
+    """`held_out_apps` from configs/splits/meta.json. The file is git-ignored, so a fresh clone must run
+    `make splits` first; a missing file is an error, never an empty set (that would leak held-out schemas)."""
     meta = repo_root / "configs" / "splits" / "meta.json"
     if not meta.is_file():
-        return frozenset()
+        raise FileNotFoundError(f"{meta} is missing: run `make splits`")
     return frozenset(json.loads(meta.read_text(encoding="utf-8")).get("held_out_apps", []))

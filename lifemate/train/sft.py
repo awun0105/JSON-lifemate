@@ -57,6 +57,13 @@ class DataSection:
     train: str
     eval_seen: str
     eval_unseen: str
+    transcript_source: str  # gold | asr | mix (lifemate.train.sft_data); mix = team lead's 30% gold / 70% ASR
+    asr_ratio: float  # mix only: share of samples built from the ASR transcript
+    asr_cache: str  # ASR cache from lifemate.train.asr_cache ("" when transcript_source = gold)
+    error_recovery_ratio: float  # train rows with one failed call then the fix (sft_data.Augment)
+    oversample_hard: float  # copies of ask_missing_info / out_of_scope rows; 1.0 = none
+    distractor_apps: int  # extra installed apps per train sample; 0 = none
+    dedup_max_k: int  # max train samples per near-duplicate cluster; 0 = keep all
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +82,8 @@ class TrainSection:
     """[train]."""
 
     lr: float
+    lr_scheduler: str  # transformers scheduler name, e.g. cosine
+    warmup_ratio: float
     epochs: int
     batch_size: int
     grad_accum: int
@@ -105,6 +114,16 @@ def load_llm_train_config(path: Path) -> LLMTrainConfig:
     )
     if cfg.lora.quant not in {"nf4", "none"}:
         raise ConfigError(f"lora.quant: {cfg.lora.quant!r} not in nf4|none")
+    if cfg.data.transcript_source not in {"gold", "asr", "mix"}:
+        raise ConfigError(f"data.transcript_source: {cfg.data.transcript_source!r} not in gold|asr|mix")
+    if cfg.data.transcript_source != "gold" and not cfg.data.asr_cache:
+        raise ConfigError("data.asr_cache: required when data.transcript_source is asr or mix")
+    if not 0.0 <= cfg.data.error_recovery_ratio <= 1.0:
+        raise ConfigError("data.error_recovery_ratio must be in [0, 1]")
+    if cfg.data.oversample_hard < 1.0 or cfg.data.distractor_apps < 0 or cfg.data.dedup_max_k < 0:
+        raise ConfigError("data.oversample_hard must be >= 1; data.distractor_apps and data.dedup_max_k >= 0")
+    if not 0.0 <= cfg.data.asr_ratio <= 1.0:
+        raise ConfigError("data.asr_ratio must be in [0, 1]")
     if cfg.train.save_every_steps % cfg.train.eval_every_steps != 0:
         raise ConfigError("train.save_every_steps must be a multiple of train.eval_every_steps")
     return cfg
@@ -155,7 +174,8 @@ def build_labels(
     messages: Sequence[Mapping[str, Any]],
     chat_template_kwargs: Mapping[str, Any] | None = None,
 ) -> tuple[list[int], list[int]]:
-    """Token ids of the whole conversation and labels that are IGNORE_INDEX outside assistant turns.
+    """Token ids of the whole conversation and labels that are IGNORE_INDEX outside assistant turns and on assistant
+    turns marked `"loss": false` (the failed call of an error-recovery row).
 
     Assistant span k = tokens after the rendering of messages[:k] with the generation prompt, up to the end of
     the rendering of messages[:k+1] (so the end-of-turn token is trained). The start is the common prefix of the
@@ -163,15 +183,17 @@ def build_labels(
     differently from a finished assistant turn. A template that is not prefix-stable raises ValueError.
     """
     kwargs = dict(chat_template_kwargs or {})
-    full = _render(tokenizer, messages, False, kwargs)
+    trained = [m.get("role") == "assistant" and m.get("loss", True) is not False for m in messages]
+    plain = [{"role": m["role"], "content": m["content"]} for m in messages]  # `loss` never reaches the template
+    full = _render(tokenizer, plain, False, kwargs)
     labels = [IGNORE_INDEX] * len(full)
-    for k, msg in enumerate(messages):
-        if msg.get("role") != "assistant":
+    for k in range(len(plain)):
+        if not trained[k]:
             continue
-        upto = _render(tokenizer, messages[: k + 1], False, kwargs)
+        upto = _render(tokenizer, plain[: k + 1], False, kwargs)
         if full[: len(upto)] != upto:
             raise ValueError(f"chat template is not prefix-stable at message {k}")
-        start = min(_common_prefix(_render(tokenizer, messages[:k], True, kwargs), full), len(upto))
+        start = min(_common_prefix(_render(tokenizer, plain[:k], True, kwargs), full), len(upto))
         labels[start : len(upto)] = full[start : len(upto)]
     return full, labels
 
@@ -313,6 +335,8 @@ def train(cfg: LLMTrainConfig, *, repo_root: Path, out_dir: Path, resume_from: P
     args = stack.transformers.TrainingArguments(
         output_dir=str(out_dir / "hf"),
         learning_rate=cfg.train.lr,
+        lr_scheduler_type=cfg.train.lr_scheduler,
+        warmup_ratio=cfg.train.warmup_ratio,
         num_train_epochs=cfg.train.epochs,
         per_device_train_batch_size=cfg.train.batch_size,
         per_device_eval_batch_size=1,

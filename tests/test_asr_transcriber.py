@@ -99,3 +99,45 @@ def test_engine_registry_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
     assert built == [cfg] and tr.transcribe(SAMPLE).final == "text:t1.wav"
     with pytest.raises(ValueError, match="engine"):
         make_backend(ASRConfig(backend="asr", model="m", revision="r", engine="nope"))
+
+
+def test_faster_whisper_engine_and_sanitize(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """faster_whisper engine passes generate_kwargs through; sanitize=true cleans history hallucinations."""
+    import sys
+    import types
+
+    calls: list[dict] = []
+    fake_torch = types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: False))
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+    class _Seg:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+    class _Model:
+        def __init__(self, path: str, device: str, compute_type: str) -> None:
+            calls.append({"path": path, "device": device, "compute_type": compute_type})
+
+        def transcribe(self, audio, **kw):  # type: ignore[no-untyped-def]
+            calls.append(kw)
+            text = "Hãy subscribe cho kênh La La School" if len(calls) % 2 == 0 else "bật đèn"
+            return iter([_Seg(text)]), None
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=_Model))
+    from lifemate.backends import asr as asr_mod
+
+    cfg = ASRConfig(
+        backend="asr",
+        model=str(tmp_path),
+        revision="",
+        engine="faster_whisper",
+        device="cpu",
+        generate_kwargs={"language": "vi", "beam_size": 5},
+        sanitize=True,
+    )
+    backend = asr_mod.make_backend(cfg)
+    assert isinstance(backend, asr_mod.FasterWhisperASR) and calls[0]["compute_type"] == "float32"
+    monkeypatch.setattr(asr_mod, "read_wav", lambda p, sr: p)
+    out = backend.transcribe_batch([Path("a.wav"), Path("b.wav")])
+    assert out == ["Hãy subscribe cho kênh La La School", "bật đèn"] and calls[1] == {"language": "vi", "beam_size": 5}
+    assert asr_mod.sanitize(out[0], is_history=True) == ""

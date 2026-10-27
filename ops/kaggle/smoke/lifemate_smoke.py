@@ -84,8 +84,9 @@ v0 = CODE / "configs/v0.toml"
 asr_cfg = CODE / "configs/kaggle_asr.toml"
 shutil.copy(v0, asr_cfg)
 edit(asr_cfg, r'^backend = "gold".*$', 'backend = "asr"')
-# T4 has 15 GB shared by vLLM and PhoWhisper. The longest smoke prompt is about 6.1K tokens, so an 8K
-# context at 0.72 utilisation fits both. The A30 (24 GB) keeps the v0 values.
+# T4 has 15 GB shared by vLLM and the ASR. The longest prompt measured is about 7.7K tokens, so an 8K
+# context at 0.72 utilisation fitted vLLM + PhoWhisper-medium;
+# whisper-large-v3 (CT2) is not yet measured here. The A30 (24 GB) keeps the v0 values.
 edit(asr_cfg, r"^max_model_len = .*$", "max_model_len = 8192")
 edit(asr_cfg, r"^gpu_memory_utilization = .*$", "gpu_memory_utilization = 0.72")
 asr_fp32 = CODE / "configs/kaggle_asr_fp32.toml"
@@ -97,12 +98,15 @@ edit(asr_fp32, r'^dtype = "auto"(\s+# auto: bfloat16.*)$', r'dtype = "float32"\1
 sh("nvidia-smi")
 sh("pip install -q -r ops/requirements/notebook.txt pytest")
 sh("pip install -q vllm==0.32.0")
+sh("pip install -q faster-whisper==1.2.1")  # ASR engine of configs/v0.toml (CTranslate2 whisper-large-v3)
 sh("pip uninstall -y -q torchaudio", check=False)
 sh(
     'python -c "import torch, vllm, transformers; '
     'print(torch.__version__, vllm.__version__, transformers.__version__, torch.cuda.get_device_name(0))"'
 )
 sh("python -c \"from pathlib import Path; from lifemate.core.envinfo import detect; print(detect(Path('.')))\"")
+# Split id lists are git-ignored; rebuild them from the mounted data (deterministic, same files as local).
+sh(f"python -m lifemate.eval.make_splits --root {data_root} --smoke 30")
 sh('python -m pytest -q -p no:cacheprovider -m "not data and not tokenizer"', check=False)
 
 # 5. ASR quality: float32 (old behaviour) vs auto (float16 on T4, bfloat16 on sm80+), same samples.

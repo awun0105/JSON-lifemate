@@ -96,10 +96,10 @@ def test_write_train_config(tmp_path: Path) -> None:
 
 def test_llm_train_config_strict(tmp_path: Path, repo_root: Path) -> None:
     cfg = load_llm_train_config(repo_root / "configs" / "train" / "llm_v1.toml")
-    assert cfg.base.model == "Qwen/Qwen3-4B-Instruct-2507" and cfg.lora.r == 16 and cfg.train.max_len == 16384
+    assert cfg.base.model == "Qwen/Qwen3-4B-Instruct-2507" and cfg.lora.r == 32 and cfg.train.max_len == 10240
     bad = tmp_path / "bad.toml"
     text = (repo_root / "configs" / "train" / "llm_v1.toml").read_text(encoding="utf-8")
-    bad.write_text(text.replace("r = 16", "r = 16\nrank = 3"), encoding="utf-8")
+    bad.write_text(text.replace("r = 32", "r = 32\nrank = 3"), encoding="utf-8")
     with pytest.raises(ConfigError, match=r"lora\.rank"):
         load_llm_train_config(bad)
 

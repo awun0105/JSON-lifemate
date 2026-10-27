@@ -57,7 +57,7 @@ def test_v0_and_docker_configs_load(repo_root: Path) -> None:
     """v0.toml and docker.toml parse with the chosen models filled in (SPEC 6.0)."""
     v0 = load_config(repo_root / "configs" / "v0.toml")
     assert v0.llm.model and v0.llm.revision and v0.asr.model and v0.asr.revision
-    assert v0.asr.engine == "hf_seq2seq"
+    assert v0.asr.engine == "faster_whisper"
     dk = load_config(repo_root / "configs" / "docker.toml")
     assert dk.llm.model.startswith("/app/models/") and dk.asr.backend == "asr"
     assert dk.agent == v0.agent and dk.llm.max_model_len == v0.llm.max_model_len
@@ -79,8 +79,8 @@ def test_vllm_empty_model_raises(tmp_path: Path, repo_root: Path) -> None:
 @pytest.mark.parametrize(
     ("old", "new", "key"),
     [
-        ('engine = "hf_seq2seq"', 'engine = "nemo"', r"asr\.engine"),
-        ('model = "vinai/PhoWhisper-medium"', 'model = ""', r"asr\.model"),
+        ('engine = "faster_whisper"', 'engine = "nemo"', r"asr\.engine"),
+        ('model = "Systran/faster-whisper-large-v3"', 'model = ""', r"asr\.model"),
         ('dtype = "auto"                         # auto: bfloat16', 'dtype = "int8"  # auto: bfloat16', r"asr\.dtype"),
     ],
 )

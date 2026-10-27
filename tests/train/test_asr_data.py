@@ -12,7 +12,7 @@ from lifemate.train import asr_data
 from lifemate.train.asr import choose_checkpoint
 from lifemate.train.common import CheckpointInfo
 
-EXPECTED = {"train": 3547, "val_seen": 624, "val_unseen": 865}
+EXPECTED = {"train": 3593, "val_seen": 916, "val_unseen": 527}
 
 
 @pytest.mark.data
