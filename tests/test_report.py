@@ -19,7 +19,8 @@ def test_runs_table_newest_first(tmp_path: Path) -> None:
         idx, {"run": "b", "date": "d2", "git_commit": "c", "model": "m", "split": "train", "n": 3, "score": 20.0}
     )
     out = runs_table(idx)
-    assert out.index("b") < out.index("a") and "p95_seconds" in out
+    rows = out.splitlines()[2:]
+    assert [r.split()[0] for r in rows] == ["b", "a"] and "p95_seconds" in out
     assert runs_table(idx, limit=1).count("\n") == 2
 
 
