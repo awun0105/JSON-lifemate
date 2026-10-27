@@ -8,7 +8,8 @@ run the offline tests, measure ASR quality at float32 vs the auto dtype on val_s
 Push:  kaggle kernels push -p ops/kaggle/smoke --accelerator NvidiaTeslaT4
 Data:  private dataset quanlam/zac2026-lifemate (must never be public).
 Knobs (env vars, read at run time): LIFEMATE_REF (git ref, default main),
-RUN_GOLD / RUN_ASR / RUN_ASR_EVAL ("1" to run, default all "1").
+RUN_GOLD / RUN_ASR / RUN_ASR_EVAL ("1" to run, default all "1"), RUN_IDS (ids file, default the
+30 smoke samples), RUN_TAG (suffix of run names). ops/kaggle/eval sets these and execs this file.
 """
 
 import glob
@@ -32,10 +33,12 @@ def flag(name: str) -> bool:
 
 
 def sh(cmd: str, check: bool = True) -> int:
-    """Run a shell command in the code folder (or /kaggle/working before the clone), echo time and exit code."""
+    """Run a shell command (bash, pipefail) in the code folder (or /kaggle/working before the clone)."""
     print(f"\n$ {cmd}", flush=True)
     t0 = time.time()
-    code = subprocess.call(cmd, shell=True, cwd=CODE if CODE.is_dir() else WORK)
+    code = subprocess.call(
+        f"set -o pipefail; {cmd}", shell=True, executable="/bin/bash", cwd=CODE if CODE.is_dir() else WORK
+    )
     print(f"[exit {code}, {time.time() - t0:.0f}s]", flush=True)
     if check and code != 0:
         sys.exit(code)
@@ -111,14 +114,23 @@ if flag("RUN_ASR_EVAL"):
             check=False,
         )
 
-# 6. Agent runs on the 30 smoke samples.
-smoke = "--split train --ids configs/splits/smoke.txt"
+# 6. Agent runs. Each CLI log is kept so the deadline path can be checked: `llm_step_aborted_at_deadline`
+# means a step was cut at deadline_s; `vllm_abortable_generate_unsupported` means vLLM lacked the
+# step/abort API and steps could not be cut (must be 0 before submitting).
+ids = os.environ.get("RUN_IDS", "configs/splits/smoke.txt")
+tag = os.environ.get("RUN_TAG", "smoke")
+split_args = f"--split train --ids {ids}"
 runs = {}
 cli = "python -m lifemate.run.cli --env kaggle"
-if flag("RUN_GOLD"):
-    runs["gold"] = sh(f"{cli} --config configs/v0.toml {smoke} --name smoke_gold", check=False)
-if flag("RUN_ASR"):
-    runs["asr"] = sh(f"{cli} --config {asr_cfg} {smoke} --name smoke_asr", check=False)
+logs = WORK / "logs"
+logs.mkdir(exist_ok=True)
+for kind, enabled, cfg in (("gold", flag("RUN_GOLD"), "configs/v0.toml"), ("asr", flag("RUN_ASR"), asr_cfg)):
+    if enabled:
+        name = f"{tag}_{kind}"
+        runs[kind] = sh(f"{cli} --config {cfg} {split_args} --name {name} 2>&1 | tee {logs}/{name}.log", False)
+        text = (logs / f"{name}.log").read_text(encoding="utf-8", errors="replace")
+        for key in ("llm_step_aborted_at_deadline", "vllm_abortable_generate_unsupported", "sample_exception"):
+            print(f"[{name}] {key}: {text.count(key)}", flush=True)
 
 # 7. Report; keep only runs/ and asr_eval/ in the output.
 sh(f"python -m lifemate.run.report runs {WORK}/runs/index.csv", check=False)
