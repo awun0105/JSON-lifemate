@@ -77,7 +77,7 @@ def load_canon_scalar() -> None:
     _canon_scalar = getattr(zutils, "_canon_scalar", _local_canon_scalar)
 
 
-def values_equal(a, b, canon: bool = False) -> bool:  # noqa: PLR0911
+def values_equal(a, b, canon: bool = False) -> bool:
     """Type-aware equality: bool only equals bool; int/float equal when numerically equal; str equals str (normalised
     with _canon_scalar when canon); list and dict compare recursively; any other type mix is unequal."""
     if isinstance(a, bool) or isinstance(b, bool):

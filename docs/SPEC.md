@@ -174,23 +174,29 @@ class ToolEnvLike(Protocol):
     def get_tool_calls(self) -> list[dict]: ...
     def get_state_hash(self) -> str: ...
 
+
 class LLMBackend(Protocol):
     def generate(self, messages: list[dict], schema: dict, *, sample_id: str) -> Generation: ...
     # sample_id chỉ để FakeLLM tra đáp án (A1); VLLMBackend bỏ qua, không đưa vào prompt
     def warmup(self) -> None: ...
 
+
 class TokenCounter(Protocol):
     def count(self, messages: list[dict]) -> int: ...
+
 
 class Transcriber(Protocol):
     def transcribe(self, sample: Sample) -> Transcript: ...
     def warmup(self) -> None: ...
 
+
 class Clock(Protocol):
-    def __call__(self) -> float: ...   # time.monotonic lúc chạy thật, đồng hồ giả trong test
+    def __call__(self) -> float: ...  # time.monotonic lúc chạy thật, đồng hồ giả trong test
+
 
 class Guard(Protocol):
     def check(self, action: Action, ctx: GuardContext) -> GuardResult: ...
+
 
 class AgentObserver(Protocol):
     def on_sample_start(self, sample: Sample, transcript: Transcript) -> None: ...
@@ -271,8 +277,8 @@ Interface `Transcriber` ở mục 4.0.
 ```python
 @dataclass(frozen=True, slots=True)
 class Transcript:
-    final: str                        # lời của lượt cuối
-    history: tuple[str | None, ...]   # cùng độ dài với sample.history; None ở các lượt assistant
+    final: str  # lời của lượt cuối
+    history: tuple[str | None, ...]  # cùng độ dài với sample.history; None ở các lượt assistant
     seconds: float
 ```
 
@@ -282,7 +288,8 @@ class Transcript:
 ### 4.5. Mô tả tool rút gọn (`lifemate/tooldocs.py`)
 
 ```python
-def render_tools(catalog: dict, installed_apps: dict) -> str
+class CatalogIndex:            # nạp catalog một lần, index {tên tool: spec}, allowed_tools(installed_apps)
+def render_tools(index: CatalogIndex, allowed: Iterable[str], *, drop_param_descriptions: bool = False) -> str
 ```
 
 - Chỉ đưa vào các tool có trong `installed_apps`, cộng thêm `sys.ask_missing_info`.
@@ -303,7 +310,9 @@ def render_tools(catalog: dict, installed_apps: dict) -> str
 | Kiểu | `string`, `integer`, `number`, `boolean`, `array<string>`, `object` |
 | `enum` | `a|b|c` thay cho kiểu |
 | `description` của tham số | trong ngoặc tròn sau kiểu |
-| `format`, `minimum`, `maximum` | `[format=date]`, `[>=1]` |
+| `format`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum` | `[format=date]`, `[>=1]`, `[>0]` |
+| `items` là object | `array<object{a: string, b?: integer}>` |
+| Tool không có tham số | dòng `(không có tham số)` |
 | `x-one-of` | dòng riêng `cần một trong: [contact_id] hoặc [phone_number]` |
 | `x-ref` | `(id lấy từ contacts.contacts)` |
 | `x-match: fuzzy` | `(văn bản tự do)` |
@@ -323,8 +332,11 @@ Khi chạy đánh giá trên `val_seen` và `val_unseen` thì **không** áp d�
 ```python
 class PromptBuilder:
     def __init__(self, system_template: str, renderer: ToolDocRenderer): ...
-    def start(self, sample: Sample, transcript: Transcript, *, train_mode: bool = False) -> Conversation
-        # train_mode: áp dụng quy tắc app bị rút (mục 4.5); raise HeldOutLeak nếu history gọi app bị rút
+    def __init__(self, system_template, index: CatalogIndex, counter: TokenCounter, *,
+                 max_model_len, max_tokens, max_result_chars, held_out_apps=frozenset()): ...
+    def start(self, sample: Sample, transcript: Transcript, *, train_mode: bool = False) -> tuple[Conversation, int]
+        # trả về (hội thoại, mức giảm 0-3 đã dùng); train_mode: áp dụng quy tắc app bị rút (mục 4.5),
+        # raise HeldOutLeak nếu history gọi app bị rút
 
 class Conversation:
     def __init__(self, messages: list[dict], counter: TokenCounter): ...
