@@ -20,3 +20,6 @@ docs/notes/
 # secrets
 .env
 *.token
+# diagram/deck scratch (receipts, previews)
+.archify/
+.deck/
