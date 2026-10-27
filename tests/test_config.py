@@ -7,7 +7,7 @@ import pytest
 
 from lifemate.config import ConfigError, EnvProfile, load_config, load_profile
 
-PROFILES = ["local", "kaggle", "colab", "rented", "docker"]
+PROFILES = ["local", "kaggle", "colab", "rented", "runpod", "docker"]
 
 
 @pytest.mark.parametrize("name", PROFILES)

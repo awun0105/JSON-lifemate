@@ -135,11 +135,12 @@ lifemate/
 ├── runner.py      # Runner: warm-up, lặp qua mẫu, cô lập lỗi từng mẫu, gọi chấm
 ├── factory.py     # nơi duy nhất tạo đối tượng từ Config (registry theo tên backend)
 ├── envinfo.py     # nhận GPU, chọn dtype, lấy phiên bản code và gói (mục 4.16)
-└── cli.py         # chỉ parse tham số rồi gọi Runner; chạy bằng `python -m lifemate.cli`
+├── cli.py         # chỉ parse tham số rồi gọi Runner; chạy bằng `python -m lifemate.cli`
+└── report.py      # bảng text từ runs/index.csv và metrics.jsonl, vẽ PNG nếu có matplotlib (`make report`, `make report-train`)
 prompts/system_v0.md
 configs/v0.toml
 configs/docker.toml   # như v0.toml nhưng model trỏ vào /app/models/* và asr.backend = "asr"; mặc định của image (mục 6.3)
-configs/env/       # local.toml, kaggle.toml, colab.toml, rented.toml, docker.toml (mục 4.16)
+configs/env/       # local.toml, kaggle.toml, colab.toml, rented.toml, runpod.toml, docker.toml (mục 4.16)
 requirements/notebook.txt   # sinh từ uv.lock, bỏ torch/CUDA, dùng cho Kaggle và Colab
 scripts/pack_code.sh
 notebooks/         # {kaggle,colab}_run.ipynb chạy agent; {kaggle,colab}_train_{llm,asr}.ipynb gọi pipeline train: chỉ gọi lệnh
@@ -787,7 +788,9 @@ Notebook chỉ gọi lệnh, không chứa logic. Mọi logic nằm trong `lifem
 
 **Notebook train (`notebooks/{kaggle,colab}_train_{llm,asr}.ipynb`)** theo cùng mẫu: cài `requirements/notebook.txt` + `requirements/train.txt`, in `EnvInfo`, chạy `pytest tests/train`, khôi phục `runs/` của phiên trước (Kaggle: chép từ dataset `lifemate-runs` đã đính kèm; Colab: work dir nằm sẵn trên Drive), gọi `lifemate.train.llm_pipeline` hoặc `asr_pipeline` một lệnh, in `models/registry.csv` và metric, lưu `runs/` theo `persist`. Pipeline đọc `pipeline_progress.json` nên phiên sau chạy tiếp từ stage dở dang.
 
-**Nơi không chạy được:** Kaggle và Colab không chạy được Docker. Việc kiểm tra Docker (mục 6.3) làm trên máy thuê.
+**Máy thuê RunPod:** profile `runpod` (`/workspace` là ổ bền), `scripts/runpod_setup.sh` cài uv, lấy code, tải snapshot hai model vào `models/`, chạy test và smoke; chi tiết `docs/runpod.md`.
+
+**Nơi không chạy được:** Kaggle và Colab không chạy được Docker. Việc kiểm tra Docker (mục 6.3) làm trên máy thuê có Docker (nhiều template RunPod không có).
 
 ---
 

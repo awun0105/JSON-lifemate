@@ -83,5 +83,5 @@ files = ["lifemate"]
 warn_unreachable = true
 # Optional heavy libraries have no stubs; they are imported inside the backend that needs them.
 [[tool.mypy.overrides]]
-module = ["vllm", "vllm.*", "transformers", "transformers.*", "torch", "torch.*", "structlog", "structlog.*", "chunkformer", "chunkformer.*"]
+module = ["vllm", "vllm.*", "transformers", "transformers.*", "torch", "torch.*", "structlog", "structlog.*", "chunkformer", "chunkformer.*", "matplotlib", "matplotlib.*"]
 ignore_missing_imports = true

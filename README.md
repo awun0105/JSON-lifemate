@@ -16,7 +16,9 @@ make test             # pytest, offline; data/tokenizer tests skip when absent
 make run ENV=local SPLIT=train IDS=splits/smoke.txt
 ```
 
-Competition data lives in `train+public_test/` (git-ignored). Runs are written under `runs/`.
+Competition data lives in `train+public_test/` (git-ignored). Runs are written under `runs/`; `make report` lists them and `make report-train WORK=runs/train/<name>` shows training curves (`lifemate/report.py`).
+
+Rented GPU (RunPod): `docs/runpod.md`, one command via `scripts/runpod_setup.sh`.
 
 ## Running on Kaggle / Colab
 

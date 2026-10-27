@@ -37,13 +37,22 @@ splits:          ## Regenerate splits/ (train, val_seen, val_unseen, smoke)
 run:             ## Run the agent: make run ENV=local SPLIT=train IDS=splits/smoke.txt
 	uv run python -m lifemate.cli --config $(CONFIG) --env $(ENV) --split $(SPLIT) --ids $(IDS) --name $(NAME)
 
+report:          ## Table of agent runs: make report [INDEX=runs/index.csv]
+	uv run python -m lifemate.report runs $(or $(INDEX),runs/index.csv)
+
+report-train:    ## Loss/eval table of a training work dir: make report-train WORK=runs/train/<name>
+	uv run python -m lifemate.report train $(WORK) --png $(WORK)/loss.png
+
+train-deps:      ## Install the fine-tune stack (unsloth, trl, peft, ...) on a GPU box
+	uv pip install -r requirements/train.txt
+
 score:           ## Score a submission: make score SUB=runs/<name>/submission.jsonl IDS=splits/val_seen.txt
 	uv run python eval/score.py $(SUB) --ids $(IDS)
 
 pack:            ## Pack code for Kaggle/Colab into dist/
 	scripts/pack_code.sh
 
-.PHONY: help install install-gpu lint format typecheck check test splits run score pack
+.PHONY: help install install-gpu lint format typecheck check test splits run score pack report report-train train-deps
 
 # Docker (SPEC 6.3). Build/run on a GPU box with docker + nvidia-container-toolkit.
 DATA_SPLIT_DIR ?= train+public_test/train+public_test/public_test
