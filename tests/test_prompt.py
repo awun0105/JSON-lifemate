@@ -10,6 +10,7 @@ from lifemate.agent.prompt import (
     Conversation,
     HeldOutLeak,
     PromptBuilder,
+    render_calendar,
     render_context,
     render_history,
     truncate_result,
@@ -216,3 +217,15 @@ def test_prompt_shrink_levels() -> None:
     assert lvl == 3 and conv_x.prompt_tokens() + 50 > 10
     user = conv_x.messages[1]["content"]
     assert "lượt 3" in user and "trả lời 3" in user and "lượt 2" not in user
+
+
+def test_render_calendar_weekdays_and_weeks() -> None:
+    """Catches the smoke-run date errors: weekday names, 'mai', and the week boundary on Monday."""
+    lines = render_calendar("2026-11-28T07:10:00+07:00")  # Saturday
+    assert lines[0] == "Lịch (bây giờ là thứ Bảy 2026-11-28 07:10):"
+    assert "  2026-11-27 thứ Sáu (tuần này, hôm qua)" in lines
+    assert "  2026-11-29 Chủ nhật (tuần này, mai)" in lines
+    assert "  2026-11-30 thứ Hai (tuần sau, mốt / ngày kia)" in lines
+    assert "  2026-12-11 thứ Sáu (2 tuần nữa)" in lines
+    assert len(lines) == 1 + 15
+    assert render_calendar("not a time") == []

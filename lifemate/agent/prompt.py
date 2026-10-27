@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -29,12 +30,42 @@ def _value_text(value: Any) -> str:
     return value if isinstance(value, str) else canonical_json(value)
 
 
+_WEEKDAYS = ("thứ Hai", "thứ Ba", "thứ Tư", "thứ Năm", "thứ Sáu", "thứ Bảy", "Chủ nhật")
+_CALENDAR_DAYS = 14
+
+
+def render_calendar(current_time: str) -> list[str]:
+    """Weekday and date of yesterday, today and the next 13 days, from `current_time` (ISO 8601).
+
+    The model got "thứ sáu", "chủ nhật này" and "mai" wrong when it had to count days itself; listing
+    them removes that arithmetic. Weeks start on Monday, so "tuần này" / "tuần sau" are explicit.
+    Empty when `current_time` cannot be parsed.
+    """
+    try:
+        now = dt.datetime.fromisoformat(current_time)
+    except (TypeError, ValueError):
+        return []
+    today = now.date()
+    week0 = today - dt.timedelta(days=today.weekday())
+    names = {-1: "hôm qua", 0: "hôm nay", 1: "mai", 2: "mốt / ngày kia"}
+    lines = [f"Lịch (bây giờ là {_WEEKDAYS[today.weekday()]} {today.isoformat()} {now.strftime('%H:%M')}):"]
+    for offset in range(-1, _CALENDAR_DAYS):
+        day = today + dt.timedelta(days=offset)
+        weeks = (day - week0).days // 7
+        week = {0: "tuần này", 1: "tuần sau", -1: "tuần trước"}.get(weeks, f"{weeks} tuần nữa")
+        tag = f", {names[offset]}" if offset in names else ""
+        lines.append(f"  {day.isoformat()} {_WEEKDAYS[day.weekday()]} ({week}{tag})")
+    return lines
+
+
 def render_context(context: Mapping[str, Any]) -> str:
-    """`# Ngữ cảnh` block: time, timezone, location, user_profile; never installed_apps."""
+    """`# Ngữ cảnh` block: time, timezone, calendar, location, user_profile; never installed_apps."""
     lines = ["# Ngữ cảnh"]
     for key in ("current_time", "timezone"):
         if key in context:
             lines.append(f"{key}: {_value_text(context[key])}")
+    if isinstance(context.get("current_time"), str):
+        lines.extend(render_calendar(context["current_time"]))
     loc = context.get("location")
     if isinstance(loc, Mapping) and "lat" in loc and "lng" in loc:
         lines.append(f"location: {loc['lat']}, {loc['lng']}")

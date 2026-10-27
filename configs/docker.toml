@@ -17,7 +17,7 @@ max_steps = 10
 max_retries = 2
 deadline_s = 29.0
 max_result_chars = 4000
-system_prompt = "configs/prompts/system_v0.md"
+system_prompt = "configs/prompts/system_v1.md"
 guards = ["allowed_tool", "schema", "duplicate_write"]
 
 [asr]
