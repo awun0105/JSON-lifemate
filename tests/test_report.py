@@ -1,11 +1,11 @@
-"""lifemate.report: text tables over index.csv and metrics.jsonl (no plotting dependency)."""
+"""lifemate.run.report: text tables over index.csv and metrics.jsonl (no plotting dependency)."""
 
 from pathlib import Path
 
 import pytest
 
-from lifemate.report import main, metric_columns, runs_table, train_report
-from lifemate.store import append_index
+from lifemate.io.store import append_index
+from lifemate.run.report import main, metric_columns, runs_table, train_report
 from lifemate.train.common import MetricsLogger
 
 

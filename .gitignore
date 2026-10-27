@@ -1,39 +1,22 @@
-# Competition data (must not be shared or distributed)
-train+public_test/
-private_test/
-*.zip
-
-# Submissions and scorer output
-submission*.jsonl
-*.details.jsonl
-runs/
-
-# Python
+# competition data and everything built from it (never shared)
+data/
+# run outputs, model weights, packed code: regenerable
+artifacts/*
+!artifacts/models/
+artifacts/models/*
+!artifacts/models/registry.csv
+!artifacts/models/README.md
+# tooling
+.venv/
 __pycache__/
 *.pyc
-.venv/
-
-# OS
-.DS_Store
-__MACOSX/
-
-# Generated knowledge graph
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 graphify-out/
-
-# Packed code for Kaggle/Colab
-dist/
-
-# Docker run output and baked model weights
 result/
-models/*
-!models/registry.csv
-!models/README.md
-
-# Built training data (SPEC 6.2.1, 6.4.1); keep meta files so builds are reproducible
-data/**/*.jsonl
-data/**/*.txt
-models/*/merged/
-*.safetensors
-
 # local-only notes (not shared)
 docs/notes/
+# secrets
+.env
+*.token

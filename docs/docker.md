@@ -1,8 +1,8 @@
 # Docker image (SPEC 6.3, D1/D2)
 
 The organisers mount the test split at `/data` (same layout as `public_test`), run the image with
-no network, and collect `result/submission.jsonl`. Files: `Dockerfile`, `.dockerignore`,
-`scripts/docker-entrypoint.sh`, `scripts/docker_smoke.sh`, Makefile targets `docker-build` / `docker-run`.
+no network, and collect `result/submission.jsonl`. Files: `Dockerfile`, `ops/docker/Dockerfile.dockerignore`,
+`ops/docker/entrypoint.sh`, `ops/docker/smoke.sh`, Makefile targets `docker-build` / `docker-run`.
 
 ## Base image
 
@@ -17,12 +17,12 @@ plain CUDA runtime base, every Python package (vLLM, torch and its bundled CUDA 
 
 ## Build
 
-Weights are baked in: put them in a folder of the build context (default `models/`) and build:
+Weights are baked in: put them in a folder of the build context (default `artifacts/models/`) and build:
 
 ```bash
-# models/llm  <- the LLM snapshot (config.json, tokenizer, safetensors)
-# models/asr  <- the ASR snapshot, only when [asr].backend = "asr"
-docker build --build-arg MODEL_DIR=models -t lifemate:dev .     # or: make docker-build
+# artifacts/models/llm  <- the LLM snapshot (config.json, tokenizer, safetensors)
+# artifacts/models/asr  <- the ASR snapshot, only when [asr].backend = "asr"
+docker build -f ops/docker/Dockerfile --build-arg MODEL_DIR=artifacts/models -t lifemate:dev .     # or: make docker-build
 ```
 
 `MODEL_DIR` is copied to `/app/models`. `configs/docker.toml` (the image default) points at those paths; keep its other keys in step with `configs/v0.toml`:
@@ -55,7 +55,7 @@ links `/tmp/zaic_root/<split> -> /data` (ToolEnv wants `<root>/<split>/...`; `za
 paths so the link is fine), then execs
 
 ```
-python -m lifemate.cli --config ${LIFEMATE_CONFIG:-configs/docker.toml} --env docker --split <split> --out result --resume [extra args]
+python -m lifemate.run.cli --config ${LIFEMATE_CONFIG:-configs/docker.toml} --env docker --split <split> --out result --resume [extra args]
 ```
 
 `--resume` is always passed: `RunStore` creates an empty `result/` and finds no done ids, and after an
@@ -72,7 +72,7 @@ nothing is written there.
 ## Checks on a rented GPU box (not runnable on the dev machine)
 
 ```bash
-DATA_SPLIT_DIR=train+public_test/train+public_test/public_test scripts/docker_smoke.sh
+DATA_SPLIT_DIR=data/train+public_test/public_test ops/docker/smoke.sh
 ```
 
 builds `lifemate:dev`, runs it with `--gpus all --network none`, validates with
@@ -82,8 +82,8 @@ count (public_test: 634 expected). `--network none` is the offline test: any dow
 Determinism (with `batch_invariant = true` on sm80+):
 
 ```bash
-OUT_DIR=$PWD/result_a scripts/docker_smoke.sh
-OUT_DIR=$PWD/result_b scripts/docker_smoke.sh
+OUT_DIR=$PWD/result_a ops/docker/smoke.sh
+OUT_DIR=$PWD/result_b ops/docker/smoke.sh
 cmp result_a/submission.jsonl result_b/submission.jsonl && echo identical
 ```
 
@@ -97,5 +97,5 @@ Nothing here has been built or run: the dev machine has no Docker and no GPU. Op
 - vLLM loading from `/app/models/llm` fully offline, and whether it tries to write caches outside `$HOME`
   (`/home/appuser` exists; the root filesystem is otherwise writable only where the image allows).
 - 634 lines, `--validate` clean, two identical runs, all samples under 30 s.
-- `/app/models/llm` and `/app/models/asr` must be real snapshots (`huggingface-cli download <id> --revision <sha> --local-dir models/llm`); the build only checks that the folders exist.
-- `result/` and `models/` are not in `.gitignore` yet.
+- `/app/models/llm` and `/app/models/asr` must be real snapshots (`huggingface-cli download <id> --revision <sha> --local-dir artifacts/models/llm`); the build only checks that the folders exist.
+- `result/` and `artifacts/models/` are not in `.gitignore` yet.

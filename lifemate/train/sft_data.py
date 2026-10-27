@@ -21,25 +21,25 @@ from typing import Any
 
 import structlog
 
-from lifemate.asr import GoldTranscriber
-from lifemate.config import AgentConfig, ConfigError, LLMConfig, load_profile
-from lifemate.data import load_split, read_ids
-from lifemate.envinfo import code_version
-from lifemate.jsonutil import canonical_json
-from lifemate.prompt import HeldOutLeak, PromptBuilder, truncate_result
-from lifemate.protocol import DONE_TEXT, call_text
-from lifemate.tokens import HFTokenCounter, SimpleTokenCounter
-from lifemate.tooldocs import ASK_TOOL, CatalogIndex
+from lifemate.agent.prompt import HeldOutLeak, PromptBuilder, truncate_result
+from lifemate.agent.protocol import DONE_TEXT, call_text
+from lifemate.agent.tooldocs import ASK_TOOL, CatalogIndex
+from lifemate.backends.asr import GoldTranscriber
+from lifemate.core.config import AgentConfig, ConfigError, LLMConfig, load_profile
+from lifemate.core.envinfo import code_version
+from lifemate.core.jsonutil import canonical_json
+from lifemate.core.paths import REPO_ROOT
+from lifemate.core.tokens import HFTokenCounter, SimpleTokenCounter
+from lifemate.core.types import Sample, TokenCounter, Transcriber
+from lifemate.io.data import load_split, read_ids
+from lifemate.io.zaic import EnvRegistry, ZaicLoader, load_catalog
 from lifemate.train.common import abs_path, build_section, read_held_out, sha256_file
 from lifemate.train.sft import LLMTrainConfig, load_llm_train_config
-from lifemate.types import Sample, TokenCounter, Transcriber
-from lifemate.zaic import EnvRegistry, ZaicLoader, load_catalog
 
 log = structlog.get_logger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 RESULT_PREFIX = "KẾT QUẢ: "
-EVAL_ID_FILES = ("splits/val_seen.txt", "splits/val_unseen.txt")
+EVAL_ID_FILES = ("configs/splits/val_seen.txt", "configs/splits/val_unseen.txt")
 
 
 @dataclass(slots=True)
@@ -82,7 +82,7 @@ def make_counter(model: str, revision: str) -> TokenCounter:
 def make_builder(
     run_cfg: RunPromptConfig, repo_root: Path, index: CatalogIndex, counter: TokenCounter
 ) -> PromptBuilder:
-    """PromptBuilder wired exactly like lifemate.factory.build."""
+    """PromptBuilder wired exactly like lifemate.run.factory.build."""
     template = (repo_root / run_cfg.agent.system_prompt).read_text(encoding="utf-8")
     return PromptBuilder(
         template,

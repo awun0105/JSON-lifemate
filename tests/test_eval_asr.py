@@ -4,9 +4,9 @@ from typing import Any
 
 import pytest
 
-from lifemate.asr import GoldTranscriber
-from lifemate.eval_asr import cer, entity_miss_rate, evaluate, normalize_text, percentile, wer
-from lifemate.types import Sample, Transcript, Turn
+from lifemate.backends.asr import GoldTranscriber
+from lifemate.core.types import Sample, Transcript, Turn
+from lifemate.eval.eval_asr import cer, entity_miss_rate, evaluate, normalize_text, percentile, wer
 
 
 def _sample(sid: str, text: str, calls: list[dict[str, Any]], history: tuple[Turn, ...] = ()) -> Sample:

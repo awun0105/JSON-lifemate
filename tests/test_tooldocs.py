@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from lifemate.tooldocs import ASK_TOOL, CatalogIndex, render_tools
+from lifemate.agent.tooldocs import ASK_TOOL, CatalogIndex, render_tools
 
 CATALOGS = ("train/train_tools_catalog.json", "public_test/public_test_tools_catalog.json")
 

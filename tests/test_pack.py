@@ -12,13 +12,13 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-NOTEBOOKS = [REPO / "notebooks" / "kaggle_run.ipynb", REPO / "notebooks" / "colab_run.ipynb"]
+NOTEBOOKS = [REPO / "ops" / "notebooks" / "kaggle_run.ipynb", REPO / "ops" / "notebooks" / "colab_run.ipynb"]
 
 
 @pytest.mark.skipif(shutil.which("git") is None or not (REPO / ".git").exists(), reason="needs a git checkout")
 def test_pack_code_zip(tmp_path: Path) -> None:
     out = subprocess.run(
-        ["bash", str(REPO / "scripts" / "pack_code.sh")],
+        ["bash", str(REPO / "ops" / "scripts" / "pack_code.sh")],
         env={"DIST_DIR": str(tmp_path), "PATH": "/usr/bin:/bin:/usr/local/bin"},
         cwd=tmp_path,
         capture_output=True,
@@ -31,7 +31,7 @@ def test_pack_code_zip(tmp_path: Path) -> None:
     assert re.fullmatch(r"[0-9a-f]{64}", out[1])
     with zipfile.ZipFile(zip_path) as zf:
         names = set(zf.namelist())
-        assert {"lifemate/types.py", "configs/v0.toml", "VERSION", "VERSION_STATUS"} <= names
+        assert {"lifemate/core/types.py", "configs/v0.toml", "VERSION", "VERSION_STATUS"} <= names
         assert not any("__pycache__" in n or n.startswith(("runs/", ".venv/")) for n in names)
         version = zf.read("VERSION").decode().splitlines()
         assert len(version) == 1 and re.fullmatch(r"[0-9a-f]{40}", version[0])
@@ -39,7 +39,9 @@ def test_pack_code_zip(tmp_path: Path) -> None:
 
 
 def test_notebook_requirements_pinned_sorted_no_gpu() -> None:
-    lines = [ln for ln in (REPO / "requirements" / "notebook.txt").read_text().splitlines() if ln and ln[0] != "#"]
+    lines = [
+        ln for ln in (REPO / "ops" / "requirements" / "notebook.txt").read_text().splitlines() if ln and ln[0] != "#"
+    ]
     assert lines
     names = [ln.split("==")[0] for ln in lines]
     assert names == sorted(names)
@@ -60,4 +62,4 @@ def test_notebook_holds_no_logic(path: Path) -> None:
             if re.search(r"\b(import|from)\s+lifemate", line):
                 assert line.lstrip().startswith("!python -c"), line
     joined = "\n".join(code)
-    assert "lifemate.cli" in joined and "splits/smoke.txt" in joined
+    assert "lifemate.run.cli" in joined and "configs/splits/smoke.txt" in joined

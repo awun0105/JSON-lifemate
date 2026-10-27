@@ -7,12 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from lifemate import factory
-from lifemate.config import Config, ConfigError, load_config, load_profile
-from lifemate.envinfo import EnvInfo
-from lifemate.llm import FakeLLM
-from lifemate.timing import TimedLLM
-from lifemate.tokens import SimpleTokenCounter
+from lifemate.backends.llm import FakeLLM
+from lifemate.core.config import Config, ConfigError, load_config, load_profile
+from lifemate.core.envinfo import EnvInfo
+from lifemate.core.tokens import SimpleTokenCounter
+from lifemate.run import factory
+from lifemate.run.timing import TimedLLM
 
 ENV_INFO = EnvInfo(None, None, None, "test", None, {})
 

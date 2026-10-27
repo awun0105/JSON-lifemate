@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from lifemate.data import load_split, read_ids
+from lifemate.io.data import load_split, read_ids
 
 ROWS = [
     {

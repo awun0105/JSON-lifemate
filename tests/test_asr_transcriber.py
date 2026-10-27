@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-import lifemate.asr as asr_mod
-from lifemate.asr import ASRTranscriber, make_backend
-from lifemate.config import ASRConfig
-from lifemate.types import Sample, Turn
+import lifemate.backends.asr as asr_mod
+from lifemate.backends.asr import ASRTranscriber, make_backend
+from lifemate.core.config import ASRConfig
+from lifemate.core.types import Sample, Turn
 
 
 class FakeASRBackend:

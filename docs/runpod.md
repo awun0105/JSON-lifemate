@@ -16,13 +16,13 @@ persistent volume; the rest of the pod disk is lost on stop.
 ## One command
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<user>/<repo>/main/scripts/runpod_setup.sh \
+curl -fsSL https://raw.githubusercontent.com/<user>/<repo>/main/ops/scripts/runpod_setup.sh \
   | bash -s -- --repo https://github.com/<user>/<repo>.git --ref main
 ```
 
 It installs tools, clones or updates the code into `/workspace/lifemate`, syncs the locked dependencies
-including vLLM, downloads the two model snapshots pinned in `configs/v0.toml` into `models/llm` and
-`models/asr`, checks the data folder, runs the offline tests, then the 30-sample smoke and prints the runs
+including vLLM, downloads the two model snapshots pinned in `configs/v0.toml` into `artifacts/models/llm` and
+`artifacts/models/asr`, checks the data folder, runs the offline tests, then the 30-sample smoke and prints the runs
 table. Options: `--no-clone` (code already there), `--no-smoke`.
 
 ## Upload the data
@@ -40,12 +40,12 @@ Then `unzip` so that `/workspace/zac2026/train+public_test/train/...` exists.
 
 ```bash
 cd /workspace/lifemate
-make run ENV=runpod IDS=splits/val_seen.txt            # agent, gold transcripts
-make run ENV=runpod IDS=splits/val_seen.txt CONFIG=configs/asr.toml   # when an ASR config exists
+make run ENV=runpod IDS=configs/splits/val_seen.txt            # agent, gold transcripts
+make run ENV=runpod IDS=configs/splits/val_seen.txt CONFIG=configs/asr.toml   # when an ASR config exists
 make train-deps                                        # unsloth/trl/peft for fine-tuning
 uv run python -m lifemate.train.llm_pipeline --config configs/train/llm_v1.toml --env runpod
-uv run python -m lifemate.report train /workspace/zac2026/runs/train/<name> --png loss.png
+uv run python -m lifemate.run.report train /workspace/zac2026/runs/train/<name> --png loss.png
 ```
 
 Runs and checkpoints stay on `/workspace`; copy merged models you want to keep to HF private or Kaggle
-Models (`models/registry.csv` records where).
+Models (`artifacts/models/registry.csv` records where).

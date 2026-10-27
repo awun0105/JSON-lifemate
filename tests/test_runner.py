@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from lifemate.asr import GoldTranscriber
-from lifemate.llm import FakeLLM
-from lifemate.runner import Runner, parse_score
-from lifemate.store import RunStore
-from lifemate.types import Sample, StopReason, Transcript
+from lifemate.backends.asr import GoldTranscriber
+from lifemate.backends.llm import FakeLLM
+from lifemate.core.types import Sample, StopReason, Transcript
+from lifemate.io.store import RunStore
+from lifemate.run.runner import Runner, parse_score
 from tests.fakes import FakeEnv
 from tests.test_agent import GOLD, make_agent, sample
 from tests.test_guards import make_env

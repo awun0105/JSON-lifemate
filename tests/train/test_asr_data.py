@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from lifemate.data import load_split, read_ids
+from lifemate.io.data import load_split, read_ids
 from lifemate.train import asr_data
 from lifemate.train.asr import choose_checkpoint
 from lifemate.train.common import CheckpointInfo
@@ -18,7 +18,7 @@ EXPECTED = {"train": 3547, "val_seen": 624, "val_unseen": 865}
 @pytest.mark.data
 @pytest.mark.parametrize("split", sorted(EXPECTED))
 def test_pair_counts_match_spec(split: str, repo_root: Path, data_root: Path) -> None:
-    samples = load_split(data_root, "train", read_ids(repo_root / "splits" / f"{split}.txt"))
+    samples = load_split(data_root, "train", read_ids(repo_root / "configs" / "splits" / f"{split}.txt"))
     rows = asr_data.build_pairs(samples, split)
     assert len(rows) == EXPECTED[split]
     assert {r["split"] for r in rows} == {split}
@@ -28,12 +28,12 @@ def test_pair_counts_match_spec(split: str, repo_root: Path, data_root: Path) ->
 @pytest.mark.data
 def test_train_build_has_no_val_audio(tmp_path: Path, repo_root: Path, data_root: Path) -> None:
     out = tmp_path / "asr.jsonl"
-    argv = ["--ids", str(repo_root / "splits" / "train.txt"), "--out", str(out)]
+    argv = ["--ids", str(repo_root / "configs" / "splits" / "train.txt"), "--out", str(out)]
     meta = asr_data.run(asr_data.parse_args(argv), repo_root, argv=argv)
     assert meta["n_rows"] == EXPECTED["train"]
     rows = [json.loads(ln) for ln in out.read_text(encoding="utf-8").splitlines()]
-    val_ids = set(read_ids(repo_root / "splits" / "val_seen.txt")) | set(
-        read_ids(repo_root / "splits" / "val_unseen.txt")
+    val_ids = set(read_ids(repo_root / "configs" / "splits" / "val_seen.txt")) | set(
+        read_ids(repo_root / "configs" / "splits" / "val_unseen.txt")
     )
     assert not {r["id"] for r in rows} & val_ids
     assert not any(vid in r["audio"] for r in rows for vid in val_ids)
@@ -42,7 +42,7 @@ def test_train_build_has_no_val_audio(tmp_path: Path, repo_root: Path, data_root
 
 @pytest.mark.data
 def test_refuses_val_ids(tmp_path: Path, repo_root: Path, data_root: Path) -> None:
-    argv = ["--ids", str(repo_root / "splits" / "val_seen.txt"), "--out", str(tmp_path / "x.jsonl")]
+    argv = ["--ids", str(repo_root / "configs" / "splits" / "val_seen.txt"), "--out", str(tmp_path / "x.jsonl")]
     with pytest.raises(SystemExit, match="refusing"):
         asr_data.run(asr_data.parse_args(argv), repo_root, argv=argv)
 

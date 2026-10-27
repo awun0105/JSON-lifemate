@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from lifemate.config import ConfigError, EnvProfile, load_config, load_profile
+from lifemate.core.config import ConfigError, EnvProfile, load_config, load_profile
 
 PROFILES = ["local", "kaggle", "colab", "rented", "runpod", "docker"]
 

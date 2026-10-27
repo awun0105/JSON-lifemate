@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from lifemate.data import load_split
-from lifemate.zaic import EnvRegistry, ZaicLoader, load_catalog, load_zaic, open_env
+from lifemate.io.data import load_split
+from lifemate.io.zaic import EnvRegistry, ZaicLoader, load_catalog, load_zaic, open_env
 
 pytestmark = pytest.mark.data
 

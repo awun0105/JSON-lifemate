@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 import structlog
 
-from lifemate.config import ConfigError
-from lifemate.envinfo import EnvInfo, code_version, detect, resolve_dtype
+from lifemate.core.config import ConfigError
+from lifemate.core.envinfo import EnvInfo, code_version, detect, resolve_dtype
 
 
 def _info(cc: tuple[int, int] | None) -> EnvInfo:

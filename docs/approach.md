@@ -93,7 +93,7 @@ Hạ tầng đo lường (mục 4) làm cùng lúc với bước 1, không tách
 - Thứ hạng chung cuộc chỉ tính theo `private_test`. Bộ này phát ra sau khi giải pháp đã đóng băng và nhiều khả năng có app chưa từng thấy (public đã có 11 app train không có).
 - Vì vậy cần một bộ đánh giá local mô phỏng tình huống gặp app lạ.
 
-### 3.2. Cách chia train (`eval/make_splits.py`)
+### 3.2. Cách chia train (`lifemate/eval/make_splits.py`)
 
 | Phần | Số mẫu | Cách lấy | Đo cái gì |
 |---|---|---|---|
@@ -106,16 +106,16 @@ Hạ tầng đo lường (mục 4) làm cùng lúc với bước 1, không tách
 - **Quy tắc bắt buộc:** 490 mẫu train có *cài* một trong 8 app bị rút (dù không dùng). Khi dựng prompt cho các mẫu này phải **xóa 8 app đó khỏi `installed_apps`**, nếu không model sẽ đọc thấy hướng dẫn của chúng và chúng không còn "lạ". Việc xóa không làm sai đáp án vì đáp án không gọi tới các app đó. Ngoài ra 65 mẫu train có *history* gọi tool của app bị rút; các mẫu này bị bỏ khi dựng dữ liệu fine-tune hoặc few-shot (`SPEC.md` mục 4.5).
 - `val_unseen` chỉ có 10 mẫu `[]`, đủ để phát hiện lỗi lớn (gặp app lạ là gọi bừa) nhưng không đủ để so hai phiên bản chênh ít điểm. Khả năng nhận ra câu ngoài phạm vi đo chủ yếu trên `val_seen` (15 mẫu) và public.
 - **Khi chỉ làm prompt (chưa fine-tune):** không lấy ví dụ mẫu từ 8 app bị rút và không viết quy tắc riêng cho chúng.
-- Danh sách id nằm ở `splits/`, cố định với seed = 42. Mọi thí nghiệm dùng chung một cách chia để điểm so sánh được với nhau.
+- Danh sách id nằm ở `configs/splits/`, cố định với seed = 42. Mọi thí nghiệm dùng chung một cách chia để điểm so sánh được với nhau.
 
-### 3.3. Bộ chấm local (`eval/score.py`)
+### 3.3. Bộ chấm local (`lifemate/eval/score.py`)
 
 Bộ chấm chạy lại các call đã nộp bằng `zaic_tools` của split, rồi tính điểm theo công thức chính thức (mục 5 trong `overview.md`).
 
 ```
-python eval/score.py submission.jsonl --ids splits/val_seen.txt
-python eval/score.py submission.jsonl --ids splits/val_unseen.txt
-python eval/score.py submission.jsonl --ids splits/val_seen.txt --details details.jsonl
+python -m lifemate.eval.score submission.jsonl --ids configs/splits/val_seen.txt
+python -m lifemate.eval.score submission.jsonl --ids configs/splits/val_unseen.txt
+python -m lifemate.eval.score submission.jsonl --ids configs/splits/val_seen.txt --details details.jsonl
 ```
 
 **Đã kiểm chứng:** nộp chính đáp án được 100 điểm; nộp toàn `[]` được 7,18 điểm (đúng bằng 111 mẫu ngoài phạm vi / 1.545).
@@ -164,12 +164,12 @@ runs/2026-10-28_v0-qwen4b_val-seen/
 ├── config.json       model + revision, adapter, hash prompt, tham số decode, split, git commit, seed, loại GPU
 ├── trace.jsonl       mỗi mẫu một dòng: toàn bộ các bước agent đã làm (mục 4.2)
 ├── submission.jsonl  đúng định dạng nộp bài
-├── score.txt         báo cáo của eval/score.py
+├── score.txt         báo cáo của lifemate/eval/score.py
 └── summary.json      số liệu tổng hợp (mục 4.4)
-runs/index.csv        mỗi lần chạy thêm một dòng, ghi tự động; bảng ở mục 8 chỉ chép lại các lần chạy đáng nhớ
+artifacts/runs/index.csv        mỗi lần chạy thêm một dòng, ghi tự động; bảng ở mục 8 chỉ chép lại các lần chạy đáng nhớ
 ```
 
-`runs/` không đưa vào git (chứa nội dung dữ liệu thi).
+`artifacts/runs/` không đưa vào git (chứa nội dung dữ liệu thi).
 
 ### 4.2. Logging (`trace.jsonl`)
 
@@ -205,7 +205,7 @@ Cuối mỗi lần chạy in bảng đếm từng loại lỗi kèm vài id mẫ
 ### 4.5. Benchmark và so sánh
 
 - **Bộ cố định:**
-  - `smoke`: `splits/smoke.txt`, 30 mẫu lấy phân tầng từ `val_seen`, chạy vài phút, dùng sau mỗi lần sửa.
+  - `smoke`: `configs/splits/smoke.txt`, 30 mẫu lấy phân tầng từ `val_seen`, chạy vài phút, dùng sau mỗi lần sửa.
   - `val_seen` và `val_unseen`: chạy đầy đủ.
 - **`compare.py runA runB`:** liệt kê mẫu trước đúng nay sai và ngược lại. Một con số trung bình không cho thấy điều này.
 - **`show.py <run> <id>`:** in trace của một mẫu dạng hội thoại, dễ đọc hơn JSON thô.
@@ -224,7 +224,7 @@ Cuối mỗi lần chạy in bảng đếm từng loại lỗi kèm vài id mẫ
 | Thành phần | Cách quản lý |
 |---|---|
 | Code | git; mỗi lần chạy ghi commit hash vào `config.json` |
-| Prompt | file trong `prompts/`, nằm trong git; mỗi lần chạy ghi hash prompt |
+| Prompt | file trong `configs/prompts/`, nằm trong git; mỗi lần chạy ghi hash prompt |
 | Dữ liệu fine-tune | `data/sft/v1.jsonl`, `v2`, … kèm hash và script tạo ra |
 | Model fine-tune | tên dạng `ft-qwen4b-sftv1-r01`, kèm `train_config.json` (model gốc, phiên bản dữ liệu, siêu tham số, seed, commit, loss); lưu trên Kaggle Models hoặc kho HF private, không đưa vào git |
 | Đường cong loss | tùy chọn W&B, không bắt buộc |
@@ -273,7 +273,7 @@ Chọn ngày 27/10/2026 theo điều kiện ở SPEC 6.0. Số tham số lấy t
 | `Qwen/Qwen3-4B-Instruct-2507` | LLM (mặc định) | 4,02B | 05/08/2025 | Apache-2.0 | `cdbee75f` |
 | `vinai/PhoWhisper-medium` | ASR (mặc định) | 0,77B | 18/02/2024 | BSD-3 | `55a7e3eb` |
 
-Tổng 4,79B < 6B, LLM 4,02B < 5B. Ứng viên A/B (chưa dùng khi nộp): LLM `Qwen/Qwen3.5-4B` (4,66B kể cả vision encoder, Apache-2.0, 02/03/2026); ASR `khanhld/chunkformer-ctc-large-vie` (0,11B, CC-BY-NC-4.0, 02/2025) và `5CD-AI/VieGem-ASR` (0,36B, CC-BY-NC-SA-4.0, 19/10/2026). Hai ASR này có `engine` riêng trong `lifemate/asr.py`; giấy phép phi thương mại phải được BTC xác nhận trước khi nộp.
+Tổng 4,79B < 6B, LLM 4,02B < 5B. Ứng viên A/B (chưa dùng khi nộp): LLM `Qwen/Qwen3.5-4B` (4,66B kể cả vision encoder, Apache-2.0, 02/03/2026); ASR `khanhld/chunkformer-ctc-large-vie` (0,11B, CC-BY-NC-4.0, 02/2025) và `5CD-AI/VieGem-ASR` (0,36B, CC-BY-NC-SA-4.0, 19/10/2026). Hai ASR này có `engine` riêng trong `lifemate/backends/asr.py`; giấy phép phi thương mại phải được BTC xác nhận trước khi nộp.
 
 #### 5.5.1. Vì sao chọn như vậy
 
@@ -292,7 +292,7 @@ Tổng 4,79B < 6B, LLM 4,02B < 5B. Ứng viên A/B (chưa dùng khi nộp): LLM 
 | Việc | Cách làm | Vì sao |
 |---|---|---|
 | Phương pháp | QLoRA: model gốc nf4, LoRA r=16, alpha=32 trên 7 ma trận attention + MLP; Unsloth trên T4 fp16 | Full fine-tune 4B cần > 40 GB VRAM, không vừa T4/Kaggle. LoRA trên cả attention và MLP giữ được kiến thức chung, chỉ dạy định dạng và quy tắc gọi tool. 1098 mẫu train là ít, r=16 đủ và ít overfit hơn r lớn |
-| Dữ liệu | 1098 mẫu `splits/train.txt` dựng bằng đúng `PromptBuilder` lúc chạy, xóa 8 app bị rút; transcript là `audio_text`; kết quả tool phát lại qua `zaic_tools` | Prompt lúc train và lúc chạy phải giống từng byte, nếu không model học một phân bố và chạy trên phân bố khác. Xóa app bị rút để `val_unseen` vẫn đo được khả năng đọc app lạ |
+| Dữ liệu | 1098 mẫu `configs/splits/train.txt` dựng bằng đúng `PromptBuilder` lúc chạy, xóa 8 app bị rút; transcript là `audio_text`; kết quả tool phát lại qua `zaic_tools` | Prompt lúc train và lúc chạy phải giống từng byte, nếu không model học một phân bố và chạy trên phân bố khác. Xóa app bị rút để `val_unseen` vẫn đo được khả năng đọc app lạ |
 | Che loss | Chỉ trên token của lượt assistant | Không che thì model học thuộc mô tả tool và kết quả tool, làm hỏng khả năng đọc tool docs mới |
 | Chat template | Render với tham số như lúc chạy; Instruct-2507 không có chế độ thinking nên không cần `enable_thinking` | Giữ đúng token đặc biệt mà vLLM sẽ sinh lúc chạy |
 | Siêu tham số ban đầu | lr 2e-4, 2 epoch, batch 1 × grad_accum 8, max_len 16384, seed 0 | Mặc định quen thuộc của QLoRA cho SFT nhỏ; chốt lại sau khi có số đo v0 |
@@ -305,7 +305,7 @@ Tổng 4,79B < 6B, LLM 4,02B < 5B. Ứng viên A/B (chưa dùng khi nộp): LLM 
 | Việc | Cách làm | Vì sao |
 |---|---|---|
 | Phương pháp | Full fine-tune, không LoRA. Giai đoạn 1: đóng băng encoder, train decoder. Giai đoạn 2 (nếu WER còn cao): mở encoder với lr nhỏ hơn 10 lần | 0,77B vừa T4 với fp16 + gradient checkpointing. Decoder quyết định cách viết số, tên riêng, từ tiếng Anh, là thứ ta cần chỉnh để khớp `audio_text`; encoder đã học 844 giờ tiếng Việt, mở sớm với 3547 cặp dễ làm hỏng |
-| Dữ liệu | 3547 cặp (wav, `audio_text`) từ lượt cuối và mọi lượt user trong history của `splits/train.txt`; chia theo id mẫu | Đích là `audio_text` nguyên văn để ASR nghe ra đúng văn phong mà LLM được train |
+| Dữ liệu | 3547 cặp (wav, `audio_text`) từ lượt cuối và mọi lượt user trong history của `configs/splits/train.txt`; chia theo id mẫu | Đích là `audio_text` nguyên văn để ASR nghe ra đúng văn phong mà LLM được train |
 | Tăng dữ liệu | SpecAugment; TTS chỉ cho loại lỗi mà bảng đo chỉ ra (tên người, địa danh, số tiền, từ tiếng Anh), câu lấy từ `audio_text` train rồi thay thực thể | Dữ liệu ít, SpecAugment chống overfit. TTS được phép lúc phát triển, cấm lúc thi |
 | Siêu tham số ban đầu | lr 1e-5, 3 epoch, batch 8 × grad_accum 2, greedy decode, seed 0 | lr nhỏ vì full fine-tune trên model đã tốt; 3 epoch trên 3547 cặp là khoảng 660 bước |
 | Chọn checkpoint | Theo tỉ lệ nghe sai thực thể trên `val_unseen`, rồi WER; checkpoint tốt nhất chạy agent thật | Lỗi thực thể là lỗi làm sai tham số tool, ảnh hưởng điểm trực tiếp; WER chung không phản ánh |
@@ -359,18 +359,18 @@ Tổng 4,79B < 6B, LLM 4,02B < 5B. Ứng viên A/B (chưa dùng khi nộp): LLM 
 | 26/10/2026 | Không dùng catalog của public_test để tự tạo mẫu huấn luyện | Dễ bị coi là vi phạm luật cấm gán nhãn public_test; nếu cần thì hỏi BTC qua aichallenge@zalo.me trước |
 | 27/10/2026 | Phát triển trên Kaggle (T4 16 GB); thuê GPU 24 GB vài giờ để thử Docker | Kaggle đủ chạy model 4B ở fp16 và QLoRA; Kaggle/Colab không chạy được Docker |
 | 27/10/2026 | Fine-tune bằng QLoRA (Unsloth), khi nộp thì merge adapter vào model gốc bf16 | LoRA trên T4 16 GB dễ hết bộ nhớ và T4 không có bf16; chất lượng QLoRA gần bằng LoRA |
-| 27/10/2026 | Hạ tầng đo lường dạng file (`runs/`), không dùng MLflow | Đủ cho một đội nhỏ, không cần dựng server |
+| 27/10/2026 | Hạ tầng đo lường dạng file (`artifacts/runs/`), không dùng MLflow | Đủ cho một đội nhỏ, không cần dựng server |
 | 27/10/2026 | Chạy LLM bằng **vLLM** trong cùng process, không dùng `transformers`, llama.cpp hay Ollama khi nộp | A30 (sm80) hỗ trợ chế độ batch-invariant của vLLM để giữ tất định; prefix cache giảm thời gian prompt dài; nạp thẳng model đã merge LoRA. llama.cpp là dự phòng nếu vLLM không chạy được trong Docker; Ollama thêm một lớp trung gian không cần thiết |
 | 27/10/2026 | LLM sinh JSON tự định nghĩa (`{"action": "call"|"done", ...}`), vLLM ép theo JSON schema; mô tả tool dạng rút gọn trong prompt | Tiết kiệm token so với schema OpenAI đầy đủ, không hỏng JSON, không phụ thuộc chat template từng model |
 | 27/10/2026 | Không làm lockbox nội bộ; dùng public leaderboard làm bộ khóa, chỉ nộp ở mốc lớn | Public có 600 mẫu, 11 app lạ, không có nhãn, do BTC tạo cùng cách với private. Lockbox tự tách chỉ khoảng 130 mẫu, điểm dao động lớn và làm mất dữ liệu train |
-| 27/10/2026 | Thêm 10 mẫu gold `[]` gắn tay vào `val_unseen`; thêm `splits/smoke.txt` | `val_unseen` trước đó không có mẫu ngoài phạm vi nào |
+| 27/10/2026 | Thêm 10 mẫu gold `[]` gắn tay vào `val_unseen`; thêm `configs/splits/smoke.txt` | `val_unseen` trước đó không có mẫu ngoài phạm vi nào |
 | 27/10/2026 | Chưa chọn LLM và ASR; code không gắn với model nào, chọn theo điều kiện ở `SPEC.md` mục 6.0 | Để chọn sau khi có hạ tầng đo mà không phải sửa code |
 | 27/10/2026 | Không làm Normalizer ở v0; LLM tự đổi số theo quy tắc trong system prompt | LLM và ASR đều nhắm tới `audio_text` nguyên văn; chuẩn hóa trước LLM làm lệch phân bố đã train |
 | 27/10/2026 | Python 3.11 + `uv`, ruff + mypy strict, pre-commit; lấy quy ước kỹ thuật từ `ai-kit`, không lấy layer ứng dụng | Kit là app cloud FastAPI + LangGraph, không khớp với agent offline |
 
 ## 8. Nhật ký thí nghiệm
 
-Mỗi lần chạy agent ghi một dòng. Điểm lấy từ `eval/score.py` với `--ids splits/val_seen.txt` và `--ids splits/val_unseen.txt`.
+Mỗi lần chạy agent ghi một dòng. Điểm lấy từ `lifemate/eval/score.py` với `--ids configs/splits/val_seen.txt` và `--ids configs/splits/val_unseen.txt`.
 
 | Ngày | Phiên bản | Thay đổi | ASR / LLM | val_seen | val_unseen | Public | Nhận xét |
 |---|---|---|---|---|---|---|---|

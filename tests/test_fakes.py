@@ -1,7 +1,7 @@
 import json
 
-from lifemate.llm import FakeLLM
-from lifemate.types import Sample
+from lifemate.backends.llm import FakeLLM
+from lifemate.core.types import Sample
 from tests.fakes import FakeClock, FakeEnv, WhitespaceTokenCounter
 
 CALLS = [{"name": "a.x", "arguments": {"k": 1}}, {"name": "a.y", "arguments": {}}]

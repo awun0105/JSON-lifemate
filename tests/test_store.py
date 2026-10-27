@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from lifemate.store import RunStore, append_index, summarize
-from lifemate.types import ErrorCode, SampleResult, StopReason
+from lifemate.core.types import ErrorCode, SampleResult, StopReason
+from lifemate.io.store import RunStore, append_index, summarize
 
 
 def result(sid: str, *, stop: StopReason = StopReason.DONE, total_s: float = 1.0) -> SampleResult:

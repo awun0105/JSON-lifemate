@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from lifemate.check_submission import check_submission
-from lifemate.data import load_split
+from lifemate.io.check_submission import check_submission
+from lifemate.io.data import load_split
 
 pytestmark = pytest.mark.data
 

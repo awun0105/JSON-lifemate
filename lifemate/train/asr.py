@@ -19,8 +19,9 @@ from typing import Any
 
 import structlog
 
-from lifemate.config import ConfigError, load_profile
-from lifemate.envinfo import detect
+from lifemate.core.config import ConfigError, load_profile
+from lifemate.core.envinfo import detect
+from lifemate.core.paths import REPO_ROOT
 from lifemate.train.common import (
     CheckpointInfo,
     CheckpointManager,
@@ -36,7 +37,6 @@ from lifemate.train.sft import read_jsonl
 
 log = structlog.get_logger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 TRAIN_PACKAGES = ("torch", "transformers", "peft", "datasets", "soundfile")
 EVAL_METRIC = "eval_loss"
 _PUNCT_CATEGORIES = ("P", "S")
@@ -136,14 +136,14 @@ def wer(refs: Sequence[str], hyps: Sequence[str]) -> float:
 
 
 def score_checkpoint(rows: Sequence[Mapping[str, Any]], hyps: Sequence[str], samples: Any = None) -> dict[str, float]:
-    """`entity_miss_rate` (lifemate.eval_asr, on the final turn of each sample) and WER; WER only without samples."""
+    """`entity_miss_rate` (lifemate.eval.eval_asr, final turn of each sample) and WER; WER only without samples."""
     refs = [str(r["text"]) for r in rows]
     w = wer(refs, hyps)
     if samples is None:
         log.warning("eval_asr_unavailable", fallback="wer")
         return {"entity_miss_rate": w, "wer": w, "entity_metric": 0.0}
-    from lifemate.eval_asr import entity_miss_rate  # eval layer; imported here to keep train importable alone
-    from lifemate.types import Transcript
+    from lifemate.core.types import Transcript
+    from lifemate.eval.eval_asr import entity_miss_rate  # eval layer; imported here to keep train importable alone
 
     final_hyp = {str(r["id"]): h for r, h in zip(rows, hyps, strict=True) if r.get("turn") == "final"}
     by_id = {s.id: s for s in samples}

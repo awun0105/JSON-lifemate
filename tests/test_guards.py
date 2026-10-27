@@ -6,8 +6,7 @@ from typing import Any
 
 import pytest
 
-from lifemate.config import ConfigError
-from lifemate.guards import (
+from lifemate.agent.guards import (
     GUARD_REGISTRY,
     AfterAskGuard,
     AllowedToolGuard,
@@ -16,8 +15,9 @@ from lifemate.guards import (
     SchemaGuard,
     build_guard_chain,
 )
-from lifemate.tooldocs import ASK_TOOL, CatalogIndex
-from lifemate.types import Action, ErrorCode, GuardContext, GuardResult, GuardVerdict
+from lifemate.agent.tooldocs import ASK_TOOL, CatalogIndex
+from lifemate.core.config import ConfigError
+from lifemate.core.types import Action, ErrorCode, GuardContext, GuardResult, GuardVerdict
 from tests.fakes import FakeEnv
 
 

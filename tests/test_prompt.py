@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from lifemate.prompt import (
+from lifemate.agent.prompt import (
     Conversation,
     HeldOutLeak,
     PromptBuilder,
@@ -14,8 +14,8 @@ from lifemate.prompt import (
     render_history,
     truncate_result,
 )
-from lifemate.tooldocs import ASK_TOOL, CatalogIndex
-from lifemate.types import Sample, Transcript, Turn
+from lifemate.agent.tooldocs import ASK_TOOL, CatalogIndex
+from lifemate.core.types import Sample, Transcript, Turn
 from tests.fakes import WhitespaceTokenCounter
 
 TEMPLATE = 'Quy tắc: trả {"action":"done"} khi xong.\n\n# Các app và tool đã cài\n\n{tool_docs}\n'

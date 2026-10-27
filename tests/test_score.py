@@ -1,8 +1,7 @@
-"""T17: typed/canon argument matching in eval/score.py and the gold / all-[] sanity scores."""
+"""T17: typed/canon argument matching in lifemate/eval/score.py and the gold / all-[] sanity scores."""
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import re
 import subprocess
@@ -12,13 +11,12 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-SCORE = REPO / "eval" / "score.py"
+SCORE = ["-m", "lifemate.eval.score"]
 
 
 def _load_score():
-    spec = importlib.util.spec_from_file_location("eval_score", SCORE)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    import lifemate.eval.score as mod
+
     return mod
 
 
@@ -62,7 +60,7 @@ def test_recursive_containers():
 
 
 def _run(*args: str) -> str:
-    out = subprocess.run([sys.executable, str(SCORE), *args], capture_output=True, text=True, check=True, cwd=REPO)
+    out = subprocess.run([sys.executable, *SCORE, *args], capture_output=True, text=True, check=True, cwd=REPO)
     return out.stdout
 
 

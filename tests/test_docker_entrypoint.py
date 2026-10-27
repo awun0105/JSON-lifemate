@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-ENTRYPOINT = REPO / "scripts" / "docker-entrypoint.sh"
+ENTRYPOINT = REPO / "ops" / "docker" / "entrypoint.sh"
 
 FAKE_PYTHON = """#!/usr/bin/env bash
 printf '%s\\n' "$@" > "$ARGV_LOG"
@@ -57,7 +57,7 @@ def test_detects_split_links_and_execs_cli(tmp_path: Path) -> None:
     argv = log.read_text(encoding="utf-8").splitlines()
     assert argv == [
         "-m",
-        "lifemate.cli",
+        "lifemate.run.cli",
         "--config",
         "configs/docker.toml",
         "--env",
@@ -97,6 +97,7 @@ def test_fails_unless_exactly_one_catalog(tmp_path: Path, splits: list[str]) -> 
 
 
 def test_dockerignore_excludes_heavy_and_local_dirs() -> None:
-    lines = {ln.strip() for ln in (REPO / ".dockerignore").read_text(encoding="utf-8").splitlines()}
-    for entry in ["train+public_test/", "runs/", ".venv/", "dist/", "graphify-out/"]:
+    ignore = REPO / "ops" / "docker" / "Dockerfile.dockerignore"
+    lines = {ln.strip() for ln in ignore.read_text(encoding="utf-8").splitlines()}
+    for entry in ["data/", "artifacts/runs/", ".venv", "artifacts/dist/", "graphify-out/"]:
         assert entry in lines, entry

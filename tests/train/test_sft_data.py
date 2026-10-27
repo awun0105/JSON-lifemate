@@ -10,20 +10,20 @@ from typing import Any
 
 import pytest
 
-from lifemate.asr import GoldTranscriber
-from lifemate.data import load_split, read_ids
-from lifemate.jsonutil import canonical_json
-from lifemate.protocol import DONE_TEXT, parse
-from lifemate.tokens import SimpleTokenCounter
-from lifemate.tooldocs import ASK_TOOL, CatalogIndex
+from lifemate.agent.protocol import DONE_TEXT, parse
+from lifemate.agent.tooldocs import ASK_TOOL, CatalogIndex
+from lifemate.backends.asr import GoldTranscriber
+from lifemate.core.jsonutil import canonical_json
+from lifemate.core.tokens import SimpleTokenCounter
+from lifemate.core.types import Action, Sample
+from lifemate.io.data import load_split, read_ids
+from lifemate.io.zaic import EnvRegistry, ZaicLoader, load_catalog
 from lifemate.train import llm_pipeline, sft_data
 from lifemate.train.common import read_held_out
 from lifemate.train.sft import IGNORE_INDEX, build_labels, load_llm_train_config, pad_batch
-from lifemate.types import Action, Sample
-from lifemate.zaic import EnvRegistry, ZaicLoader, load_catalog
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-DATA_ROOT = REPO_ROOT / "train+public_test" / "train+public_test"
+DATA_ROOT = REPO_ROOT / "data" / "train+public_test"
 LEAK_ID = "train_0682"  # history calls a held-out app (SPEC 4.5)
 CFG = REPO_ROOT / "configs" / "train" / "llm_v1.toml"
 
@@ -37,7 +37,7 @@ def built() -> dict[str, Any]:
         pytest.skip(f"data package missing: {DATA_ROOT}")
     cfg = load_llm_train_config(CFG)
     run_cfg = sft_data.load_run_config(REPO_ROOT / cfg.base.run_config)
-    ids = [*read_ids(REPO_ROOT / "splits" / "train.txt")[:20], LEAK_ID]
+    ids = [*read_ids(REPO_ROOT / "configs" / "splits" / "train.txt")[:20], LEAK_ID]
     samples = load_split(DATA_ROOT, "train", ids)
     index = CatalogIndex(load_catalog(DATA_ROOT, "train"))
     counter = SimpleTokenCounter()
@@ -138,7 +138,7 @@ def test_cli_writes_files_and_refuses_eval_ids(tmp_path: Path) -> None:
     assert meta["n_rows"] == 1 and meta["n_dropped"] == 1 and meta["train_mode"] is True
     assert (tmp_path / "sft.jsonl.dropped.txt").read_text(encoding="utf-8").startswith("train_0682\theld_out_leak:")
     assert json.loads((tmp_path / "sft.jsonl.meta.json").read_text(encoding="utf-8"))["sha256"] == meta["sha256"]
-    val = read_ids(REPO_ROOT / "splits" / "val_unseen.txt")[:1]
+    val = read_ids(REPO_ROOT / "configs" / "splits" / "val_unseen.txt")[:1]
     ids.write_text(val[0] + "\n", encoding="utf-8")
     with pytest.raises(SystemExit, match="refusing"):
         sft_data.run(sft_data.parse_args(argv), REPO_ROOT, argv=argv)
@@ -228,7 +228,7 @@ def test_dump_toml_round_trip(repo_root: Path) -> None:
 
 def _ctx(tmp_path: Path) -> llm_pipeline.PipelineContext:
     cfg = load_llm_train_config(CFG)
-    (tmp_path / "models").mkdir()
+    (tmp_path / "artifacts" / "models").mkdir(parents=True)
     return llm_pipeline.PipelineContext(REPO_ROOT, CFG, cfg, "local", "ft-x-sft1-r01", tmp_path / "work", 30)
 
 
@@ -273,7 +273,7 @@ def test_eval_choose_register_stages_with_fake_runner(tmp_path: Path) -> None:
     llm_pipeline.stage_register(ctx, state)
     assert json.loads((ctx.model_dir / "train_config.json").read_text())["checkpoint"] == "ck/2"
     assert json.loads((ctx.model_dir / "eval.json").read_text())["chosen"]["val_unseen"] == 61.0
-    rows = llm_pipeline.read_registry(tmp_path / "models" / "registry.csv")
+    rows = llm_pipeline.read_registry(tmp_path / "artifacts" / "models" / "registry.csv")
     assert rows[0]["name"] == ctx.name and rows[0]["val_unseen"] == "61.0" and rows[0]["data_version"] == "v1"
 
 

@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from lifemate.config import ConfigError, LLMConfig
-from lifemate.llm import VLLMBackend, _structured_kwargs
+from lifemate.backends.llm import VLLMBackend, _structured_kwargs
+from lifemate.core.config import ConfigError, LLMConfig
 
 CFG = LLMConfig(
     backend="vllm",

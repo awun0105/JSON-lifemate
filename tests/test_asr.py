@@ -2,8 +2,8 @@ import dataclasses
 
 import pytest
 
-from lifemate.asr import GoldTranscriber
-from lifemate.types import Sample, Turn
+from lifemate.backends.asr import GoldTranscriber
+from lifemate.core.types import Sample, Turn
 
 
 def _turn(role: str, audio_text: str | None) -> Turn:

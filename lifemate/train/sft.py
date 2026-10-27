@@ -20,8 +20,9 @@ from typing import Any, Protocol
 
 import structlog
 
-from lifemate.config import ConfigError, load_profile
-from lifemate.envinfo import detect
+from lifemate.core.config import ConfigError, load_profile
+from lifemate.core.envinfo import detect
+from lifemate.core.paths import REPO_ROOT
 from lifemate.train.common import (
     CheckpointManager,
     MetricsLogger,
@@ -35,7 +36,6 @@ from lifemate.train.common import (
 
 log = structlog.get_logger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 IGNORE_INDEX = -100
 TRAIN_PACKAGES = ("unsloth", "trl", "transformers", "peft", "torch", "datasets")
 EVAL_METRIC = "eval_unseen_loss"

@@ -56,7 +56,7 @@ markers = [
 [tool.ruff]
 line-length = 120
 target-version = "py311"
-exclude = ["train+public_test", "runs", "graphify-out", "docs", "*.ipynb"]
+exclude = ["data", "artifacts", "graphify-out", "docs", "*.ipynb"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF", "PL"]
@@ -71,7 +71,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["PLR0915", "PLR0912"]
-"eval/*" = ["PLR0912", "PLR0915", "E731", "N803"]
+"lifemate/eval/*" = ["PLR0912", "PLR0915", "E731", "N803"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -82,6 +82,14 @@ strict = true
 files = ["lifemate"]
 warn_unreachable = true
 # Optional heavy libraries have no stubs; they are imported inside the backend that needs them.
+# The scorer and split scripts moved from eval/ into the package; they are plain scripts and stay
+# outside strict typing (as before the move). zaic_tools is the organisers' package, no stubs.
+[[tool.mypy.overrides]]
+module = ["lifemate.eval.*"]
+ignore_errors = true
+[[tool.mypy.overrides]]
+module = ["zaic_tools", "zaic_tools.*"]
+ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["vllm", "vllm.*", "transformers", "transformers.*", "torch", "torch.*", "structlog", "structlog.*", "chunkformer", "chunkformer.*", "matplotlib", "matplotlib.*"]
 ignore_missing_imports = true

@@ -1,4 +1,4 @@
-"""T26: splits/smoke.txt is 30 val_seen ids covering every answer type, stable across runs."""
+"""T26: configs/splits/smoke.txt is 30 val_seen ids covering every answer type, stable across runs."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-DATA = REPO / "train+public_test" / "train+public_test"
-SPLITS = REPO / "splits"
+DATA = REPO / "data" / "train+public_test"
+SPLITS = REPO / "configs" / "splits"
 
 pytestmark = pytest.mark.data
 
@@ -48,7 +48,8 @@ def test_smoke_stable(data_root, tmp_path):
     runs = []
     for name in ("a", "b"):
         out = tmp_path / name
-        cmd = [sys.executable, str(REPO / "eval" / "make_splits.py"), "--root", str(data_root), "--out", str(out)]
+        script = REPO / "lifemate" / "eval" / "make_splits.py"
+        cmd = [sys.executable, str(script), "--root", str(data_root), "--out", str(out)]
         subprocess.run([*cmd, "--smoke", "30"], check=True, capture_output=True)
         runs.append((out / "smoke.txt").read_text())
     assert runs[0] == runs[1]

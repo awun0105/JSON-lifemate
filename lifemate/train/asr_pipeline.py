@@ -15,14 +15,14 @@ from typing import Any
 
 import structlog
 
-from lifemate.config import load_profile
+from lifemate.core.config import load_profile
+from lifemate.core.paths import REPO_ROOT
 from lifemate.train import asr, asr_data
 from lifemate.train.common import CheckpointInfo, CheckpointManager, abs_path, write_json_atomic
 from lifemate.train.sft import read_jsonl
 
 log = structlog.get_logger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 STAGES = ("data", "train", "select", "merge", "measure")
 
 
@@ -51,9 +51,9 @@ class ASRPipelineContext:
 
 
 def stage_data(ctx: ASRPipelineContext, state: dict[str, Any]) -> None:
-    """Train pairs from splits/train.txt; val_unseen and val_seen pairs for measurement only."""
-    jobs = [(abs_path(ctx.cfg.data.train, ctx.repo_root), "splits/train.txt", False)]
-    jobs += [(ctx.val_file(s), f"splits/{s}.txt", True) for s in ("val_seen", "val_unseen")]
+    """Train pairs from configs/splits/train.txt; val_unseen and val_seen pairs for measurement only."""
+    jobs = [(abs_path(ctx.cfg.data.train, ctx.repo_root), "configs/splits/train.txt", False)]
+    jobs += [(ctx.val_file(s), f"configs/splits/{s}.txt", True) for s in ("val_seen", "val_unseen")]
     out: dict[str, Any] = {}
     for path, ids, allow_eval in jobs:
         argv = ["--env", ctx.env, "--ids", ids, "--out", str(path), "--split", ctx.data_split]

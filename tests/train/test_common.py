@@ -9,8 +9,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from lifemate.config import ConfigError
-from lifemate.envinfo import EnvInfo
+from lifemate.core.config import ConfigError
+from lifemate.core.envinfo import EnvInfo
 from lifemate.train.common import (
     CheckpointManager,
     MetricsLogger,

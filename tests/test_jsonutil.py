@@ -1,6 +1,6 @@
 """canonical_json and truncate."""
 
-from lifemate.jsonutil import canonical_json, truncate
+from lifemate.core.jsonutil import canonical_json, truncate
 
 
 def test_canonical_json_sorted_compact_unicode() -> None:

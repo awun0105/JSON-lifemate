@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from lifemate.prompt import Conversation
-from lifemate.protocol import call_text
+from lifemate.agent.prompt import Conversation
+from lifemate.agent.protocol import call_text
 
 MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
 
@@ -14,7 +14,7 @@ MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
 def test_token_count_incremental() -> None:
     """Protects: Conversation's incremental count. Catches: drift vs a full chat-template recount."""
     pytest.importorskip("transformers", reason="transformers missing (install the `tokenizer` extra)")
-    from lifemate.tokens import HFTokenCounter
+    from lifemate.core.tokens import HFTokenCounter
 
     try:
         counter = HFTokenCounter(MODEL, None, local_files_only=True)

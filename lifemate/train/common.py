@@ -19,9 +19,9 @@ from typing import Any, TypeVar
 
 import structlog
 
-from lifemate.config import ConfigError
-from lifemate.envinfo import EnvInfo
-from lifemate.jsonutil import canonical_json
+from lifemate.core.config import ConfigError
+from lifemate.core.envinfo import EnvInfo
+from lifemate.core.jsonutil import canonical_json
 
 log = structlog.get_logger(__name__)
 
@@ -288,13 +288,13 @@ def write_json_atomic(path: Path, obj: Any) -> None:
 
 
 def abs_path(path: str | Path, repo_root: Path) -> Path:
-    """Expand `~`; relative paths are taken from the repo root (same rule as lifemate.cli)."""
+    """Expand `~`; relative paths are taken from the repo root (same rule as lifemate.run.cli)."""
     p = Path(path).expanduser()
     return p if p.is_absolute() else repo_root / p
 
 
 def build_section(cls: type[_T], section: str, raw: Any) -> _T:
-    """Dataclass from one TOML table; unknown or missing keys raise ConfigError (like lifemate.config)."""
+    """Dataclass from one TOML table; unknown or missing keys raise ConfigError (like lifemate.core.config)."""
     if not isinstance(raw, dict):
         raise ConfigError(f"[{section}] must be a table")
     names = {f.name for f in fields(cls)}  # type: ignore[arg-type]
@@ -320,8 +320,8 @@ def load_toml(path: Path, sections: Sequence[str]) -> dict[str, Any]:
 
 
 def read_held_out(repo_root: Path) -> frozenset[str]:
-    """`held_out_apps` from splits/meta.json (empty when the file is absent)."""
-    meta = repo_root / "splits" / "meta.json"
+    """`held_out_apps` from configs/splits/meta.json (empty when the file is absent)."""
+    meta = repo_root / "configs" / "splits" / "meta.json"
     if not meta.is_file():
         return frozenset()
     return frozenset(json.loads(meta.read_text(encoding="utf-8")).get("held_out_apps", []))

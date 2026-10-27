@@ -6,7 +6,7 @@ import copy
 import hashlib
 from typing import Any
 
-from lifemate.jsonutil import canonical_json
+from lifemate.core.jsonutil import canonical_json
 
 
 class FakeClock:

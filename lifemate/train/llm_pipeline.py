@@ -21,14 +21,14 @@ from typing import Any
 
 import structlog
 
-from lifemate.config import load_profile
-from lifemate.envinfo import detect
+from lifemate.core.config import load_profile
+from lifemate.core.envinfo import detect
+from lifemate.core.paths import REPO_ROOT
 from lifemate.train import sft, sft_data
 from lifemate.train.common import CheckpointManager, abs_path, sha256_file, write_json_atomic, write_train_config
 
 log = structlog.get_logger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 STAGES = ("data", "train", "select", "merge", "eval", "choose", "register")
 REGISTRY_FIELDS = ("name", "base", "data_version", "checkpoint", "val_seen", "val_unseen", "location")
 EVAL_SPLITS = ("val_seen", "val_unseen")
@@ -55,8 +55,8 @@ class PipelineContext:
 
     @property
     def model_dir(self) -> Path:
-        """`models/<name>/` (in git: configs and scores, never weights)."""
-        return self.repo_root / "models" / self.name
+        """`artifacts/models/<name>/` (in git: configs and scores, never weights)."""
+        return self.repo_root / "artifacts" / "models" / self.name
 
 
 def load_state(ctx: PipelineContext) -> dict[str, Any]:
@@ -89,7 +89,7 @@ def default_name(cfg: sft.LLMTrainConfig, registry: Path) -> str:
 
 
 def read_registry(path: Path) -> list[dict[str, str]]:
-    """Rows of models/registry.csv."""
+    """Rows of artifacts/models/registry.csv."""
     if not path.is_file():
         return []
     with open(path, encoding="utf-8", newline="") as f:
@@ -112,9 +112,9 @@ def append_registry(path: Path, row: Mapping[str, Any]) -> None:
 def stage_data(ctx: PipelineContext, state: dict[str, Any]) -> None:
     """Build train, eval_seen and eval_unseen SFT files."""
     jobs = [
-        (ctx.cfg.data.train, "splits/train.txt", False),
-        (ctx.cfg.data.eval_seen, "splits/val_seen.txt", True),
-        (ctx.cfg.data.eval_unseen, "splits/val_unseen.txt", True),
+        (ctx.cfg.data.train, "configs/splits/train.txt", False),
+        (ctx.cfg.data.eval_seen, "configs/splits/val_seen.txt", True),
+        (ctx.cfg.data.eval_unseen, "configs/splits/val_unseen.txt", True),
     ]
     metas: dict[str, Any] = {}
     for out, ids, allow_eval in jobs:
@@ -195,11 +195,11 @@ def _subprocess_runner(cmd: Sequence[str], cwd: Path) -> int:
 
 
 def eval_command(ctx: PipelineContext, run_config: Path, split_ids: str, run_dir: Path) -> list[str]:
-    """`python -m lifemate.cli` on one val id file with `--limit`."""
+    """`python -m lifemate.run.cli` on one val id file with `--limit`."""
     return [
         sys.executable,
         "-m",
-        "lifemate.cli",
+        "lifemate.run.cli",
         "--config",
         str(run_config),
         "--env",
@@ -233,9 +233,9 @@ def stage_eval(ctx: PipelineContext, state: dict[str, Any], runner: Runner = _su
         scores: dict[str, Any] = {}
         for split in EVAL_SPLITS:
             run_dir = ctx.work_dir / "eval" / tag / split
-            code = runner(eval_command(ctx, run_cfg, f"splits/{split}.txt", run_dir), ctx.repo_root)
+            code = runner(eval_command(ctx, run_cfg, f"configs/splits/{split}.txt", run_dir), ctx.repo_root)
             if code != 0:
-                raise RuntimeError(f"lifemate.cli failed ({code}) for {tag} on {split}")
+                raise RuntimeError(f"lifemate.run.cli failed ({code}) for {tag} on {split}")
             scores[split] = read_run_score(run_dir)
             scores[f"{split}_run"] = str(run_dir)
         results.append({**cand, **scores})
@@ -259,7 +259,7 @@ def stage_choose(ctx: PipelineContext, state: dict[str, Any]) -> None:
 
 
 def stage_register(ctx: PipelineContext, state: dict[str, Any]) -> None:
-    """Write models/<name>/train_config.json, eval.json, copy metrics.jsonl, append models/registry.csv."""
+    """Write artifacts/models/<name>/{train_config.json, eval.json, metrics.jsonl}; append the registry."""
     chosen = state["choose"]
     ctx.model_dir.mkdir(parents=True, exist_ok=True)
     data_sha = {
@@ -285,7 +285,7 @@ def stage_register(ctx: PipelineContext, state: dict[str, Any]) -> None:
     if metrics.is_file():
         (ctx.model_dir / "metrics.jsonl").write_bytes(metrics.read_bytes())
     append_registry(
-        ctx.repo_root / "models" / "registry.csv",
+        ctx.repo_root / "artifacts" / "models" / "registry.csv",
         {
             "name": ctx.name,
             "base": ctx.cfg.base.model,
@@ -339,7 +339,7 @@ def make_context(args: argparse.Namespace, repo_root: Path = REPO_ROOT) -> Pipel
     """Context from CLI arguments."""
     config_path = abs_path(args.config, repo_root)
     cfg = sft.load_llm_train_config(config_path)
-    name = args.name or default_name(cfg, repo_root / "models" / "registry.csv")
+    name = args.name or default_name(cfg, repo_root / "artifacts" / "models" / "registry.csv")
     runs = abs_path(load_profile(args.env, repo_root).runs_dir, repo_root)
     return PipelineContext(repo_root, config_path, cfg, args.env, name, runs / "train" / name, args.limit, args.split)
 

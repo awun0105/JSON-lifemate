@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import dataclasses
 
-from lifemate.budget import Budget
-from lifemate.config import AgentConfig, LLMConfig
-from lifemate.types import StopReason
+from lifemate.agent.budget import Budget
+from lifemate.core.config import AgentConfig, LLMConfig
+from lifemate.core.types import StopReason
 from tests.fakes import FakeClock
 
 AGENT_CFG = AgentConfig(

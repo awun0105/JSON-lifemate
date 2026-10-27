@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from lifemate.protocol import DONE_TEXT, call_text, output_schema, parse, schema_json
-from lifemate.tooldocs import ASK_TOOL
-from lifemate.types import Action, ParseError
+from lifemate.agent.protocol import DONE_TEXT, call_text, output_schema, parse, schema_json
+from lifemate.agent.tooldocs import ASK_TOOL
+from lifemate.core.types import Action, ParseError
 
 GOOD = [
     ('{"action":"done"}', Action("done", None, None)),

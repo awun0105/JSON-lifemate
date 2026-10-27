@@ -5,12 +5,12 @@ from __future__ import annotations
 import dataclasses
 from typing import Any
 
-from lifemate.agent import Agent, NullObserver
-from lifemate.asr import GoldTranscriber
-from lifemate.guards import build_guard_chain
-from lifemate.llm import FakeLLM
-from lifemate.prompt import PromptBuilder
-from lifemate.types import ErrorCode, GuardVerdict, Sample, SampleResult, StepRecord, StopReason, Transcript
+from lifemate.agent.agent import Agent, NullObserver
+from lifemate.agent.guards import build_guard_chain
+from lifemate.agent.prompt import PromptBuilder
+from lifemate.backends.asr import GoldTranscriber
+from lifemate.backends.llm import FakeLLM
+from lifemate.core.types import ErrorCode, GuardVerdict, Sample, SampleResult, StepRecord, StopReason, Transcript
 from tests.fakes import FakeClock, FakeEnv, WhitespaceTokenCounter
 from tests.test_budget import AGENT_CFG, LLM_CFG
 from tests.test_guards import ASK_TOOL, INDEX, INSTALLED, make_env

@@ -11,16 +11,16 @@ from typing import Any
 
 import structlog
 
-from lifemate.config import load_profile
-from lifemate.data import load_split, read_ids
-from lifemate.envinfo import code_version
+from lifemate.core.config import load_profile
+from lifemate.core.envinfo import code_version
+from lifemate.core.paths import REPO_ROOT
+from lifemate.core.types import Sample
+from lifemate.io.data import load_split, read_ids
 from lifemate.train.common import abs_path, sha256_file
 from lifemate.train.sft_data import eval_ids, write_jsonl
-from lifemate.types import Sample
 
 log = structlog.get_logger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 FINAL_TURN = "final"
 
 

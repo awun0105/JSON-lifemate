@@ -16,7 +16,7 @@ def repo_root() -> Path:
 @pytest.fixture
 def data_root(repo_root: Path) -> Path:
     """Competition data root; skips when the data package is absent."""
-    root = repo_root / "train+public_test" / "train+public_test"
+    root = repo_root / "data" / "train+public_test"
     if not root.is_dir():
         pytest.skip(f"data package missing: {root}")
     return root

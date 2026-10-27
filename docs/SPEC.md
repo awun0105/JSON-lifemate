@@ -3,7 +3,7 @@
 Tài liệu này mô tả **cần xây cái gì** để người viết code (người hoặc AI) làm được mà không phải hỏi lại. Đề bài xem `overview.md`, dữ liệu xem `eda.md`, lý do của từng quyết định xem `approach.md`.
 
 - **Phạm vi:** toàn hệ thống. Riêng **agent v0 và hạ tầng đo** (mục 4) viết chi tiết đến mức interface, file và test. ASR, fine-tune và Docker (mục 6) viết ở mức interface và tiêu chí nghiệm thu, sẽ viết chi tiết khi có số đo của v0.
-- **Kiểm chứng trạng thái:** 27/10/2026, trên gói dữ liệu `train+public_test/` và `zaic_tools` của train.
+- **Kiểm chứng trạng thái:** 27/10/2026, trên gói dữ liệu `data/train+public_test/` và `zaic_tools` của train.
 
 ---
 
@@ -17,7 +17,7 @@ Cho một yêu cầu bằng giọng nói tiếng Việt, agent phải gọi đú
 
 | Mốc | Xong khi |
 |---|---|
-| v0 (30/10) | Chạy hết `val_seen` và `val_unseen`, có điểm từ `eval/score.py` và các tiêu chí ở mục 7 đều đạt |
+| v0 (30/10) | Chạy hết `val_seen` và `val_unseen`, có điểm từ `lifemate/eval/score.py` và các tiêu chí ở mục 7 đều đạt |
 | Docker (05/11) | Image chạy với `--network none`, ra được `result/submission.jsonl` cho `public_test` |
 | Nộp (16/11) | Gói Docker cuối, training code và data chạy lại được |
 
@@ -26,16 +26,16 @@ Cho một yêu cầu bằng giọng nói tiếng Việt, agent phải gọi đú
 | Thành phần | Trạng thái | Bằng chứng |
 |---|---|---|
 | Đề bài, EDA, hướng làm | Có | `docs/overview.md`, `docs/eda.md`, `docs/approach.md` |
-| Chia dữ liệu | Có | `eval/make_splits.py`, `splits/`: train 1098, val_seen 193, val_unseen 254 |
-| Bộ chấm local | Có | `eval/score.py`: gold được 100, toàn `[]` được 7,18 |
+| Chia dữ liệu | Có | `lifemate/eval/make_splits.py`, `configs/splits/`: train 1098, val_seen 193, val_unseen 254 |
+| Bộ chấm local | Có | `lifemate/eval/score.py`: gold được 100, toàn `[]` được 7,18 |
 | Agent v0 (`lifemate/`), CLI, hạ tầng đo | **Có, 27/10/2026** | 171 test pass; FakeLLM qua CLI được 100,00 (strict và canon) trên `val_seen`, `val_unseen`; `configs/fake.toml` chạy không cần model |
 | Chọn model | **Đã chọn 27/10/2026** (mục 6.0, `approach.md` 5.5): Qwen3-4B-Instruct-2507 + PhoWhisper-medium, đã điền `configs/v0.toml`, `docker.toml`, `train/*.toml` | Chưa chạy thật model nào (không có GPU ở máy dev) |
 | vLLM thật | `VLLMBackend` viết theo API 0.32, **chỉ test với engine giả** (Q3) | |
 | ASR | `ASRTranscriber` + 3 engine (`hf_seq2seq`, `chunkformer`, `viegem`), `eval_asr.py`; **chưa chạy model thật** | Test với backend giả |
 | Docker | Dockerfile, entrypoint, `configs/docker.toml`, smoke script; **chưa build** | `docs/docker.md` |
-| Fine-tune | Khung có (`lifemate/train/`), 4 notebook train, `requirements/train.txt`; `sft_data` và `asr_data` đã chạy trên dữ liệu thật; **train/merge chưa chạy** | `approach.md` 5.5.2 ghi kế hoạch và thứ tự |
-| Môi trường | Profile local/kaggle/colab/rented/runpod/docker, notebook run và train, `scripts/runpod_setup.sh` | Chỉ profile local đã chạy |
-| Báo cáo | `lifemate/report.py` (`make report`, `make report-train`) | Test với dữ liệu giả |
+| Fine-tune | Khung có (`lifemate/train/`), 4 notebook train, `ops/requirements/train.txt`; `sft_data` và `asr_data` đã chạy trên dữ liệu thật; **train/merge chưa chạy** | `approach.md` 5.5.2 ghi kế hoạch và thứ tự |
+| Môi trường | Profile local/kaggle/colab/rented/runpod/docker, notebook run và train, `ops/scripts/runpod_setup.sh` | Chỉ profile local đã chạy |
+| Báo cáo | `lifemate/run/report.py` (`make report`, `make report-train`) | Test với dữ liệu giả |
 
 ### 1.4. Số liệu dữ liệu dùng để thiết kế
 
@@ -79,7 +79,7 @@ Dòng in đậm là ràng buộc quan trọng nhất cho thiết kế. Một cal
                  │ SampleResult: tool_calls, state_hash, trace                 │
                  └──────────┬──────────────────────────────────────────────────┘
                             ▼
-      [A9] submission.jsonl    [A10] trace.jsonl, summary.json   ──► eval/score.py
+      [A9] submission.jsonl    [A10] trace.jsonl, summary.json   ──► lifemate/eval/score.py
 ```
 
 | Khối | Thành phần | Mốc |
@@ -103,7 +103,7 @@ Dòng in đậm là ràng buộc quan trọng nhất cho thiết kế. Một cal
 | S6 | Tắt chế độ suy nghĩ của model nếu model có chế độ này (ví dụ `enable_thinking=False` qua `chat_template_kwargs`) | Tốn token và thời gian, khó giữ dưới 30 giây |
 | S7 | **Chưa chọn LLM và ASR.** Code không gắn với model cụ thể nào: tên model, revision, dtype chỉ nằm trong config. Khi chọn, model phải đạt điều kiện ở mục 6.0 | Để chọn model sau mà không phải sửa code |
 | S8 | Config bằng TOML (`tomllib` có sẵn trong Python 3.11) | Không thêm thư viện |
-| S9 | Mọi thành phần thay được đều là `typing.Protocol`, lắp ghép tại **một chỗ duy nhất** (`lifemate/factory.py`), dùng composition thay cho kế thừa | Đổi model, ASR, guard bằng config. Test thay bằng bản giả mà không sửa code chính (mục 4.0) |
+| S9 | Mọi thành phần thay được đều là `typing.Protocol`, lắp ghép tại **một chỗ duy nhất** (`lifemate/run/factory.py`), dùng composition thay cho kế thừa | Đổi model, ASR, guard bằng config. Test thay bằng bản giả mà không sửa code chính (mục 4.0) |
 | S10 | Prompt sắp từ phần ít đổi đến phần hay đổi. Messages chỉ được thêm vào cuối, không bao giờ sửa | Tận dụng prefix cache của vLLM giữa các mẫu và giữa các bước trong một mẫu (mục 4.6) |
 | S11 | Nạp model xong phải **warm-up** trước khi bắt đầu tính giờ mẫu đầu tiên | Lần gọi đầu của vLLM và ASR chậm vì biên dịch kernel, có thể làm mẫu đầu vượt 30 giây |
 | S12 | Hạn giờ kiểm tra **trước** mỗi bước bằng ước lượng thời gian của bước đó, không chỉ kiểm tra thời gian đã trôi qua | Tránh bắt đầu một bước lúc 24,9 giây rồi kết thúc lúc 31 giây (mục 4.10) |
@@ -115,48 +115,66 @@ Dòng in đậm là ràng buộc quan trọng nhất cho thiết kế. Một cal
 
 ### 4.1. Cấu trúc repo
 
+Gốc repo chỉ có sáu thư mục nguồn cộng hai thư mục sinh ra; mỗi tên nói đúng một loại nội dung.
+
 ```
-pyproject.toml, uv.lock
-lifemate/
-├── __init__.py
-├── types.py       # value object, Enum StopReason/ErrorCode/GuardVerdict, các Protocol (mục 4.0)
-├── jsonutil.py    # canonical_json(): mọi JSON ảnh hưởng tới tính tất định đi qua đây
-├── config.py      # đọc TOML thành dataclass Config, kiểm tra giá trị
-├── data.py        # A1: đọc <split>.jsonl thành Sample
-├── zaic.py        # nạp zaic_tools đúng split, tạo ToolEnv (một lần mỗi mẫu)
-├── asr.py         # A2: GoldTranscriber (sau v0: ASRTranscriber cho model ASR sẽ chọn)
-├── tooldocs.py    # catalog → mô tả tool rút gọn, có cache
-├── prompt.py      # A4: PromptBuilder, Conversation (giữ messages, đếm token tăng dần)
-├── protocol.py    # JSON schema đầu ra + parse
-├── tokens.py      # TokenCounter dùng tokenizer của model (chạy trên CPU)
-├── llm.py         # A5: VLLMBackend, FakeLLM
-├── guards.py      # A7: các Guard và GuardChain
-├── budget.py      # Budget: hạn giờ dự đoán, số bước, số lần thử lại
-├── agent.py       # A6: Agent.run(sample, env) -> SampleResult
-├── observers.py   # A10: AgentObserver, Tracer, NullObserver
-├── timing.py      # decorator Timed cho LLMBackend và Transcriber
-├── store.py       # RunStore: đọc ghi thư mục run (flush, ghi nguyên tử, resume)
-├── runner.py      # Runner: warm-up, lặp qua mẫu, cô lập lỗi từng mẫu, gọi chấm
-├── factory.py     # nơi duy nhất tạo đối tượng từ Config (registry theo tên backend)
-├── envinfo.py     # nhận GPU, chọn dtype, lấy phiên bản code và gói (mục 4.16)
-├── cli.py         # chỉ parse tham số rồi gọi Runner; chạy bằng `python -m lifemate.cli`
-└── report.py      # bảng text từ runs/index.csv và metrics.jsonl, vẽ PNG nếu có matplotlib (`make report`, `make report-train`)
-prompts/system_v0.md
-configs/v0.toml
-configs/docker.toml   # như v0.toml nhưng model trỏ vào /app/models/* và asr.backend = "asr"; mặc định của image (mục 6.3)
-configs/env/       # local.toml, kaggle.toml, colab.toml, rented.toml, runpod.toml, docker.toml (mục 4.16)
-requirements/notebook.txt   # sinh từ uv.lock, bỏ torch/CUDA, dùng cho Kaggle và Colab
-scripts/pack_code.sh
-notebooks/         # {kaggle,colab}_run.ipynb chạy agent; {kaggle,colab}_train_{llm,asr}.ipynb gọi pipeline train: chỉ gọi lệnh
-requirements/train.txt      # unsloth, trl, peft, datasets, soundfile, bitsandbytes, jiwer cho notebook train
-lifemate/train/    # sau v0: sft_data, sft, llm_pipeline, asr_data, asr, asr_pipeline, common (mục 6.2, 6.4, 6.5)
-configs/train/     # sau v0: llm_vN.toml, asr_vN.toml
-data/sft/, data/asr/   # sau v0: dữ liệu train đã dựng + file meta (nộp kèm theo yêu cầu BTC)
-models/registry.csv     # sau v0: danh sách model đã train; trọng số không vào git
-tests/
-eval/              # đã có: make_splits.py, score.py
-runs/              # không đưa vào git
+AGENTS.md  README.md  Makefile  pyproject.toml  uv.lock  .pre-commit-config.yaml
+lifemate/                 # code, chia theo vai trò; mỗi gói 2–7 module
+├── core/                 # kiểu dữ liệu và hạ tầng chung, không phụ thuộc gói khác
+│   ├── types.py          # value object, Enum StopReason/ErrorCode/GuardVerdict, các Protocol (mục 4.0)
+│   ├── config.py         # đọc TOML thành dataclass Config và EnvProfile, kiểm tra giá trị (4.14, 4.16)
+│   ├── jsonutil.py       # canonical_json(): mọi JSON ảnh hưởng tới tính tất định đi qua đây
+│   ├── envinfo.py        # nhận GPU, chọn dtype, lấy phiên bản code và gói (4.16)
+│   ├── tokens.py         # TokenCounter dùng tokenizer của model (CPU)
+│   └── paths.py          # REPO_ROOT, định nghĩa một lần
+├── agent/                # vòng lặp suy luận, không biết gì về file hay GPU
+│   ├── agent.py          # A6: Agent.run(sample, env) -> SampleResult
+│   ├── budget.py         # hạn giờ dự đoán, số bước, số lần thử lại
+│   ├── guards.py         # A7: các Guard và GuardChain
+│   ├── prompt.py         # A4: PromptBuilder, Conversation, thang giảm prompt
+│   ├── tooldocs.py       # catalog → mô tả tool rút gọn, có cache
+│   ├── protocol.py       # JSON schema đầu ra + parse
+│   └── observers.py      # A10: AgentObserver, Tracer, NullObserver
+├── backends/             # model thật và giả, sau Protocol LLMBackend / Transcriber
+│   ├── llm.py            # A5: VLLMBackend, FakeLLM
+│   └── asr.py            # A2: GoldTranscriber, ASRTranscriber, ASR_ENGINES (hf_seq2seq, chunkformer, viegem)
+├── io/                   # đọc dữ liệu thi, ghi kết quả
+│   ├── data.py           # A1: đọc <split>.jsonl thành Sample
+│   ├── zaic.py           # nạp zaic_tools đúng split, tạo ToolEnv (một lần mỗi mẫu)
+│   ├── store.py          # RunStore: thư mục run (flush, ghi nguyên tử, resume), index.csv
+│   └── check_submission.py
+├── run/                  # ghép mọi thứ lại và chạy
+│   ├── runner.py         # warm-up, lặp qua mẫu, cô lập lỗi từng mẫu, gọi chấm
+│   ├── factory.py        # nơi duy nhất tạo đối tượng từ Config (registry theo tên backend)
+│   ├── timing.py         # decorator Timed cho LLMBackend và Transcriber
+│   ├── cli.py            # parse tham số rồi gọi Runner: `python -m lifemate` hoặc `python -m lifemate.run.cli`
+│   └── report.py         # bảng text từ index.csv và metrics.jsonl, PNG nếu có matplotlib (`make report`)
+├── eval/                 # chấm điểm và chia dữ liệu (script, ngoài mypy strict)
+│   ├── score.py          # `python -m lifemate.eval.score` (mục 4.15)
+│   ├── make_splits.py    # sinh configs/splits/ (mục 3)
+│   └── eval_asr.py       # WER, CER, tỉ lệ nghe sai thực thể (6.4.2)
+└── train/                # fine-tune: common, sft_data, sft, llm_pipeline, asr_data, asr, asr_pipeline (6.2, 6.4, 6.5)
+tests/                    # pytest, CPU; tests/train/ cho phần fine-tune
+configs/                  # mọi đầu vào cố định, có phiên bản
+├── v0.toml  fake.toml  docker.toml
+├── env/                  # local, kaggle, colab, rented, runpod, docker (4.16)
+├── train/                # llm_v1.toml, asr_v1.toml
+├── prompts/system_v0.md
+└── splits/               # train, val_seen, val_unseen, smoke (.txt), meta.json
+docs/                     # SPEC, approach, overview, eda, CONTRIBUTING, docker, runpod, diagrams/ (mmd + png)
+ops/                      # vận hành: không có logic, chỉ gọi lifemate
+├── docker/               # Dockerfile, Dockerfile.dockerignore, entrypoint.sh, smoke.sh (6.3)
+├── notebooks/            # {kaggle,colab}_run.ipynb, {kaggle,colab}_train_{llm,asr}.ipynb
+├── requirements/         # notebook.txt (sinh từ uv.lock), train.txt
+└── scripts/              # pack_code.sh, runpod_setup.sh, export_notebook_requirements.py
+data/                     # KHÔNG vào git: train+public_test/ (gói của BTC), sft/, asr/ (dữ liệu dựng ra)
+artifacts/                # KHÔNG vào git, trừ models/registry.csv và models/README.md
+├── runs/                 # mỗi lần chạy một thư mục + index.csv; runs/train/<tên> cho fine-tune
+├── models/               # llm/, asr/ snapshot và model đã merge; Docker chép thư mục này
+└── dist/                 # zip code cho Kaggle/Colab
 ```
+
+Quy tắc phụ thuộc giữa các gói: `core` không import gói nào; `agent` chỉ import `core`; `backends`, `io` import `core`; `run` import tất cả; `eval` và `train` import `core`, `io`, `run`. Không có import ngược.
 
 `vllm` chỉ được import bên trong `VLLMBackend`. Toàn bộ test chạy được trên máy không có GPU và không cài vLLM.
 
@@ -175,7 +193,7 @@ runs/              # không đưa vào git
 | `Runner` | Warm-up, lặp qua mẫu, bắt lỗi ở ranh giới từng mẫu, gọi `score.py` | Logic của agent |
 | `factory` | Tạo mọi đối tượng từ `Config` | Logic nghiệp vụ |
 
-**Các interface (`lifemate/types.py`):**
+**Các interface (`lifemate/core/types.py`):**
 
 ```python
 class ToolEnvLike(Protocol):
@@ -239,7 +257,7 @@ Không dùng kế thừa nhiều tầng, không dùng singleton hay biến toàn
 - Mọi JSON đưa vào prompt, schema hay file kết quả đi qua `canonical_json()` (`ensure_ascii=False`, `separators=(",", ":")`, `sort_keys=True`).
 - Hàm công khai có type hint và docstring một dòng. Đọc ghi file luôn dùng `with` hoặc `Path.read_text`.
 
-### 4.2. Kiểu dữ liệu (`lifemate/data.py`)
+### 4.2. Kiểu dữ liệu (`lifemate/io/data.py`)
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -266,7 +284,7 @@ def load_split(root: Path, split: str, ids: list[str] | None = None) -> list[Sam
 
 `label` chỉ được đọc bởi `FakeLLM` và bởi bộ chấm. Có test kiểm tra `agent.py` và `prompt.py` không truy cập `label` (mục 5).
 
-### 4.3. Nạp `zaic_tools` (`lifemate/zaic.py`)
+### 4.3. Nạp `zaic_tools` (`lifemate/io/zaic.py`)
 
 Mỗi split có bản `zaic_tools` riêng và cùng tên module. Vì vậy **mỗi process chỉ chạy một split**.
 
@@ -280,7 +298,7 @@ def open_env(zaic, root: Path, split: str, sample_id: str) -> Session
     # trong process; gọi lần hai với cùng id thì raise RuntimeError
 ```
 
-### 4.4. Transcriber (`lifemate/asr.py`)
+### 4.4. Transcriber (`lifemate/backends/asr.py`)
 
 Interface `Transcriber` ở mục 4.0.
 
@@ -295,7 +313,7 @@ class Transcript:
 - **v0: `GoldTranscriber`** trả về `audio_text` của lượt cuối và của các lượt user trong history. Chỉ dùng được với train. Gặp mẫu không có `audio_text` thì raise. `warmup()` không làm gì.
 - Sau v0: `ASRTranscriber` (mục 6.1) dùng cùng interface.
 
-### 4.5. Mô tả tool rút gọn (`lifemate/tooldocs.py`)
+### 4.5. Mô tả tool rút gọn (`lifemate/agent/tooldocs.py`)
 
 ```python
 class CatalogIndex:            # nạp catalog một lần, index {tên tool: spec}, allowed_tools(installed_apps)
@@ -330,14 +348,14 @@ def render_tools(index: CatalogIndex, allowed: Iterable[str], *, drop_param_desc
 
 Mọi trường của catalog (`parameters`, `x-*`, `returns`) đều phải xuất hiện. Có test chạy trên toàn bộ catalog train và public để kiểm tra không bỏ sót trường nào (mục 5).
 
-**Quy tắc app bị rút (chế độ `train_mode`):** chỉ áp dụng khi dựng prompt cho mẫu thuộc `splits/train.txt` (few-shot, dữ liệu fine-tune). Khi đó:
+**Quy tắc app bị rút (chế độ `train_mode`):** chỉ áp dụng khi dựng prompt cho mẫu thuộc `configs/splits/train.txt` (few-shot, dữ liệu fine-tune). Khi đó:
 
-1. Xóa 8 app trong `splits/meta.json` → `held_out_apps` khỏi `installed_apps` trước khi gọi `render_tools`.
-2. **Bỏ hẳn mẫu** nếu `history` có lượt assistant gọi tool của app bị rút (A4). Đã đếm: 65 mẫu trong `splits/train.txt` như vậy (ví dụ `train_0682`, `train_0732`). Nếu chỉ xóa khỏi tool docs thì model vẫn thấy `[đã gọi] medication.xxx(...)` trong lịch sử. `PromptBuilder.start(..., train_mode=True)` raise `HeldOutLeak`, và `sft_data.py` ghi id vào `data/sft/vN.dropped.txt` với lý do.
+1. Xóa 8 app trong `configs/splits/meta.json` → `held_out_apps` khỏi `installed_apps` trước khi gọi `render_tools`.
+2. **Bỏ hẳn mẫu** nếu `history` có lượt assistant gọi tool của app bị rút (A4). Đã đếm: 65 mẫu trong `configs/splits/train.txt` như vậy (ví dụ `train_0682`, `train_0732`). Nếu chỉ xóa khỏi tool docs thì model vẫn thấy `[đã gọi] medication.xxx(...)` trong lịch sử. `PromptBuilder.start(..., train_mode=True)` raise `HeldOutLeak`, và `sft_data.py` ghi id vào `data/sft/vN.dropped.txt` với lý do.
 
 Khi chạy đánh giá trên `val_seen` và `val_unseen` thì **không** áp dụng chế độ này.
 
-### 4.6. Dựng prompt (`lifemate/prompt.py`)
+### 4.6. Dựng prompt (`lifemate/agent/prompt.py`)
 
 ```python
 class PromptBuilder:
@@ -360,7 +378,7 @@ class Conversation:
 
 | Vị trí | Nội dung | Giống nhau giữa |
 |---|---|---|
-| 1. system, phần đầu | Quy tắc và định dạng đầu ra trong `prompts/system_v0.md` | **Mọi mẫu** |
+| 1. system, phần đầu | Quy tắc và định dạng đầu ra trong `configs/prompts/system_v0.md` | **Mọi mẫu** |
 | 2. system, phần cuối | `{tool_docs}` | Các mẫu cài cùng bộ app |
 | 3. user, khối đầu | `# Ngữ cảnh`: `current_time`, `timezone`, `location`, `user_profile`, viết thành các dòng `khóa: giá trị`. **Không** viết lại `installed_apps` vì đã có trong tool docs | Chỉ trong một mẫu |
 | 4. user, tiếp theo | `# Lịch sử hội thoại` (bỏ qua nếu không có history). Mỗi lượt user là một dòng `Người dùng: <transcript>`. Mỗi lượt assistant là `Trợ lý: <text>`, kèm từng call dạng `  [đã gọi] name(arguments_json) → result_json` | Chỉ trong một mẫu |
@@ -390,7 +408,7 @@ class Conversation:
 
 Vẫn không vừa sau mức 3 thì `Budget` trả `CONTEXT_OVERFLOW` ở bước 0 như cũ. Mức 2 và 3 đổi phần system/history nên làm giảm trúng cache, nhưng chỉ xảy ra ở số ít mẫu. `summary.json` đếm số mẫu theo từng mức.
 
-`prompts/system_v0.md` phải nêu tối thiểu các quy tắc sau:
+`configs/prompts/system_v0.md` phải nêu tối thiểu các quy tắc sau:
 
 - Mỗi lượt chỉ trả về một JSON.
 - Tra cứu lấy ID bằng tool loại `read` trước khi gọi tool loại `write`. Không tự bịa ID.
@@ -401,7 +419,7 @@ Vẫn không vừa sau mức 3 thì `Budget` trả `CONTEXT_OVERFLOW` ở bướ
 
 Tất cả JSON trong prompt đi qua `canonical_json()` (mục 4.0.1) để giữ tất định.
 
-### 4.7. Định dạng đầu ra (`lifemate/protocol.py`)
+### 4.7. Định dạng đầu ra (`lifemate/agent/protocol.py`)
 
 JSON schema dùng để ép đầu ra, tạo riêng cho từng mẫu:
 
@@ -436,7 +454,7 @@ class Action:
 
 `parse` vẫn phải xử lý đầu ra không hợp lệ, vì `FakeLLM` và các backend không ép schema có thể sinh ra. Gặp đầu ra hỏng thì trả `ParseError`, không raise.
 
-### 4.8. LLM backend (`lifemate/llm.py`)
+### 4.8. LLM backend (`lifemate/backends/llm.py`)
 
 Interface `LLMBackend` và `TokenCounter` ở mục 4.0.
 
@@ -463,7 +481,7 @@ class Generation:
 
 Phát lại `label.tool_calls` của từng mẫu theo thứ tự, mỗi lần `generate` trả một call, hết call thì trả `{"action":"done"}`. Mẫu được nhận biết qua tham số `sample_id` của `generate` (A1), vì prompt không chứa id. Có thể nhận thêm `delay_s` (giả lập thời gian mỗi bước, dùng với đồng hồ giả trong T10) và một danh sách đầu ra hỏng để ép theo id (T4, T5). Dùng để test vòng lặp và bộ ghi kết quả từ đầu đến cuối.
 
-### 4.9. Guards (`lifemate/guards.py`)
+### 4.9. Guards (`lifemate/agent/guards.py`)
 
 Thứ tự kiểm tra một `Action` loại `call`. Bước đầu tiên không đạt thì dừng kiểm tra.
 
@@ -507,7 +525,7 @@ class GuardChain:
 
 Bốn lớp `AllowedToolGuard` (G1), `SchemaGuard` (G2), `DuplicateWriteGuard` (G3), `AfterAskGuard` (G4). **Thứ tự chạy là thứ tự trong config** (`[agent].guards`), bảng trên chỉ đánh số để tham chiếu. Thêm guard mới là thêm một lớp vào registry và một dòng config, không sửa `Agent`.
 
-### 4.10. Vòng lặp agent (`lifemate/agent.py`, `lifemate/budget.py`)
+### 4.10. Vòng lặp agent (`lifemate/agent/agent.py`, `lifemate/agent/budget.py`)
 
 ```python
 class Agent:
@@ -572,11 +590,11 @@ class Budget:   # Budget(cfg: AgentConfig, llm_cfg: LLMConfig, clock, *, step_es
 
 ```
 # Máy local: data_root và runs_dir lấy từ configs/env/local.toml
-uv run python -m lifemate.cli --config configs/v0.toml --env local \
-    --split train --ids splits/val_seen.txt --name 2026-10-28_v0-<llm>_val-seen [--resume] [--limit N]
+uv run python -m lifemate.run.cli --config configs/v0.toml --env local \
+    --split train --ids configs/splits/val_seen.txt --name 2026-10-28_v0-<llm>_val-seen [--resume] [--limit N]
 
 # Ghi đè profile khi cần
-uv run python -m lifemate.cli --config configs/v0.toml --env kaggle --root /kaggle/input/other/train+public_test ...
+uv run python -m lifemate.run.cli --config configs/v0.toml --env kaggle --root /kaggle/input/other/train+public_test ...
 ```
 
 `--name` là tên thư mục con trong `runs_dir` của profile; `--out` là **chính thư mục run** (ghi đè `runs_dir/name`, khớp với `--out result/` ở Docker). Khi có `--out`, `index.csv` nằm ở thư mục cha của nó. Có thêm profile `local.toml` cho máy phát triển (đường dẫn tương đối trong repo).
@@ -589,7 +607,7 @@ uv run python -m lifemate.cli --config configs/v0.toml --env kaggle --root /kagg
 2. Với từng mẫu theo thứ tự id: `open_env` → `agent.run(sample, env, step_estimate_s=...)` trong `try/except Exception`. Đây là **chỗ duy nhất** bắt mọi exception. Lỗi thì tạo `SampleResult` với mã `exception` và traceback. **Nếu lỗi xảy ra trước khi có `env`** (B4), ghi `tool_calls=[]`, `state_hash=""`; dòng nộp vẫn phải có để file đủ id.
 3. `store.append(result)` ngay sau mỗi mẫu.
 4. Cập nhật p95 thời gian một bước từ các mẫu đã chạy và truyền vào `agent.run` của mẫu sau qua `step_estimate_s` (B6). Mẫu đầu dùng `cfg.initial_step_estimate_s`.
-5. Chạy xong: `store.finalize()`, rồi gọi `eval/score.py` **bằng subprocess** nếu split có nhãn (import trong process sẽ nạp `zaic_tools` lần hai).
+5. Chạy xong: `store.finalize()`, rồi gọi `lifemate/eval/score.py` **bằng subprocess** nếu split có nhãn (import trong process sẽ nạp `zaic_tools` lần hai).
 
 **`RunStore`:**
 
@@ -598,20 +616,20 @@ uv run python -m lifemate.cli --config configs/v0.toml --env kaggle --root /kagg
 - `--resume`: đọc `trace.jsonl`, bỏ qua dòng cuối nếu dòng đó hỏng (bị ngắt giữa chừng), bỏ qua các id đã có. `submission.jsonl` được dựng lại từ `trace.jsonl` ở `finalize()`.
 - Thư mục `--out` đã có `trace.jsonl` mà không truyền `--resume` thì báo lỗi và thoát, không ghi đè.
 - `--ids` không truyền thì chạy mọi mẫu của split. `--limit` lấy N id đầu tiên, dùng để chạy thử.
-- Split có nhãn (train) thì cuối lần chạy tự gọi `eval/score.py submission.jsonl --ids <run>/ids.txt --match both --details details.jsonl` và ghi kết quả ra `score.txt`. `ids.txt` là danh sách id thực sự đã chạy (sau `--limit`), để các id chưa chạy không bị chấm 0. `summary.json.score` = `{total, by_mode: {strict, canon}, by_category}`.
-- Thêm một dòng vào `runs/index.csv`: `run, date, git_commit, model, prompt_hash, split, ids_file, n, score, p95_seconds`.
+- Split có nhãn (train) thì cuối lần chạy tự gọi `lifemate/eval/score.py submission.jsonl --ids <run>/ids.txt --match both --details details.jsonl` và ghi kết quả ra `score.txt`. `ids.txt` là danh sách id thực sự đã chạy (sau `--limit`), để các id chưa chạy không bị chấm 0. `summary.json.score` = `{total, by_mode: {strict, canon}, by_category}`.
+- Thêm một dòng vào `artifacts/runs/index.csv`: `run, date, git_commit, model, prompt_hash, split, ids_file, n, score, p95_seconds`.
 - Split **không có nhãn** (public, private): `finalize()` chạy `check_submission` (B3) thay cho chấm điểm, ghi kết quả ra `check.txt`:
   1. Mọi id của split có mặt đúng một lần, JSON hợp lệ.
   2. `python -m zaic_tools --split <split> --root <root> --validate submission.jsonl` không báo lỗi (subprocess, cwd là thư mục split).
   3. Phân bố: tỉ lệ `[]`, tỉ lệ có `sys.ask_missing_info`, số call trung bình, so với train (7%, 14%, 2,3). Lệch quá 2 lần thì in cảnh báo, không chặn.
   4. Phát lại các call qua `zaic_tools` và đếm `ok: false`; khác 0 thì in cảnh báo kèm id.
 - `runs/public_submissions.csv` (ghi tay sau mỗi lần nộp public): `date, run, public_score, val_seen, val_unseen, note`. Dùng để xem điểm val và public có tăng giảm cùng chiều không.
-- **Bộ smoke cố định:** `splits/smoke.txt` gồm 30 id lấy phân tầng từ `val_seen` (theo loại đáp án và có/không history), tạo bởi `make_splits.py --smoke 30`. Dùng cho chạy thử sau mỗi lần sửa; `--limit N` chỉ dành cho kiểm tra cài đặt.
+- **Bộ smoke cố định:** `configs/splits/smoke.txt` gồm 30 id lấy phân tầng từ `val_seen` (theo loại đáp án và có/không history), tạo bởi `make_splits.py --smoke 30`. Dùng cho chạy thử sau mỗi lần sửa; `--limit N` chỉ dành cho kiểm tra cài đặt.
 
 ### 4.12. Thư mục một lần chạy
 
 ```
-runs/<name>/
+artifacts/runs/<name>/
 ├── config.json        # nội dung config TOML đã đọc, cộng thêm: git commit, git dirty, prompt sha256,
 │                      # phiên bản vllm/torch/transformers, tên GPU, compute capability, thời điểm bắt đầu
 ├── trace.jsonl        # mỗi mẫu một dòng (schema bên dưới)
@@ -652,7 +670,7 @@ runs/<name>/
 
 ### 4.13. Mã lỗi và lý do dừng
 
-Cả hai là `Enum` trong `lifemate/types.py`. Ghi ra JSON bằng `.value`.
+Cả hai là `Enum` trong `lifemate/core/types.py`. Ghi ra JSON bằng `.value`.
 
 **`ErrorCode`:**
 
@@ -668,7 +686,7 @@ Cả hai là `Enum` trong `lifemate/types.py`. Ghi ra JSON bằng `.value`.
 
 ### 4.14. Config (`configs/v0.toml`)
 
-Đọc vào các dataclass `LLMConfig`, `AgentConfig`, `ASRConfig` trong `lifemate/config.py`. Khóa lạ hoặc thiếu khóa thì báo lỗi ngay khi khởi động.
+Đọc vào các dataclass `LLMConfig`, `AgentConfig`, `ASRConfig` trong `lifemate/core/config.py`. Khóa lạ hoặc thiếu khóa thì báo lỗi ngay khi khởi động.
 
 ```toml
 [llm]
@@ -689,7 +707,7 @@ max_retries = 2
 hard_limit_s = 28                      # không bắt đầu bước nào dự kiến kết thúc sau mốc này
 initial_step_estimate_s = 3.0          # ước lượng cho mẫu đầu tiên của lần chạy
 max_result_chars = 4000
-system_prompt = "prompts/system_v0.md"
+system_prompt = "configs/prompts/system_v0.md"
 guards = ["allowed_tool", "schema", "duplicate_write"]   # "after_ask" có sẵn nhưng không dùng, xem 4.9
 
 [asr]
@@ -699,7 +717,7 @@ model = "vinai/PhoWhisper-medium"      # bắt buộc khi backend = "asr" (mục
 revision = ""
 ```
 
-### 4.15. Sửa bộ chấm `eval/score.py`
+### 4.15. Sửa bộ chấm `lifemate/eval/score.py`
 
 Bộ chấm phải khớp với cách BTC chấm càng sát càng tốt. Ba chỗ cần sửa:
 
@@ -738,15 +756,15 @@ persist = "kaggle_dataset"                                        # cách giữ 
 | `runs_dir` | `/kaggle/working/runs` | `/content/drive/MyDrive/zac2026/runs` | `~/zac2026/runs` | `result/` |
 | `hf_cache` | `/kaggle/working/hf_cache` | `/content/hf_cache` | `~/.cache/huggingface` | trong image, `HF_HUB_OFFLINE=1` |
 | `hf_token_source` | `kaggle_secret:HF_TOKEN` | `colab_userdata:HF_TOKEN` | `env:HF_TOKEN` | `none` |
-| `persist` | `kaggle_dataset`: cuối phiên lưu `runs/` thành một version của Kaggle Dataset riêng tư | `drive`: ghi thẳng vào Drive, không cần làm gì thêm | `local` | `local` |
+| `persist` | `kaggle_dataset`: cuối phiên lưu `artifacts/runs/` thành một version của Kaggle Dataset riêng tư | `drive`: ghi thẳng vào Drive, không cần làm gì thêm | `local` | `local` |
 
-- Profile thứ năm `local.toml` cho máy phát triển: `data_root = "train+public_test/train+public_test"`, `runs_dir = "runs"`, `hf_cache` mặc định của HF, `hf_token_source = "env:HF_TOKEN"`, `persist = "local"`. Đường dẫn tương đối tính từ thư mục gốc repo.
-- Thứ tự ưu tiên: tham số dòng lệnh (`--root`, `--out`) > profile > giá trị mặc định. Code trong `lifemate/` **không có đường dẫn nào gắn cứng**. `Runner` truyền `--root` tường minh khi gọi `eval/score.py`.
+- Profile thứ năm `local.toml` cho máy phát triển: `data_root = "data/train+public_test"`, `runs_dir = "runs"`, `hf_cache` mặc định của HF, `hf_token_source = "env:HF_TOKEN"`, `persist = "local"`. Đường dẫn tương đối tính từ thư mục gốc repo.
+- Thứ tự ưu tiên: tham số dòng lệnh (`--root`, `--out`) > profile > giá trị mặc định. Code trong `lifemate/` **không có đường dẫn nào gắn cứng**. `Runner` truyền `--root` tường minh khi gọi `lifemate/eval/score.py`.
 - `data_root` có thể chỉ đọc. Code không ghi gì vào `data_root`. `zaic_tools` được import từ đó, và Python tự bỏ qua việc ghi `__pycache__` khi thư mục chỉ đọc.
 - Token HF chỉ được đọc lúc chạy theo `hf_token_source`. Không bao giờ ghi token vào config, notebook, trace hay `config.json`.
 - Trước khi tải model, kiểm tra chỗ trống của ổ chứa `hf_cache`. Không đủ khoảng 1,5 lần kích thước model thì báo lỗi rõ ràng.
 
-**Tự nhận GPU (`lifemate/envinfo.py`):**
+**Tự nhận GPU (`lifemate/core/envinfo.py`):**
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -765,34 +783,34 @@ def resolve_dtype(cfg_dtype: str, info: EnvInfo) -> str
 ```
 
 - `config.json` của mỗi lần chạy ghi cả giá trị trong config **và** giá trị thật đã dùng, ví dụ `dtype: auto → float16`.
-- `code_version`: lấy từ `git rev-parse HEAD` cộng `git status --porcelain`. Nếu không có `.git` (code đưa lên Kaggle dạng dataset hoặc zip) thì đọc file `VERSION` do `scripts/pack_code.sh` ghi lúc đóng gói. Không có cả hai thì ghi `"unknown"` và in cảnh báo.
+- `code_version`: lấy từ `git rev-parse HEAD` cộng `git status --porcelain`. Nếu không có `.git` (code đưa lên Kaggle dạng dataset hoặc zip) thì đọc file `VERSION` do `ops/scripts/pack_code.sh` ghi lúc đóng gói. Không có cả hai thì ghi `"unknown"` và in cảnh báo.
 - `gpu_memory_utilization` vẫn đặt trong config, vì nó phụ thuộc việc có chạy ASR chung GPU hay không. `config.json` ghi kèm `gpu_mem_gb` để đối chiếu.
 
 **Cài đặt:**
 
 | Nơi | Cách cài | Lý do |
 |---|---|---|
-| Kaggle, Colab | Giữ torch và CUDA có sẵn. Cài các gói còn lại bằng `pip install -r requirements/notebook.txt`. File này sinh từ `uv.lock` nhưng bỏ torch và các gói CUDA. Chọn phiên bản vLLM khớp với torch có sẵn | Cài lại torch trên Kaggle hay Colab dễ làm hỏng CUDA và tốn thời gian |
+| Kaggle, Colab | Giữ torch và CUDA có sẵn. Cài các gói còn lại bằng `pip install -r ops/requirements/notebook.txt`. File này sinh từ `uv.lock` nhưng bỏ torch và các gói CUDA. Chọn phiên bản vLLM khớp với torch có sẵn | Cài lại torch trên Kaggle hay Colab dễ làm hỏng CUDA và tốn thời gian |
 | Máy thuê, Docker | `uv sync --frozen` theo `uv.lock` đầy đủ | Môi trường sạch, khóa chặt phiên bản |
 
 Phiên bản thật của các gói được ghi vào `config.json` (`EnvInfo.packages`), để biết hai lần chạy có dùng cùng phiên bản hay không.
 
-**Đưa code lên Kaggle và Colab:** `scripts/pack_code.sh` nén `lifemate/`, `eval/`, `configs/`, `prompts/`, `splits/`, `pyproject.toml` và các file requirements, kèm file `VERSION` (commit và trạng thái dirty). Kaggle dùng file nén này làm Dataset riêng tư. Colab dùng `git clone` hoặc file nén trên Drive.
+**Đưa code lên Kaggle và Colab:** `ops/scripts/pack_code.sh` nén `lifemate/`, `lifemate/eval/`, `configs/`, `configs/prompts/`, `configs/splits/`, `pyproject.toml` và các file requirements, kèm file `VERSION` (commit và trạng thái dirty). Kaggle dùng file nén này làm Dataset riêng tư. Colab dùng `git clone` hoặc file nén trên Drive.
 
-**Notebook mẫu (`notebooks/kaggle_run.ipynb`, `notebooks/colab_run.ipynb`)** gồm các ô theo thứ tự:
+**Notebook mẫu (`ops/notebooks/kaggle_run.ipynb`, `ops/notebooks/colab_run.ipynb`)** gồm các ô theo thứ tự:
 
 1. Cài đặt.
 2. In `EnvInfo`.
 3. Chạy `pytest` nhanh (bỏ T1).
 4. Chạy `--limit 30`.
 5. Chạy đủ `val_seen` và `val_unseen`.
-6. Lưu `runs/` theo `persist`.
+6. Lưu `artifacts/runs/` theo `persist`.
 
 Notebook chỉ gọi lệnh, không chứa logic. Mọi logic nằm trong `lifemate/`.
 
-**Notebook train (`notebooks/{kaggle,colab}_train_{llm,asr}.ipynb`)** theo cùng mẫu: cài `requirements/notebook.txt` + `requirements/train.txt`, in `EnvInfo`, chạy `pytest tests/train`, khôi phục `runs/` của phiên trước (Kaggle: chép từ dataset `lifemate-runs` đã đính kèm; Colab: work dir nằm sẵn trên Drive), gọi `lifemate.train.llm_pipeline` hoặc `asr_pipeline` một lệnh, in `models/registry.csv` và metric, lưu `runs/` theo `persist`. Pipeline đọc `pipeline_progress.json` nên phiên sau chạy tiếp từ stage dở dang.
+**Notebook train (`ops/notebooks/{kaggle,colab}_train_{llm,asr}.ipynb`)** theo cùng mẫu: cài `ops/requirements/notebook.txt` + `ops/requirements/train.txt`, in `EnvInfo`, chạy `pytest tests/train`, khôi phục `artifacts/runs/` của phiên trước (Kaggle: chép từ dataset `lifemate-runs` đã đính kèm; Colab: work dir nằm sẵn trên Drive), gọi `lifemate.train.llm_pipeline` hoặc `asr_pipeline` một lệnh, in `artifacts/models/registry.csv` và metric, lưu `artifacts/runs/` theo `persist`. Pipeline đọc `pipeline_progress.json` nên phiên sau chạy tiếp từ stage dở dang.
 
-**Máy thuê RunPod:** profile `runpod` (`/workspace` là ổ bền), `scripts/runpod_setup.sh` cài uv, lấy code, tải snapshot hai model vào `models/`, chạy test và smoke; chi tiết `docs/runpod.md`.
+**Máy thuê RunPod:** profile `runpod` (`/workspace` là ổ bền), `ops/scripts/runpod_setup.sh` cài uv, lấy code, tải snapshot hai model vào `artifacts/models/`, chạy test và smoke; chi tiết `docs/runpod.md`.
 
 **Nơi không chạy được:** Kaggle và Colab không chạy được Docker. Việc kiểm tra Docker (mục 6.3) làm trên máy thuê có Docker (nhiều template RunPod không có).
 
@@ -848,7 +866,7 @@ Mỗi test ghi rõ ba ý: **bảo vệ** điều gì, **bắt lỗi** khi nào, 
 | Chạy được | vLLM bản đã khóa, trên cả T4 (fp16) và sm80+ (bf16); có chat template | Chạy offline trong Docker, giải mã greedy |
 | Tiếng Việt | Hiểu tiếng Việt, kể cả câu xen tiếng Anh | Nhận dạng tiếng Việt, kể cả từ tiếng Anh xen kẽ |
 
-**Đã chọn** (lý do và kế hoạch fine-tune ở `approach.md` mục 5.5): LLM `Qwen/Qwen3-4B-Instruct-2507` (4,02B, Apache-2.0, không có chế độ thinking), ASR `vinai/PhoWhisper-medium` (0,77B, BSD-3, `engine = "hf_seq2seq"`). Tổng 4,79B. Đã điền `model` và `revision` vào `configs/v0.toml`, `configs/docker.toml` (đường dẫn `/app/models/*`) và `configs/train/*.toml`. Ứng viên A/B: `Qwen/Qwen3.5-4B`; ASR `chunkformer` và `viegem` (hai engine tùy chọn trong `lifemate/asr.py`, extras `asr-chunkformer` / `asr-viegem`, giấy phép phi thương mại cần BTC xác nhận).
+**Đã chọn** (lý do và kế hoạch fine-tune ở `approach.md` mục 5.5): LLM `Qwen/Qwen3-4B-Instruct-2507` (4,02B, Apache-2.0, không có chế độ thinking), ASR `vinai/PhoWhisper-medium` (0,77B, BSD-3, `engine = "hf_seq2seq"`). Tổng 4,79B. Đã điền `model` và `revision` vào `configs/v0.toml`, `configs/docker.toml` (đường dẫn `/app/models/*`) và `configs/train/*.toml`. Ứng viên A/B: `Qwen/Qwen3.5-4B`; ASR `chunkformer` và `viegem` (hai engine tùy chọn trong `lifemate/backends/asr.py`, extras `asr-chunkformer` / `asr-viegem`, giấy phép phi thương mại cần BTC xác nhận).
 
 **Trước khi chọn LLM, v0 vẫn làm được:** mọi việc trừ #4 (VLLMBackend chạy thật) và #8 (chạy v0 trên Kaggle) đều không cần model. `config.py` báo lỗi rõ ràng nếu `llm.backend = "vllm"` mà `model` còn trống.
 
@@ -882,12 +900,12 @@ Phần này chia hai nhóm:
 
 ```
 uv run python -m lifemate.train.sft_data --config configs/train/llm_v1.toml --env kaggle \
-    --ids splits/train.txt --out data/sft/v1.jsonl
+    --ids configs/splits/train.txt --out data/sft/v1.jsonl
 ```
 
 **Quy tắc dựng một mẫu, phải giống hệt lúc chạy thật:**
 
-1. Dựng prompt bằng đúng `PromptBuilder` và `system_v0.md` của lúc chạy. Sau đó, **xóa 8 app bị rút** (`splits/meta.json` → `held_out_apps`) khỏi `installed_apps` trước khi render tool docs (mục 4.5).
+1. Dựng prompt bằng đúng `PromptBuilder` và `system_v0.md` của lúc chạy. Sau đó, **xóa 8 app bị rút** (`configs/splits/meta.json` → `held_out_apps`) khỏi `installed_apps` trước khi render tool docs (mục 4.5).
 2. Transcript lấy từ `audio_text` (mặc định, `transcript_source = "gold"`). Tùy chọn `"asr"`: dùng chữ do ASR nghe ra, để model quen với lỗi ASR. Chỉ dùng khi đã có ASR (mục 6.1).
 3. Với mỗi call `i` trong `label.tool_calls`:
    - Thêm lượt assistant với nội dung `canonical_json({"action":"call","name":...,"arguments":...})`.
@@ -907,7 +925,7 @@ uv run python -m lifemate.train.sft_data --config configs/train/llm_v1.toml --en
 
 Đi kèm `data/sft/v1.meta.json`: sha256 của file, lệnh đã chạy, `code_version`, sha256 của prompt, danh sách id, số mẫu bị bỏ, số cảnh báo phát lại.
 
-**Dữ liệu chỉ lấy từ:** `splits/train.txt`, và sau này thêm dữ liệu tổng hợp (mục 6.2.5). **Không bao giờ** lấy từ `val_seen` hay `val_unseen` khi còn dùng chúng để chọn model. Không dùng gì từ `public_test`.
+**Dữ liệu chỉ lấy từ:** `configs/splits/train.txt`, và sau này thêm dữ liệu tổng hợp (mục 6.2.5). **Không bao giờ** lấy từ `val_seen` hay `val_unseen` khi còn dùng chúng để chọn model. Không dùng gì từ `public_test`.
 
 #### 6.2.2. Che loss
 
@@ -951,7 +969,7 @@ save_every_steps = 100
 **Chọn checkpoint:**
 
 1. Lấy 2 checkpoint có loss `eval_unseen` thấp nhất.
-2. Merge từng checkpoint (mục 6.2.4), chạy agent thật trên `val_seen` và `val_unseen` bằng `lifemate.cli`.
+2. Merge từng checkpoint (mục 6.2.4), chạy agent thật trên `val_seen` và `val_unseen` bằng `lifemate.run.cli`.
 3. Chọn checkpoint có điểm `val_unseen` cao nhất. Bằng điểm thì chọn bản có điểm `val_seen` cao hơn.
 
 Chỉ đánh giá bằng agent thật trên 2 checkpoint, để hạn chế việc chọn model theo bộ val quá nhiều lần.
@@ -972,8 +990,8 @@ Chỉ đánh giá bằng agent thật trên 2 checkpoint, để hạn chế vi�
 #### 6.2.6. Quản lý phiên bản và chạy lại
 
 - Tên model: `ft-<base>-sft<v>-r<nn>`, ví dụ `ft-base4b-sft1-r01`.
-- Mỗi model có thư mục `models/<tên>/` gồm `train_config.json` (toàn bộ config, `code_version`, sha256 dữ liệu, seed, GPU, phiên bản gói, checkpoint được chọn, loss), `metrics.jsonl`, `eval.json` (điểm agent trên hai bộ val, kèm tên run).
-- Trọng số lưu trên Kaggle Models hoặc HF private, không vào git. `models/registry.csv` (trong git) gồm `name, base, data_version, checkpoint, val_seen, val_unseen, location`.
+- Mỗi model có thư mục `artifacts/models/<tên>/` gồm `train_config.json` (toàn bộ config, `code_version`, sha256 dữ liệu, seed, GPU, phiên bản gói, checkpoint được chọn, loss), `metrics.jsonl`, `eval.json` (điểm agent trên hai bộ val, kèm tên run).
+- Trọng số lưu trên Kaggle Models hoặc HF private, không vào git. `artifacts/models/registry.csv` (trong git) gồm `name, base, data_version, checkpoint, val_seen, val_unseen, location`.
 - **Một lệnh chạy lại toàn bộ** (yêu cầu nộp training code của BTC):
   ```
   uv run python -m lifemate.train.llm_pipeline --config configs/train/llm_v1.toml --env rented
@@ -985,12 +1003,12 @@ Chỉ đánh giá bằng agent thật trên 2 checkpoint, để hạn chế vi�
 1. Test (CPU, model nhỏ giả hoặc tokenizer thật):
    - Phần prompt của một mẫu SFT giống từng byte với `Conversation.messages` của lúc chạy ở cùng bước.
    - Token được tính loss khi decode ra bằng đúng các chuỗi JSON của assistant cộng token kết thúc lượt.
-   - Không có tên app bị rút trong dữ liệu dựng từ `splits/train.txt`.
+   - Không có tên app bị rút trong dữ liệu dựng từ `configs/splits/train.txt`.
    - Mẫu `ask_missing_info` không có lượt `done` ở cuối.
    - Không id nào của `val_seen` hay `val_unseen` lọt vào file train.
 2. Phát lại toàn bộ dữ liệu SFT qua `FakeLLM` (dùng các lượt assistant làm đầu ra) cho ra 100,00 điểm trên các id của train.
 3. Ngắt train giữa chừng rồi `--resume-from` cho ra loss ở bước kế tiếp giống với khi train liền một mạch (cùng GPU).
-4. Model đã merge chạy được bằng `lifemate.cli`, và điểm `val_unseen` không thấp hơn model gốc dùng cùng prompt.
+4. Model đã merge chạy được bằng `lifemate.run.cli`, và điểm `val_unseen` không thấp hơn model gốc dùng cùng prompt.
 5. `llm_pipeline` chạy từ đầu đến cuối trên máy thuê bằng một lệnh.
 
 ### 6.3. Docker (D1 – D3)
@@ -998,7 +1016,7 @@ Chỉ đánh giá bằng agent thật trên 2 checkpoint, để hạn chế vi�
 - BTC mount thư mục test vào `/data`, với cùng cấu trúc như `public_test`. Nhưng `ToolEnv` cần dạng `<root>/<split>/...`. Vì vậy entrypoint phải:
   1. Tìm `/data/*_tools_catalog.json` để biết tên split.
   2. Tạo thư mục `/tmp/zaic_root/<split>` là symlink trỏ tới `/data`.
-  3. Chạy `python -m lifemate.cli --config configs/docker.toml --env docker --split <split> --out result/` (`LIFEMATE_CONFIG` đổi được config). `RunStore` ghi `submission.jsonl` cùng `trace.jsonl`, `summary.json`, `config.json`, `check.txt` vào `result/`; BTC chỉ lấy `submission.jsonl`.
+  3. Chạy `python -m lifemate.run.cli --config configs/docker.toml --env docker --split <split> --out result/` (`LIFEMATE_CONFIG` đổi được config). `RunStore` ghi `submission.jsonl` cùng `trace.jsonl`, `summary.json`, `config.json`, `check.txt` vào `result/`; BTC chỉ lấy `submission.jsonl`.
   4. `zaic.py` so sánh đường dẫn sau `Path.resolve()` nên symlink không làm hỏng kiểm tra (B5).
 - Trọng số model nằm sẵn trong image. Đặt `HF_HUB_OFFLINE=1` và `TRANSFORMERS_OFFLINE=1`.
 - **Nghiệm thu:**
@@ -1018,11 +1036,11 @@ Chỉ đánh giá bằng agent thật trên 2 checkpoint, để hạn chế vi�
 
 - Cặp `(file wav, audio_text)` gồm lượt cuối và **mọi lượt user trong history**.
 - Số cặp theo cách chia hiện tại (đo 27/10/2026): train **3547**, val_seen 624, val_unseen 865.
-- Chia theo **id mẫu**, đúng như `splits/`. Mọi file audio của một mẫu thuộc `val_*` không bao giờ được dùng để train.
+- Chia theo **id mẫu**, đúng như `configs/splits/`. Mọi file audio của một mẫu thuộc `val_*` không bao giờ được dùng để train.
 - **Đích của ASR là `audio_text` nguyên văn**, giữ nguyên cách BTC viết số, tiền, giờ và từ tiếng Anh. Lý do: LLM được fine-tune trên `audio_text` (mục 6.2.1), nên ASR nghe ra giống văn phong đó thì LLM ít bị lệch nhất.
 - Dữ liệu ghi ra `data/asr/vN.jsonl` (`{"id","turn","audio","text","split"}`) kèm file meta giống mục 6.2.1. Audio không chép, chỉ ghi đường dẫn tương đối trong split.
 
-#### 6.4.2. Đo lường (`lifemate/eval_asr.py`)
+#### 6.4.2. Đo lường (`lifemate/eval/eval_asr.py`)
 
 | Chỉ số | Cách tính | Vì sao |
 |---|---|---|
@@ -1062,7 +1080,7 @@ save_every_steps = 200
 
 - Luật cho phép dùng TTS lúc phát triển, cấm dùng lúc chạy thi.
 - Chỉ sinh cho loại lỗi mà bảng đo 6.4.2 chỉ ra, ví dụ tên người, địa danh, số tiền đọc bằng chữ, từ tiếng Anh xen kẽ.
-- Câu tổng hợp lấy từ `audio_text` của `splits/train.txt` rồi thay thực thể. Không dùng câu của val hay public.
+- Câu tổng hợp lấy từ `audio_text` của `configs/splits/train.txt` rồi thay thực thể. Không dùng câu của val hay public.
 - Ghi `source = "tts"` và phiên bản riêng. Không bao giờ dùng để đánh giá.
 
 #### 6.4.5. Nghiệm thu
@@ -1102,8 +1120,8 @@ Cả `sft.py` và `asr.py` dùng các thành phần này, không tự viết l�
 8. Điểm `val_seen` và `val_unseen` cao hơn điểm của bài nộp toàn `[]` trên cùng bộ. Điểm toàn `[]` lấy bằng `score.py` với file chỉ chứa `[]`.
 9. `summary.json` báo p50, p95, max thời gian và GPU đã dùng. Trên T4 **chưa đặt ngưỡng đạt**, chỉ ghi lại số. Thời gian nạp model và warm-up được ghi riêng trong `config.json`, không cộng vào mẫu đầu tiên.
 10. Có một dòng trong bảng nhật ký `approach.md` mục 8 cho mỗi bộ val.
-11. `eval/score.py` đã sửa C1–C3 (mục 4.15); `score.txt` in điểm của cả hai chế độ `strict` và `canon`.
-12. `notebooks/kaggle_run.ipynb` chạy từ đầu đến cuối trên một phiên Kaggle mới, với code đưa lên bằng `scripts/pack_code.sh`. `config.json` có `code_version` khác `"unknown"`, có `dtype` thật đã dùng, và `runs/` được lưu lại theo `persist`.
+11. `lifemate/eval/score.py` đã sửa C1–C3 (mục 4.15); `score.txt` in điểm của cả hai chế độ `strict` và `canon`.
+12. `ops/notebooks/kaggle_run.ipynb` chạy từ đầu đến cuối trên một phiên Kaggle mới, với code đưa lên bằng `ops/scripts/pack_code.sh`. `config.json` có `code_version` khác `"unknown"`, có `dtype` thật đã dùng, và `artifacts/runs/` được lưu lại theo `persist`.
 13. `summary.json` có `prompt_shrink_level` với mức 3 bằng 0 và `context_overflow` bằng 0 trên cả hai bộ val.
 
 ---
@@ -1135,16 +1153,16 @@ Cả `sft.py` và `asr.py` dùng các thành phần này, không tự viết l�
 | #7 test T1–T18, T24, T25 | 4,5 giờ |
 | #8 chạy hai bộ val trên T4 | 1 – 2 giờ máy |
 | #10 sửa score.py, `make_splits.py --smoke`, T17, T26 | 2 giờ |
-| #11 profile môi trường, envinfo, requirements/notebook.txt, pack_code.sh, 2 notebook, T19–T23 | 4 giờ |
+| #11 profile môi trường, envinfo, ops/requirements/notebook.txt, pack_code.sh, 2 notebook, T19–T23 | 4 giờ |
 | **Tổng** | **khoảng 28,5 giờ làm, 2 giờ máy** |
 
 ---
 
 ## 9. Rollback
 
-- Mọi thay đổi nằm trong file mới (`lifemate/`, `prompts/`, `configs/`, `requirements/`, `scripts/`, `notebooks/`, `tests/`, `pyproject.toml`). Bỏ v0 chỉ cần xóa các file đó hoặc revert commit.
-- `splits/train.txt`, `val_seen.txt`, `val_unseen.txt` **không đổi nội dung** trong v0; chỉ thêm `smoke.txt`. `eval/score.py` và `eval/make_splits.py` chỉ sửa theo mục 4.15 và để thêm `--smoke`; chế độ mặc định `strict` của `score.py` giữ nguyên cách chấm cũ trừ trường hợp `bool` và số (C1). Muốn quay lại thì revert commit đó.
-- `runs/` không vào git. Xóa một lần chạy hỏng là xóa thư mục của nó và dòng tương ứng trong `runs/index.csv`.
+- Mọi thay đổi nằm trong file mới (`lifemate/`, `configs/prompts/`, `configs/`, `ops/requirements/`, `ops/scripts/`, `ops/notebooks/`, `tests/`, `pyproject.toml`). Bỏ v0 chỉ cần xóa các file đó hoặc revert commit.
+- `configs/splits/train.txt`, `val_seen.txt`, `val_unseen.txt` **không đổi nội dung** trong v0; chỉ thêm `smoke.txt`. `lifemate/eval/score.py` và `lifemate/eval/make_splits.py` chỉ sửa theo mục 4.15 và để thêm `--smoke`; chế độ mặc định `strict` của `score.py` giữ nguyên cách chấm cũ trừ trường hợp `bool` và số (C1). Muốn quay lại thì revert commit đó.
+- `artifacts/runs/` không vào git. Xóa một lần chạy hỏng là xóa thư mục của nó và dòng tương ứng trong `artifacts/runs/index.csv`.
 
 ## 10. Ngoài phạm vi v0
 
