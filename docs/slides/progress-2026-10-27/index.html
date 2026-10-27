@@ -967,6 +967,15 @@
       border-top: 1.5px solid var(--border);
       background: var(--card-bg);
     }
+    /* Data tables for experiment slides: same card border/radius and type scale as detail blocks */
+    .data-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.84rem; line-height: 1.45; }
+    .data-table th { font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 0.72rem; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--primary); text-align: left; padding: 0.45rem 0.7rem; border-bottom: 1.5px solid var(--border); }
+    .data-table td { padding: 0.42rem 0.7rem; border-bottom: 1px solid var(--accent-light); color: var(--text); vertical-align: top; }
+    .data-table td.num { font-family: 'Space Grotesk', sans-serif; font-weight: 600; white-space: nowrap; }
+    .data-table tr:last-child td { border-bottom: 0; }
+    .data-table .muted { color: var(--text-muted); }
+    .layout-detail .detail-block p.lead-in { font-size: 0.86rem; line-height: 1.55; color: var(--text-muted); margin: 0 0 0.5rem; }
   </style>
 </head>
 <body>
@@ -995,14 +1004,14 @@
         <span class="tag">Tình hình đến 27/10</span>
       </div>
       <div class="slide-content">
-        <h2>Phần mềm đã chạy được trọn vẹn từ đầu đến cuối; những việc cần máy có GPU thì chưa làm</h2>
+        <h2>Phần mềm đã chạy trọn vẹn, kể cả trên GPU thật; điểm của mô hình gốc còn thấp và đang được cải thiện</h2>
         <div class="metrics-row">
           <div class="metric-card">
             <div class="metric-value">100 / 100</div>
             <div class="metric-label">Điểm bài chạy thử (smoke test) với mô hình ngôn ngữ giả</div>
             <div class="metric-desc">Chúng tôi đã cho 30 mẫu chạy qua toàn bộ đường ống: đọc dữ liệu, dựng lời nhắc (prompt), gọi tool trên trình mô phỏng, rồi chấm điểm. Ở bước này mô hình ngôn ngữ được thay bằng một "mô hình giả" luôn trả lời đúng đáp án. Kết quả 100 điểm chứng minh mọi đoạn ống nối với nhau không rò rỉ; nó chưa nói gì về chất lượng của mô hình thật.</div>
             <ul class="metric-supports">
-              <li>171 bài kiểm thử tự động chạy xanh trên máy thường, không cần GPU.</li>
+              <li>183 bài kiểm thử tự động chạy xanh trên máy thường, không cần GPU, và cũng chạy xanh trên Kaggle.</li>
               <li>Cách chấm điểm được viết lại giống hệt ban tổ chức: so khớp trạng thái cuối (hash) và độ trùng của các tool call (F1).</li>
               <li>Mỗi mẫu chạy đều được ghi lại đầy đủ: từng bước suy nghĩ, thời gian, số token.</li>
             </ul>
@@ -1020,19 +1029,19 @@
             <div class="metric-change positive"><span>&#10003;</span> Lý do chọn ghi đầy đủ trong tài liệu docs/approach.md</div>
           </div>
           <div class="metric-card">
-            <div class="metric-value">0 lần</div>
-            <div class="metric-label">Số lần đã chạy thật trên máy có GPU</div>
-            <div class="metric-desc">Máy phát triển hiện tại không có GPU, nên tất cả những gì liên quan đến mô hình thật mới chỉ được viết, chưa được chạy. Cụ thể là: script huấn luyện, notebook cho Kaggle và Colab, hồ sơ cấu hình cho máy thuê RunPod, và Dockerfile để đóng gói nộp bài. Tất cả đã qua kiểm thử ở mức "không có GPU", nhưng chưa có lần nào chạy với mô hình thật.</div>
+            <div class="metric-value">9,33 điểm</div>
+            <div class="metric-label">Lần chạy thật đầu tiên trên GPU (Kaggle T4), mô hình gốc chưa fine-tune</div>
+            <div class="metric-desc">Ngày 27/10 hệ thống đã chạy trọn vẹn trên GPU thật của Kaggle: vLLM, Qwen3-4B và PhoWhisper đều nạp và chạy được, 30 mẫu thử không có lỗi nào làm hỏng lần chạy. Điểm 9,33 trên 100 là điểm của mô hình gốc với prompt đầu tiên; đây là mốc xuất phát, không phải kết quả cuối. Bốn trang tiếp theo trình bày thiết lập, kết quả và phân tích.</div>
             <ul class="metric-supports">
-              <li>Chưa đo thời gian nghe thật của ASR và số token của lời nhắc trên dữ liệu thật.</li>
-              <li>Chưa huấn luyện thêm (fine-tune) mô hình ngôn ngữ lần nào.</li>
-              <li>Chưa build Docker và chưa nộp bài trên tập public test.</li>
+              <li>Đã sửa ba lỗi phát hiện nhờ lần chạy này: bộ canh thời gian dừng oan, ASR chạy float32, và xung đột thư viện trên Kaggle.</li>
+              <li>Vòng lặp chỉnh prompt đang chạy trên 193 mẫu val_seen.</li>
+              <li>Chưa fine-tune lần nào, chưa build Docker, chưa nộp public test.</li>
             </ul>
             <div class="metric-change negative"><span>&#8226;</span> Hạn nộp public test là ngày 05/11</div>
           </div>
         </div>
       </div>
-      <aside class="notes">Ba con số quan trọng nhất: đường ống đã chạy được, mô hình đã chọn, GPU chưa chạy.</aside>
+      <aside class="notes">Ba con số quan trọng nhất: đường ống đã chạy được, mô hình đã chọn, và lần chạy GPU đầu tiên cho 9,33 điểm với mô hình gốc. Nhấn mạnh 9,33 là mốc xuất phát của mô hình chưa fine-tune, các trang sau giải thích vì sao thấp và đã sửa gì.</aside>
     </div>
 
     <!-- SLIDE 3: Sơ đồ toàn hệ thống -->
@@ -1189,24 +1198,219 @@
       <aside class="notes">Nếu người đọc chỉ xem một slide về lý do, là slide này.</aside>
     </div>
 
-    <!-- SLIDE 7: Việc tiếp theo -->
+    <!-- SLIDE 7: Thiết lập thử nghiệm -->
+    <div class="slide layout-detail" data-title="Thiết lập thử nghiệm" data-sec="Thử nghiệm">
+      <div class="slide-header">
+        <h4>Thử nghiệm trên GPU</h4>
+        <span class="tag">Thiết lập · 27/10</span>
+      </div>
+      <div class="slide-content">
+        <h2>Thiết lập: chạy trọn hệ thống trên GPU T4 của Kaggle bằng một kernel tự động</h2>
+        <div class="detail-body">
+          <div class="detail-col">
+            <div class="detail-block">
+              <h3>Phần cứng và phần mềm</h3>
+              <table class="data-table">
+                <tr><th>Thành phần</th><th>Giá trị</th></tr>
+                <tr><td>GPU</td><td>NVIDIA Tesla T4, 15 GB, đời sm75 (máy chấm thật là A30, 24 GB, sm80, nhanh hơn)</td></tr>
+                <tr><td>Thư viện</td><td>vLLM 0.32.0, torch 2.13 (CUDA 13.0), transformers 5.19.0</td></tr>
+                <tr><td>LLM</td><td>Qwen3-4B-Instruct-2507 gốc, chưa fine-tune, chạy float16 vì T4 không có bfloat16 nhanh</td></tr>
+                <tr><td>ASR</td><td>PhoWhisper-medium; lần đầu chạy float32, sau khi sửa chạy float16</td></tr>
+                <tr><td>Prompt</td><td>system_v0, bản đầu tiên viết trước khi có số đo</td></tr>
+                <tr><td>Bộ canh thời gian</td><td>Bản cũ: dự đoán thời gian bước tới, dừng nếu dự đoán vượt 28 giây</td></tr>
+              </table>
+            </div>
+          </div>
+          <div class="detail-col">
+            <div class="detail-block">
+              <h3>Dữ liệu và cách chạy</h3>
+              <ul>
+                <li>30 mẫu thử cố định (configs/splits/smoke.txt) lấy từ tập train, đủ ba loại đáp án: làm việc, hỏi lại, không làm gì.</li>
+                <li>Hai lượt cho mỗi lần: một lượt dùng <strong>chữ chuẩn</strong> do ban tổ chức ghi sẵn để đo riêng năng lực của LLM, một lượt dùng <strong>chữ do ASR nghe thật</strong> để đo cả hệ thống như lúc chấm.</li>
+                <li>Đo thêm chất lượng ASR trên 624 câu nói của tập val_seen, ở float32 và float16, để biết đổi độ chính xác số có làm ASR nghe kém đi không.</li>
+              </ul>
+            </div>
+            <div class="detail-block">
+              <h3>Kernel Kaggle tự động (ops/kaggle/)</h3>
+              <ul>
+                <li>Dữ liệu cuộc thi nằm trong một dataset <strong>riêng tư</strong> trên Kaggle; mã được clone từ GitHub theo một tag cố định, nên mỗi lượt chạy đúng một phiên bản mã đã biết.</li>
+                <li>Kernel tự cài thư viện, chạy bộ test, chạy agent, chấm điểm bằng bộ chấm giống ban tổ chức, rồi trả về toàn bộ trace để phân tích trên máy.</li>
+                <li>Sáu phiên bản kernel đã chạy; ba bản đầu dùng để gỡ lỗi môi trường, ba bản sau cho số đo.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+      <aside class="notes">Nói rõ hai điều: T4 chậm hơn máy chấm A30 nên thời gian ở đây là cận trên; và lượt chữ chuẩn tách được lỗi LLM khỏi lỗi ASR.</aside>
+    </div>
+
+    <!-- SLIDE 8: Kết quả thử nghiệm -->
+    <div class="slide layout-detail" data-title="Kết quả thử nghiệm" data-sec="Thử nghiệm">
+      <div class="slide-header">
+        <h4>Thử nghiệm trên GPU</h4>
+        <span class="tag">Kết quả · 30 mẫu</span>
+      </div>
+      <div class="slide-content">
+        <h2>Kết quả: hệ thống chạy ổn định, điểm thấp vì mô hình gốc, ASR float16 nhanh gấp ba mà không kém đi</h2>
+        <div class="detail-body">
+          <div class="detail-col">
+            <div class="detail-block">
+              <h3>Agent trên 30 mẫu thử</h3>
+              <table class="data-table">
+                <tr><th>Chỉ số</th><th>Chữ chuẩn</th><th>Chữ ASR</th></tr>
+                <tr><td>Điểm (trên 100)</td><td class="num">9,33</td><td class="num">9,33</td></tr>
+                <tr><td>Thời gian một mẫu, trung vị (p50)</td><td class="num">13,9 s</td><td class="num">14,3 s</td></tr>
+                <tr><td>Thời gian một mẫu, p95</td><td class="num">25,6 s</td><td class="num">20,7 s</td></tr>
+                <tr><td>Mẫu bị bộ canh cũ dừng sớm</td><td class="num">8</td><td class="num">18</td></tr>
+                <tr><td>Prompt dài nhất</td><td class="num">6.096 token</td><td class="num">6.016 token</td></tr>
+                <tr><td>Lệnh bị từ chối vì sai khuôn</td><td class="num">0</td><td class="num">0</td></tr>
+                <tr><td>Chọn đúng giữa làm, hỏi lại, không làm gì</td><td class="num">60%</td><td class="num">66,7%</td></tr>
+              </table>
+              <p class="lead-in" style="margin-top:0.6rem">p50 là trung vị: một nửa số mẫu nhanh hơn. p95 là mốc mà 95% số mẫu không vượt quá. Với luật 30 giây mỗi mẫu, p95 và max là hai con số cần canh.</p>
+            </div>
+          </div>
+          <div class="detail-col">
+            <div class="detail-block">
+              <h3>ASR trên 624 câu nói của val_seen</h3>
+              <table class="data-table">
+                <tr><th>Chỉ số</th><th>float32</th><th>float16</th></tr>
+                <tr><td>Tỷ lệ từ sai (WER)</td><td class="num">29,1%</td><td class="num">29,1%</td></tr>
+                <tr><td>Tỷ lệ ký tự sai (CER)</td><td class="num">16,8%</td><td class="num">16,8%</td></tr>
+                <tr><td>Thời gian nghe một mẫu, p50</td><td class="num">3,2 s</td><td class="num">1,3 s</td></tr>
+                <tr><td>Thời gian nghe một mẫu, p95</td><td class="num">11,3 s</td><td class="num">3,0 s</td></tr>
+              </table>
+              <p class="lead-in" style="margin-top:0.6rem">WER cao một phần vì ASR viết số bằng chữ ("tám giờ kém mười lăm") còn chữ chuẩn viết bằng chữ số ("8 giờ kém 15"). Ban tổ chức không chấm chữ ASR, nên phần chênh này không làm mất điểm trực tiếp.</p>
+            </div>
+            <div class="detail-block">
+              <h3>Độ ổn định</h3>
+              <p class="lead-in">Cùng prompt, cùng mô hình, chạy hai lần: 28/30 mẫu cho ra đúng cùng danh sách tool call. Hai mẫu lệch vì T4 không có chế độ tất định của vLLM (cần sm80 như A30) và vì bộ canh cũ dừng ở thời điểm khác nhau.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <aside class="notes">Hai lượt cùng 9,33 không có nghĩa là ASR không làm mất điểm: ở mức 9 điểm, lỗi của LLM che hết lỗi nghe. Phần mất do ASR chỉ đo được sau khi fine-tune LLM.</aside>
+    </div>
+
+    <!-- SLIDE 9: Phân tích lỗi -->
+    <div class="slide layout-bars" data-title="Phân tích lỗi" data-sec="Thử nghiệm">
+      <div class="slide-header">
+        <h4>Thử nghiệm trên GPU</h4>
+        <span class="tag">Phân tích · lượt chữ chuẩn</span>
+      </div>
+      <div class="slide-content">
+        <h2>Phân tích lỗi: mô hình gốc bịa ID, thêm tham số thừa và không biết khi nào phải hỏi lại</h2>
+        <div class="bars-container" style="flex:0 0 auto; gap:0.35rem;">
+          <div class="bar-item">
+            <div class="bar-label">Trạng thái cuối sai (mẫu bị 0 điểm)</div>
+            <div class="bar-track"><div class="bar-fill" style="width: 79%"></div></div>
+            <div class="bar-pct">22/28</div>
+          </div>
+          <div class="bar-item">
+            <div class="bar-label">Đúng tool nhưng sai tham số</div>
+            <div class="bar-track"><div class="bar-fill" style="width: 68%"></div></div>
+            <div class="bar-pct">19/28</div>
+          </div>
+          <div class="bar-item">
+            <div class="bar-label">Gọi thừa hoặc gọi sai tool</div>
+            <div class="bar-track"><div class="bar-fill" style="width: 57%"></div></div>
+            <div class="bar-pct">16/28</div>
+          </div>
+          <div class="bar-item">
+            <div class="bar-label">Thiếu một tool cần gọi</div>
+            <div class="bar-track"><div class="bar-fill" style="width: 54%"></div></div>
+            <div class="bar-pct">15/28</div>
+          </div>
+          <div class="bar-item">
+            <div class="bar-label">Mẫu cần hỏi lại mà mô hình hỏi đúng</div>
+            <div class="bar-track"><div class="bar-fill" style="width: 0%"></div></div>
+            <div class="bar-pct">0/5</div>
+          </div>
+          <div class="bar-item">
+            <div class="bar-label">Mẫu cần từ chối mà mô hình từ chối đúng</div>
+            <div class="bar-track"><div class="bar-fill" style="width: 0%"></div></div>
+            <div class="bar-pct">0/2</div>
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.4rem 2.5rem; margin-top:1rem;">
+          <h3 style="grid-column:1 / -1; margin:0 0 0.2rem;">Bảy nguyên nhân, đọc từ từng mẫu</h3>
+          <ul class="insight-list" style="margin:0;">
+            <li><strong>Tự bịa ID</strong> như bill_12345, light_1, contact_huong thay vì gọi tool đọc trước (khoảng 10 mẫu); lần gọi sai vẫn bị tính là call thừa.</li>
+            <li><strong>Thêm tham số tuỳ chọn không ai yêu cầu</strong> như repeat, priority, location, hay bộ lọc room "living room" làm kết quả trả về rỗng.</li>
+            <li><strong>Tính giờ và ngày sai:</strong> "8 giờ kém 15 tối" thành 20:45 thay vì 19:45; "năm giờ sáng" thành 06:00; "thứ sáu" lệch ngày.</li>
+            <li><strong>Prompt v0 dặn ngược quy ước:</strong> "câu có điều kiện thì không làm gì", trong khi đáp án kiểm tra số dư rồi làm đúng nhánh.</li>
+          </ul>
+          <ul class="insight-list" style="margin:0; counter-reset: insight 4;">
+            <li><strong>Không hỏi lại</strong> khi danh bạ có hai người tên Lan, hoặc khi người dùng chỉ nói "gửi chút tiền"; mô hình tự chọn một người hay tự đặt 500.000 đồng.</li>
+            <li><strong>Không từ chối</strong> khi không app nào làm được việc, ví dụ chia sẻ file; mô hình gọi một app gần giống.</li>
+            <li><strong>Một lần hỏng JSON:</strong> guided decoding vẫn để lọt chuỗi ký tự lặp trong phần tham số.</li>
+          </ul>
+        </div>
+      </div>
+      <aside class="notes">Tỷ lệ tính trên 28 mẫu cần gọi tool (23 làm việc + 5 hỏi lại). Nguyên nhân 4 là lỗi của chính prompt, không phải của mô hình.</aside>
+    </div>
+
+    <!-- SLIDE 10: Insight -->
+    <div class="slide layout-split" data-title="Insight từ thử nghiệm" data-sec="Thử nghiệm">
+      <div class="slide-header">
+        <h4>Thử nghiệm trên GPU</h4>
+        <span class="tag">Insight và đã sửa</span>
+      </div>
+      <div class="slide-content">
+        <h2>Insight: phần mã đúng, phần cần sửa là prompt, bộ canh thời gian và cách nạp ASR</h2>
+        <div class="split-body">
+          <div class="split-left">
+            <ul class="insight-list">
+              <li><strong>Đường ống đúng, lỗi nằm ở hành vi của mô hình.</strong> Không lệnh nào bị trình mô phỏng từ chối vì sai khuôn, và LLM giả trả đáp án đúng vẫn được 100 điểm. Vậy hệ thống chuyển đi và chấm đúng mọi lệnh mô hình đưa ra; điểm thấp đến từ việc mô hình chọn lệnh sai.</li>
+              <li><strong>Bộ canh dự đoán gây mất điểm oan, đã thay bằng hạn thật.</strong> Bước đầu của mỗi mẫu mất khoảng 8 đến 14 giây vì phải đọc cả prompt, các bước sau chỉ 1 đến 3 giây. Bộ canh cũ đoán bước tới bằng p95 mọi bước nên luôn đoán khoảng 14 giây, và dừng 18/30 mẫu khi còn 12 đến 15 giây. Bản mới cho mọi bước chạy và chỉ ngắt khi chạm hạn 29 giây.</li>
+              <li><strong>ASR đang chạy float32 do mã không chỉ định kiểu số.</strong> Trên T4 điều này làm hết bộ nhớ ở 17/30 mẫu. Sau khi sửa sang float16, WER giữ nguyên 29,1% mà nghe nhanh gấp 2,5 đến 4 lần.</li>
+              <li><strong>Chữ ASR khác chữ chuẩn ở cách viết số.</strong> Vì ban tổ chức chỉ chấm tool call và trạng thái cuối, quyết định là giữ nguyên chữ ASR và cho LLM học trên chính chữ đó (bản v2).</li>
+              <li><strong>Prompt phải chốt trước khi fine-tune.</strong> Dữ liệu fine-tune được dựng bằng đúng prompt lúc chạy, nên đổi prompt sau đó là mô hình gặp thứ khác với lúc học. Vì vậy vòng lặp chỉnh prompt chạy ngay bây giờ, trước LLM v1.</li>
+            </ul>
+          </div>
+          <div class="split-right">
+            <div class="split-highlight">
+              "Ở mức 9 điểm, lỗi của LLM che hết lỗi nghe của ASR: hai lượt chữ chuẩn và chữ ASR cho cùng một điểm. Phải sửa LLM trước thì mới đo được ASR làm mất bao nhiêu."
+              <cite>Kết luận từ hai lượt chạy song song</cite>
+            </div>
+            <div class="mini-stat-row">
+              <div class="mini-stat">
+                <div class="mini-val">29 s</div>
+                <div class="mini-label">Hạn thật mỗi mẫu, thay cho dự đoán 28 s</div>
+              </div>
+              <div class="mini-stat">
+                <div class="mini-val">×3</div>
+                <div class="mini-label">ASR nhanh hơn khi chạy float16</div>
+              </div>
+              <div class="mini-stat">
+                <div class="mini-val">14</div>
+                <div class="mini-label">Quy tắc trong prompt v1</div>
+              </div>
+            </div>
+            <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.55; margin: 0;">Prompt v1 thêm bảng lịch 14 ngày có thứ trong tuần vào phần ngữ cảnh, để mô hình tra ngày thay vì tự đếm, và viết lại quy tắc theo đúng bảy nguyên nhân ở trang trước. Lượt mốc (prompt cũ, hạn thật) và lượt 1 (prompt v1) đang chạy song song trên 193 mẫu val_seen.</p>
+          </div>
+        </div>
+      </div>
+      <aside class="notes">Mỗi insight đi kèm một thay đổi đã làm: hạn thật (commit 436fe1c), ASR float16 (39f3d9c), quyết định chữ ASR (SPEC 6.1), prompt v1 (d4519be).</aside>
+    </div>
+
+    <!-- SLIDE 11: Việc tiếp theo -->
     <div class="slide layout-timeline" data-title="Việc tiếp theo" data-sec="Kế hoạch">
       <div class="slide-header">
         <h4>Kế hoạch</h4>
         <span class="tag">Từ giờ đến 05/11</span>
       </div>
       <div class="slide-content">
-        <h2>Bốn việc còn lại phải làm theo đúng thứ tự này, và tất cả đều cần một máy có GPU</h2>
+        <h2>Bốn việc còn lại, làm theo đúng thứ tự này; bước chạy thật lần đầu đã xong ngày 27/10</h2>
         <div class="timeline-track">
           <div class="timeline-step">
             <div class="step-circle">1</div>
-            <div class="step-title">Chạy thật với vLLM lần đầu</div>
-            <div class="step-desc">Thuê một máy RunPod có GPU hoặc dùng Kaggle, rồi chạy 30 mẫu thử với mô hình thật. Mục tiêu là lấy số đo: ASR nghe mất bao lâu, lời nhắc dài bao nhiêu token, và 95% số mẫu chạy trong bao nhiêu giây so với mức trần 30 giây. Chưa cần điểm cao, chỉ cần biết hệ thống có kịp giờ hay không.</div>
+            <div class="step-title">Chỉnh prompt trên val_seen (đang chạy)</div>
+            <div class="step-desc">Mỗi lượt chạy 193 mẫu val_seen trên Kaggle, so điểm và bảng lỗi với lượt trước, giữ thay đổi nào làm điểm tăng. Khi điểm hết tăng thì chạy val_unseen một lần để kiểm tra, rồi chốt prompt. Lần chạy thật đầu tiên trên GPU đã xong ngày 27/10 và cho mốc 9,33 điểm.</div>
           </div>
           <div class="timeline-step">
             <div class="step-circle">2</div>
             <div class="step-title">Huấn luyện thêm LLM, bản v1</div>
-            <div class="step-desc">Chạy notebook Kaggle lần đầu tiên; có thể phải ghim lại phiên bản của thư viện unsloth và trl nếu bản mới nhất không tương thích. Kết quả là điểm trên tập val_unseen, dùng làm mốc để so với mô hình gốc chưa huấn luyện: nếu điểm không tăng thì phải xem lại dữ liệu trước khi đi tiếp.</div>
+            <div class="step-desc">Dựng dữ liệu huấn luyện bằng đúng prompt đã chốt, rồi chạy notebook Kaggle lần đầu tiên; có thể phải ghim lại phiên bản của thư viện unsloth và trl. Kết quả là điểm trên tập val_unseen, so với mô hình gốc cùng prompt: nếu điểm không tăng thì phải xem lại dữ liệu trước khi đi tiếp.</div>
           </div>
           <div class="timeline-step">
             <div class="step-circle">3</div>
@@ -1220,10 +1424,10 @@
           </div>
         </div>
       </div>
-      <aside class="notes">Thứ tự này cố định: đo trước, sửa sau. Không fine-tune ASR trước khi có số đo của LLM v2.</aside>
+      <aside class="notes">Thứ tự này cố định: đo trước, sửa sau. Prompt chốt trước khi fine-tune. Không fine-tune ASR trước khi có số đo của LLM v2.</aside>
     </div>
 
-    <!-- SLIDE 8: Kết -->
+    <!-- SLIDE 12: Kết -->
     <div class="slide layout-closing" data-title="Kết" data-sec="Kết">
       <div class="closing-decoration"></div>
       <div class="closing-decoration-2"></div>
@@ -1238,7 +1442,7 @@
   </div>
 
   <!-- Navigation -->
-  <div class="slide-counter"><span id="current">1</span> / <span id="total">8</span></div>
+  <div class="slide-counter"><span id="current">1</span> / <span id="total">12</span></div>
   <div class="keyboard-hint">Dùng phím mũi tên để chuyển trang</div>
   <div class="progress-bar" id="progress"></div>
   <div class="nav-controls">

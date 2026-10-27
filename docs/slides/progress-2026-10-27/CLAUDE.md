@@ -6,7 +6,7 @@ hoặc sửa điều gì, ghi vào mục "Quyết định & góp ý" để khôn
 ## Giới thiệu
 - Dịp / mục tiêu: báo cáo tiến độ nội bộ dự án LifeMate (trợ lý giọng nói tiếng Việt → tool call), tình hình đến 27/10/2026
 - Khán giả: người trong team / người hướng dẫn, biết khái niệm ASR, LLM nhưng chưa đọc mã
-- Thời lượng: không áp dụng · deck để ĐỌC (gửi người khác tự đọc), 8 slide
+- Thời lượng: không áp dụng · deck để ĐỌC (gửi người khác tự đọc), 12 slide
 - Ngôn ngữ & giọng văn: tiếng Việt, chi tiết, dễ hiểu; thuật ngữ giải thích ngay bên cạnh
 
 ## Thiết kế
@@ -17,9 +17,10 @@ hoặc sửa điều gì, ghi vào mục "Quyết định & góp ý" để khôn
 
 ## Nội dung
 - Nguồn / số liệu phải theo: docs/approach.md, docs/SPEC.md của repo; số đo audio (6969 file, 16 kHz, max 22,3 s) đo ngày 27/10
-- Từ ngữ hoặc khẳng định cần tránh: không nêu tên cuộc thi/ban tổ chức cụ thể nếu deck sẽ public; không nói đã chạy GPU khi chưa chạy
+- Từ ngữ hoặc khẳng định cần tránh: không nêu tên cuộc thi/ban tổ chức cụ thể nếu deck sẽ public; chỉ nêu số đo đã có trong artifacts/runs/kaggle/ (Kaggle T4, 27/10); không suy ra kết quả trên A30
 
 ## Quyết định & góp ý (mới nhất ở trên)
+- 2026-10-27 — người dùng: thêm thiết lập, kết quả và phân tích insight của lần chạy thử trên GPU → 4 slide mới (7–10, phần "Thử nghiệm"), cập nhật thẻ GPU ở slide 2 và bước 1 ở slide kế hoạch. Nguồn số: artifacts/runs/kaggle/report_gold_before_prompt_tuning.md và asr_eval_t4_v6/.
 - 2026-10-27 — người dùng: "nội dung ghi quá vắn tắt khó hiểu, câu văn cần dài và rõ ràng chi tiết" → viết câu đầy đủ, giải thích thuật ngữ ngay tại chỗ; không dùng gạch đầu dòng cụt. Sơ đồ 4 (agent) phải xem được: iframe cần src đúng, thu nhỏ bằng biến --z.
 - 2026-10-27 — người dùng chọn mẫu blue-professional (ấm, dễ đọc), yêu cầu tiếng Việt chi tiết dễ hiểu, 5–8 trang, ghép 3 sơ đồ Archify.
 - 2026-10-27 — tạo deck.
