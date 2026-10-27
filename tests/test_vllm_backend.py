@@ -67,11 +67,55 @@ def _output(text: str, prompt_ids: list[int], token_ids: list[int]) -> Any:
     return types.SimpleNamespace(prompt_token_ids=prompt_ids, outputs=[comp])
 
 
+class FakeTokenizer:
+    def __init__(self) -> None:
+        self.kwargs: dict[str, Any] = {}
+
+    def apply_chat_template(self, messages: list[dict[str, Any]], **kw: Any) -> str:
+        self.kwargs = kw
+        return "|".join(str(m.get("content")) for m in messages)
+
+
+class FakeLLMEngine:
+    """Step-driven engine: each step() takes `step_s` seconds; the request finishes after `n_steps` steps."""
+
+    def __init__(self, *, step_s: float = 0.0, n_steps: int = 2) -> None:
+        self.step_s, self.n_steps = step_s, n_steps
+        self.added: list[tuple[str, str, Any]] = []
+        self.aborted: list[str] = []
+        self._left = 0
+
+    def add_request(self, rid: str, prompt: str, params: Any) -> None:
+        self.added.append((rid, prompt, params))
+        self._left = self.n_steps
+
+    def has_unfinished_requests(self) -> bool:
+        return self._left > 0
+
+    def abort_request(self, rids: list[str]) -> None:
+        self.aborted += rids
+        self._left = 0
+
+    def step(self) -> list[Any]:
+        import time as _t
+
+        _t.sleep(self.step_s)
+        self._left -= 1
+        out = _output('{"action":"done"}', [1, 2, 3], [9, 9])
+        out.request_id, out.finished = self.added[-1][0], self._left == 0
+        return [out]
+
+
 class FakeEngine:
     def __init__(self, *, reject_template_kwargs: bool = False, **init_kw: Any) -> None:
         self.init_kw = init_kw
         self.reject = reject_template_kwargs
         self.calls: list[dict[str, Any]] = []
+        self.tokenizer = FakeTokenizer()
+        self.llm_engine = FakeLLMEngine()
+
+    def get_tokenizer(self) -> FakeTokenizer:
+        return self.tokenizer
 
     def chat(self, messages: list[dict[str, Any]], **kw: Any) -> list[Any]:
         self.calls.append(kw)
@@ -139,5 +183,34 @@ def test_template_kwargs_typeerror_fallback_sticks(fake_vllm: None) -> None:
 def test_warmup_runs(fake_vllm: None) -> None:
     b, eng = _backend(replace(CFG, warmup_runs=3))
     b.warmup()
-    assert len(eng.calls) == 3 and b.warmup_seconds is not None
-    assert eng.calls[0]["sampling_params"].kw["structured_outputs"].json["required"] == ["action"]
+    # warmup uses the same abortable engine path as real samples, so it compiles what they will run
+    added = eng.llm_engine.added
+    assert len(added) == 3 and b.warmup_seconds is not None and eng.calls == []
+    assert added[0][2].kw["structured_outputs"].json["required"] == ["action"]
+
+
+def test_time_left_drives_engine_and_finishes(fake_vllm: None) -> None:
+    """With a time limit the request is stepped on the engine (abortable) and rendered like LLM.chat."""
+    b, eng = _backend()
+    g = b.generate([{"role": "user", "content": "hi"}], SCHEMA, sample_id="x", time_left_s=10.0)
+    assert not g.timed_out and g.text == '{"action":"done"}' and g.prompt_tokens == 3 and g.completion_tokens == 2
+    assert eng.llm_engine.aborted == [] and eng.calls == []
+    assert eng.tokenizer.kwargs == {"tokenize": False, "add_generation_prompt": True, "enable_thinking": False}
+    assert eng.llm_engine.added[0][1] == "hi"
+
+
+def test_time_left_aborts_running_step(fake_vllm: None) -> None:
+    """Catches: a step running past the sample deadline. The request is aborted and no text is returned."""
+    b, eng = _backend()
+    eng.llm_engine = FakeLLMEngine(step_s=0.05, n_steps=1000)
+    g = b.generate([], SCHEMA, sample_id="x", time_left_s=0.2)
+    assert g.timed_out and g.text == "" and 0.2 <= g.seconds < 1.0
+    assert eng.llm_engine.aborted == [eng.llm_engine.added[0][0]]
+
+
+def test_engine_without_step_api_falls_back_to_chat(fake_vllm: None) -> None:
+    """An engine missing add_request/step falls back to LLM.chat (logged), and stays there."""
+    b, eng = _backend()
+    eng.llm_engine = object()
+    g = b.generate([], SCHEMA, sample_id="x", time_left_s=5.0)
+    assert g.text == '{"action":"done"}' and len(eng.calls) == 1 and b._abortable is False

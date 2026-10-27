@@ -18,12 +18,10 @@ import structlog
 from lifemate.agent.agent import Agent, transcript_source
 from lifemate.core.types import ErrorCode, Sample, SampleResult, StopReason, ToolEnvLike
 from lifemate.io.check_submission import check_submission
-from lifemate.io.store import RunStore, append_index, percentile
-from lifemate.run.timing import TimedLLM
+from lifemate.io.store import RunStore, append_index
 
 log = structlog.get_logger(__name__)
 
-STEP_ESTIMATE_Q = 0.95
 _FINAL_RE = re.compile(r"^Final score(?: \[(\w+)\])?: ([\d.]+|nan)", re.MULTILINE)
 _CATEGORY_RE = re.compile(r"^(execute|ask_missing_info|out_of_scope)\s+(\d+)\s+([\d.]+|nan)", re.MULTILINE)
 
@@ -79,7 +77,6 @@ class Runner:
         self.index_csv = index_csv
         self.score_script = score_script  # None: run `python -m lifemate.eval.score` from repo_root
         self.train_mode = train_mode
-        self._step_seconds: list[float] = []
 
     def warmup(self) -> dict[str, float]:
         """Warm up the LLM and the transcriber; returns seconds of each."""
@@ -91,19 +88,13 @@ class Runner:
         log.info("warmup_done", llm_s=round(t1 - t0, 3), transcriber_s=round(t2 - t1, 3))
         return {"llm_s": t1 - t0, "transcriber_s": t2 - t1}
 
-    def step_estimate(self) -> float | None:
-        """p95 of per-step LLM seconds seen so far (None before any step: the agent uses its initial estimate)."""
-        llm = self.agent.llm
-        values = llm.durations if isinstance(llm, TimedLLM) else self._step_seconds
-        return percentile(values, STEP_ESTIMATE_Q) if values else None
-
     def run_one(self, sample: Sample) -> SampleResult:
         """Run one sample; any Exception becomes an `exception` result (the only catch-all in lifemate)."""
         env: ToolEnvLike | None = None
         t0 = time.monotonic()
         try:
             env = self.loader.open_env(sample.id)
-            result = self.agent.run(sample, env, step_estimate_s=self.step_estimate(), train_mode=self.train_mode)
+            result = self.agent.run(sample, env, train_mode=self.train_mode)
         except Exception as exc:
             tb = traceback.format_exc()
             log.error("sample_exception", sample_id=sample.id, error=repr(exc), traceback=tb)
@@ -124,7 +115,6 @@ class Runner:
                 transcript_source=transcript_source(self.agent.transcriber),
                 traceback=tb,
             )
-        self._step_seconds.extend(s.llm_s for s in result.steps)
         return result
 
     def run(

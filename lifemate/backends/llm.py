@@ -47,24 +47,34 @@ class FakeLLM:
             self._queues.setdefault(sid, list(raws))
         self._cursor: dict[str, int] = {}
 
-    def generate(self, messages: list[dict[str, Any]], schema: dict[str, Any], *, sample_id: str) -> Generation:
-        """Next scripted output for `sample_id`."""
+    def generate(
+        self,
+        messages: list[dict[str, Any]],
+        schema: dict[str, Any],
+        *,
+        sample_id: str,
+        time_left_s: float | None = None,
+    ) -> Generation:
+        """Next scripted output for `sample_id`; a step longer than `time_left_s` is cut there (timed_out)."""
         queue = self._queues.get(sample_id, [])
         i = self._cursor.get(sample_id, 0)
         text = queue[i] if i < len(queue) else _DONE
         self._cursor[sample_id] = i + 1
-        if self.delay_s > 0:
+        timed_out = time_left_s is not None and self.delay_s > time_left_s
+        spent = time_left_s if timed_out and time_left_s is not None else self.delay_s
+        if spent > 0:
             advance = getattr(self.clock, "advance", None)
             if advance is not None:
-                advance(self.delay_s)
+                advance(spent)
             elif self.clock is None:
-                time.sleep(self.delay_s)
+                time.sleep(spent)
         prompt = " ".join(str(m.get("content") or "") for m in messages)
         return Generation(
-            text=text,
+            text="" if timed_out else text,
             prompt_tokens=len(prompt.split()),
-            completion_tokens=len(text.split()),
-            seconds=self.delay_s,
+            completion_tokens=0 if timed_out else len(text.split()),
+            seconds=spent,
+            timed_out=timed_out,
         )
 
     def warmup(self) -> None:
@@ -114,6 +124,8 @@ class VLLMBackend:
         self.cfg = cfg
         self.warmup_seconds: float | None = None
         self._use_template_kwargs = True
+        self._abortable = True  # set False (and logged) if the engine lacks the step/abort API
+        self._next_request = 0
         if cfg.batch_invariant:
             if compute_capability is not None and compute_capability < _MIN_BATCH_INVARIANT_CC:
                 cc = compute_capability
@@ -158,9 +170,26 @@ class VLLMBackend:
             **_structured_kwargs(schema),
         )
 
-    def generate(self, messages: list[dict[str, Any]], schema: dict[str, Any], *, sample_id: str) -> Generation:
-        """One constrained completion; `sample_id` is ignored."""
+    def generate(
+        self,
+        messages: list[dict[str, Any]],
+        schema: dict[str, Any],
+        *,
+        sample_id: str,
+        time_left_s: float | None = None,
+    ) -> Generation:
+        """One constrained completion; `sample_id` is ignored.
+
+        With `time_left_s`, the request is driven step by step on the engine and aborted when the time is up
+        (`timed_out=True`), so a sample never runs past its deadline. Without it, `LLM.chat` is used.
+        """
         params = self._sampling_params(schema)
+        if time_left_s is not None and self._abortable:
+            try:
+                return self._generate_until(messages, params, time_left_s)
+            except (AttributeError, TypeError) as exc:  # engine API differs from what this code expects
+                _log.error("vllm_abortable_generate_unsupported", error=str(exc))
+                self._abortable = False
         t0 = time.perf_counter()
         if self._use_template_kwargs:
             try:
@@ -187,6 +216,48 @@ class VLLMBackend:
             seconds=seconds,
         )
 
+    def _render(self, messages: list[dict[str, Any]]) -> str:
+        """Chat template exactly as `LLM.chat` applies it (generation prompt on, thinking off)."""
+        tok = self.engine.get_tokenizer()
+        kwargs: dict[str, Any] = {"tokenize": False, "add_generation_prompt": True}
+        if self._use_template_kwargs:
+            kwargs["enable_thinking"] = False
+        return str(tok.apply_chat_template(messages, **kwargs))
+
+    def _generate_until(self, messages: list[dict[str, Any]], params: Any, time_left_s: float) -> Generation:
+        """Add one request to the engine and step it until it finishes or `time_left_s` passes, then abort it."""
+        engine = self.engine.llm_engine
+        t0 = time.perf_counter()
+        deadline = t0 + time_left_s
+        self._next_request += 1
+        rid = f"lm-{self._next_request}"
+        engine.add_request(rid, self._render(messages), params)
+        final: Any = None
+        latest: Any = None
+        timed_out = False
+        while engine.has_unfinished_requests():
+            if time.perf_counter() >= deadline:
+                engine.abort_request([rid])
+                timed_out = True
+                break
+            for out in engine.step():
+                if out.request_id == rid:
+                    latest = out
+                    if out.finished:
+                        final = out
+        seconds = time.perf_counter() - t0
+        out = final or latest
+        completion = out.outputs[0] if out is not None and out.outputs else None
+        if timed_out:
+            _log.warning("llm_step_aborted_at_deadline", seconds=round(seconds, 3))
+        return Generation(
+            text="" if timed_out or completion is None else completion.text,
+            prompt_tokens=len(out.prompt_token_ids or ()) if out is not None else 0,
+            completion_tokens=len(completion.token_ids or ()) if completion is not None else 0,
+            seconds=seconds,
+            timed_out=timed_out,
+        )
+
     def warmup(self) -> None:
         """Compile kernels / CUDA graphs on a ~4K-token synthetic conversation."""
         messages = [
@@ -195,6 +266,6 @@ class VLLMBackend:
         ]
         t0 = time.perf_counter()
         for _ in range(self.cfg.warmup_runs):
-            self.generate(messages, _WARMUP_SCHEMA, sample_id="__warmup__")
+            self.generate(messages, _WARMUP_SCHEMA, sample_id="__warmup__", time_left_s=300.0)
         self.warmup_seconds = time.perf_counter() - t0
         _log.info("vllm_warmup_done", runs=self.cfg.warmup_runs, seconds=round(self.warmup_seconds, 3))

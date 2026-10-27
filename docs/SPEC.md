@@ -106,7 +106,7 @@ Dòng in đậm là ràng buộc quan trọng nhất cho thiết kế. Một cal
 | S9 | Mọi thành phần thay được đều là `typing.Protocol`, lắp ghép tại **một chỗ duy nhất** (`lifemate/run/factory.py`), dùng composition thay cho kế thừa | Đổi model, ASR, guard bằng config. Test thay bằng bản giả mà không sửa code chính (mục 4.0) |
 | S10 | Prompt sắp từ phần ít đổi đến phần hay đổi. Messages chỉ được thêm vào cuối, không bao giờ sửa | Tận dụng prefix cache của vLLM giữa các mẫu và giữa các bước trong một mẫu (mục 4.6) |
 | S11 | Nạp model xong phải **warm-up** trước khi bắt đầu tính giờ mẫu đầu tiên | Lần gọi đầu của vLLM và ASR chậm vì biên dịch kernel, có thể làm mẫu đầu vượt 30 giây |
-| S12 | Hạn giờ kiểm tra **trước** mỗi bước bằng ước lượng thời gian của bước đó, không chỉ kiểm tra thời gian đã trôi qua | Tránh bắt đầu một bước lúc 24,9 giây rồi kết thúc lúc 31 giây (mục 4.10) |
+| S12 | Hạn giờ **thật**, không dự đoán (đổi 27/10/2026): bước nào cũng được bắt đầu khi còn giờ, tới `deadline_s` thì bước LLM đang chạy bị ngắt; call đã gọi vẫn nằm trong bài nộp | Bản cũ dự đoán thời gian bước tới bằng p95 mọi bước; bước đầu chậm (đọc cả prompt) kéo dự đoán lên khoảng 14 s nên trên Kaggle T4 18/30 mẫu bị dừng oan ở giây 13–16 (mục 4.10) |
 | S13 | Dùng lại từ kit `~/PROJECT/AI20K/ai-kit` (nhánh `ai-kit`) **quy ước kỹ thuật**, không dùng lại các layer ứng dụng | Kit là app FastAPI + LangGraph gọi LLM cloud; RAG, MCP, A2A, reliability, cost guard không áp dụng cho agent offline chạy vLLM trong process. Lấy: cấu hình ruff và typecheck, pre-commit (hygiene, detect-secrets, ruff), cấu trúc Makefile, mẫu test với LLM giả có kịch bản (`tests/fakes.py` → `FakeLLM`), Dockerfile hai tầng với `uv --frozen` và user không phải root, quy ước log `structlog` kiểu `sự_kiện_chữ_thường` với kwargs, và dòng ghi nguồn gốc khi chép code. Mỗi chỗ chép ghi nguồn (`# Adapted from ai-kit <path>@<commit>`) |
 
 ---
@@ -532,14 +532,14 @@ class Agent:
     def __init__(self, llm: LLMBackend, transcriber: Transcriber, prompts: PromptBuilder,
                  guards: GuardChain, index: CatalogIndex, cfg: AgentConfig, llm_cfg: LLMConfig,
                  observer: AgentObserver | None = None): ...   # None → NullObserver
-    def run(self, sample: Sample, env: ToolEnvLike, *, step_estimate_s: float | None = None,
+    def run(self, sample: Sample, env: ToolEnvLike, *, train_mode: bool = False,
             clock: Clock = time.monotonic) -> SampleResult
 ```
 
 `clock` được truyền vào để test hạn giờ mà không phải chờ thật (T10).
 
 ```
-budget = Budget(cfg, clock)                    # bắt đầu tính giờ từ đây, gồm cả ASR
+budget = Budget(cfg, llm_cfg, clock)          # bắt đầu tính giờ từ đây, gồm cả ASR
 transcript = transcriber.transcribe(sample)
 conv = prompts.start(sample, transcript)
 schema = output_schema(allowed_tools)          # có cache
@@ -547,7 +547,8 @@ observer.on_sample_start(sample, transcript)
 loop:
     reason = budget.before_step(conv.prompt_tokens())   # None nghĩa là được chạy tiếp
     nếu reason: stop(reason)                   # MAX_STEPS | TIMEOUT | CONTEXT_OVERFLOW
-    gen = llm.generate(conv.messages, schema, sample_id=sample.id)
+    gen = llm.generate(conv.messages, schema, sample_id=sample.id, time_left_s=budget.remaining)
+    nếu gen.timed_out: stop(TIMEOUT)            # bước bị ngắt ở deadline_s, call cũ vẫn nộp
     budget.after_step(gen.seconds)
     conv.reconcile(gen.prompt_tokens)          # số của vLLM là mốc, trước khi thêm câu trả lời
     conv.append_assistant(gen.text, gen.completion_tokens)
@@ -564,21 +565,24 @@ result = SampleResult(tool_calls=env.get_tool_calls(), state_hash=env.get_state_
 observer.on_stop(result)
 ```
 
-**`Budget` (hạn giờ dự đoán, quyết định S12):**
+**`Budget` (hạn giờ thật, quyết định S12):**
 
 ```python
-class Budget:   # Budget(cfg: AgentConfig, llm_cfg: LLMConfig, clock, *, step_estimate_s)
+class Budget:   # Budget(cfg: AgentConfig, llm_cfg: LLMConfig, clock)
+    remaining: float                               # cfg.deadline_s - elapsed, không âm
     def before_step(self, prompt_tokens: int) -> StopReason | None
         # MAX_STEPS        khi đã chạy cfg.max_steps bước
         # CONTEXT_OVERFLOW khi prompt_tokens + llm_cfg.max_tokens > llm_cfg.max_model_len
-        # TIMEOUT          khi elapsed + estimate > cfg.hard_limit_s
+        # TIMEOUT          khi remaining <= 0
     def after_step(self, seconds: float) -> None
     def retry(self) -> bool                        # False khi đã dùng hết cfg.max_retries
 ```
 
-- `estimate` là thời gian dự kiến của bước sắp chạy, bằng giá trị lớn hơn trong hai số: thời gian bước vừa rồi của chính mẫu này, và `step_estimate_s` do Runner truyền vào (p95 thời gian một bước của các mẫu đã chạy). `step_estimate_s` là `None` thì dùng `cfg.initial_step_estimate_s`.
-- `hard_limit_s = 28`: chừa 2 giây cho ghi kết quả và sai số. Như vậy sẽ không bắt đầu một bước mà dự kiến kết thúc sau 28 giây.
+- Không dự đoán thời gian bước tới. Agent gọi `llm.generate(..., time_left_s=budget.remaining)`. `VLLMBackend` khi có `time_left_s` thì đưa request vào engine (`llm_engine.add_request`) và chạy từng `step()`; tới hạn thì `abort_request` và trả `Generation(timed_out=True, text="")`. Agent ghi bước đó (`action=None`) rồi dừng với `TIMEOUT`; các call đã gọi vào env vẫn có trong `get_tool_calls()` nên vẫn được nộp và chấm.
+- Engine thiếu API `add_request`/`step`/`abort_request` thì `VLLMBackend` ghi log lỗi `vllm_abortable_generate_unsupported` và quay về `LLM.chat` (không ngắt được). Phải thấy log này bằng 0 trên máy chấm cùng loại trước khi nộp.
+- `deadline_s = 29`: luật BTC là 30 giây mỗi mẫu, quá giờ thì mẫu 0 điểm. 1 giây còn lại cho việc sau khi ngắt (lấy call và hash từ env, ghi trace, thường dưới 0,1 s) và cho chênh lệch giữa đồng hồ của ta với đồng hồ BTC (BTC có thể tính cả lúc mở env). Chỉnh sau khi đo trên A30.
 - Thời gian ASR được tính vào `elapsed` vì `Budget` bắt đầu tính trước khi gọi ASR.
+- Warm-up gọi cùng đường engine có ngắt (giới hạn 300 s) để biên dịch đúng đường mà mẫu thật chạy.
 
 **Quy tắc khác:**
 
@@ -604,9 +608,8 @@ uv run python -m lifemate.run.cli --config configs/v0.toml --env kaggle --root /
 **`Runner.run(samples, store)`:**
 
 1. Nạp model, gọi `llm.warmup()` và `transcriber.warmup()` (quyết định S11). Ghi thời gian nạp và warm-up vào `config.json`.
-2. Với từng mẫu theo thứ tự id: `open_env` → `agent.run(sample, env, step_estimate_s=...)` trong `try/except Exception`. Đây là **chỗ duy nhất** bắt mọi exception. Lỗi thì tạo `SampleResult` với mã `exception` và traceback. **Nếu lỗi xảy ra trước khi có `env`** (B4), ghi `tool_calls=[]`, `state_hash=""`; dòng nộp vẫn phải có để file đủ id.
+2. Với từng mẫu theo thứ tự id: `open_env` → `agent.run(sample, env)` trong `try/except Exception`. Đây là **chỗ duy nhất** bắt mọi exception. Lỗi thì tạo `SampleResult` với mã `exception` và traceback. **Nếu lỗi xảy ra trước khi có `env`** (B4), ghi `tool_calls=[]`, `state_hash=""`; dòng nộp vẫn phải có để file đủ id.
 3. `store.append(result)` ngay sau mỗi mẫu.
-4. Cập nhật p95 thời gian một bước từ các mẫu đã chạy và truyền vào `agent.run` của mẫu sau qua `step_estimate_s` (B6). Mẫu đầu dùng `cfg.initial_step_estimate_s`.
 5. Chạy xong: `store.finalize()`, rồi gọi `lifemate/eval/score.py` **bằng subprocess** nếu split có nhãn (import trong process sẽ nạp `zaic_tools` lần hai).
 
 **`RunStore`:**
@@ -682,7 +685,7 @@ Cả hai là `Enum` trong `lifemate/core/types.py`. Ghi ra JSON bằng `.value`.
 | `duplicate_write` | Gọi lại một call `write` giống hệt (G3, chỉ cảnh báo) | `errors` |
 | `exception` | Exception ngoài dự kiến, bắt ở `Runner` | `errors`, kèm traceback trong trace |
 
-**`StopReason`:** `done`, `asked`, `max_steps`, `timeout` (dự kiến vượt `hard_limit_s`), `context_overflow`, `parse_error`, `retries_exhausted`, `exception`.
+**`StopReason`:** `done`, `asked`, `max_steps`, `timeout` (tới `deadline_s`; bước đang chạy bị ngắt), `context_overflow`, `parse_error`, `retries_exhausted`, `exception`.
 
 ### 4.14. Config (`configs/v0.toml`)
 
@@ -704,8 +707,7 @@ warmup_runs = 2
 [agent]
 max_steps = 10
 max_retries = 2
-hard_limit_s = 28                      # không bắt đầu bước nào dự kiến kết thúc sau mốc này
-initial_step_estimate_s = 3.0          # ước lượng cho mẫu đầu tiên của lần chạy
+deadline_s = 29.0                      # giây tính từ đầu mẫu (gồm ASR); tới mốc này bước LLM đang chạy bị ngắt
 max_result_chars = 4000
 system_prompt = "configs/prompts/system_v0.md"
 guards = ["allowed_tool", "schema", "duplicate_write"]   # "after_ask" có sẵn nhưng không dùng, xem 4.9
@@ -835,7 +837,7 @@ Mỗi test ghi rõ ba ý: **bảo vệ** điều gì, **bắt lỗi** khi nào, 
 | T7 | `test_held_out_stripped`: dựng prompt `train_mode` cho mẫu có cài app bị rút, và cho mẫu có history gọi app bị rút | Không có tên app bị rút ở bất kỳ đâu trong messages; mẫu có history gọi app bị rút thì raise `HeldOutLeak` | Tên app bị rút xuất hiện, hoặc không raise | |
 | T8 | `test_one_env_per_sample` | `open_env` gọi hai lần cùng id thì raise | Không raise | |
 | T9 | `test_no_environment_access`: quét mã nguồn `lifemate/` | Code không tự đọc `state.json` | Có chuỗi `_environment` hoặc `state.json` ngoài `zaic.py` | Thư viện bên thứ ba không đọc |
-| T10 | `test_budget_predictive`: `clock` giả, mỗi bước tốn 5 giây, `hard_limit_s = 28` | Dừng với `timeout` **trước** bước sẽ vượt mốc (sau bước kết thúc ở giây 25, không chạy bước thứ 6), vẫn ghi được dòng nộp | Bắt đầu một bước dự kiến kết thúc sau 28 giây, hoặc không ghi dòng nộp | Thời gian thật trên A30 |
+| T10 | `test_timeout_at_agent_level`, `test_budget.py`, `test_time_left_aborts_running_step`: `clock` giả, mỗi bước 5 giây, `deadline_s = 29` | 5 bước xong ở giây 25, bước 6 được bắt đầu và bị ngắt ở giây 29; 5 call đã gọi vẫn nộp; bước đầu chậm 14 s không chặn bước sau | Dừng trước hạn vì dự đoán, chạy quá `deadline_s`, hoặc mất call đã gọi | Thời gian thật trên A30 |
 | T11 | `test_exception_isolated`: một mẫu làm transcriber raise | Lần chạy vẫn đi tiếp, mẫu lỗi có dòng nộp với mã `exception` | Cả lần chạy dừng | |
 | T12 | `test_resume`: ngắt sau mẫu thứ 3, thêm một dòng hỏng vào cuối `trace.jsonl`, chạy lại với `--resume` | Không chạy lại mẫu đã xong, bỏ qua dòng hỏng, `submission.jsonl` đủ id và không trùng | Thiếu id, trùng id, chạy lại, hoặc crash vì dòng hỏng | |
 | T13 | `test_output_schema`: schema cho một mẫu | `name` chỉ gồm tool được phép cộng `sys.ask_missing_info`, và hai mẫu cùng bộ tool cho ra cùng một chuỗi schema | Có tool ngoài danh sách, hoặc chuỗi schema khác nhau | vLLM có tuân schema hay không (kiểm ở mục 7) |

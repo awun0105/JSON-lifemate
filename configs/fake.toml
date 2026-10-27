@@ -13,8 +13,7 @@ warmup_runs = 2
 [agent]
 max_steps = 10
 max_retries = 2
-hard_limit_s = 28                      # không bắt đầu bước nào dự kiến kết thúc sau mốc này
-initial_step_estimate_s = 3.0          # ước lượng cho mẫu đầu tiên của lần chạy
+deadline_s = 29.0                      # giây tính từ đầu mẫu (gồm ASR); tới mốc này bước LLM đang chạy bị ngắt, call đã gọi vẫn được nộp
 max_result_chars = 4000
 system_prompt = "configs/prompts/system_v0.md"
 guards = ["allowed_tool", "schema", "duplicate_write"]   # "after_ask" có sẵn nhưng không dùng, xem 4.9

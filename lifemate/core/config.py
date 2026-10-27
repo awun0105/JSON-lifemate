@@ -36,8 +36,7 @@ class AgentConfig:
 
     max_steps: int
     max_retries: int
-    hard_limit_s: float
-    initial_step_estimate_s: float
+    deadline_s: float  # seconds from sample start (ASR included); the running LLM step is aborted here
     max_result_chars: int
     system_prompt: str
     guards: list[str]
@@ -147,9 +146,7 @@ def load_config(path: Path) -> Config:
     _check(llm.dtype in {"auto", "float16", "bfloat16"}, f"llm.dtype: {llm.dtype!r} not in auto|float16|bfloat16")
     _check(asr.backend in {"gold", "asr"}, f"asr.backend: {asr.backend!r} not in gold|asr")
     _check(asr.engine in ASR_ENGINE_NAMES, f"asr.engine: {asr.engine!r} not in {'|'.join(sorted(ASR_ENGINE_NAMES))}")
-    _check(
-        asr.dtype in ASR_DTYPES, f"asr.dtype: {asr.dtype!r} not in {'|'.join(sorted(ASR_DTYPES))}"
-    )
+    _check(asr.dtype in ASR_DTYPES, f"asr.dtype: {asr.dtype!r} not in {'|'.join(sorted(ASR_DTYPES))}")
     _check(not (asr.backend == "asr" and asr.model == ""), "asr.model: required when asr.backend = 'asr'")
     _check(asr.device in {"auto", "cpu", "cuda"}, f"asr.device: {asr.device!r} not in auto|cpu|cuda")
     _check(isinstance(asr.batch_size, int) and asr.batch_size >= 1, "asr.batch_size: must be an int >= 1")

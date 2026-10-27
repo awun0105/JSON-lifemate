@@ -115,12 +115,11 @@ class Agent:
         sample: Sample,
         env: ToolEnvLike,
         *,
-        step_estimate_s: float | None = None,
         clock: Clock = time.monotonic,
         train_mode: bool = False,
     ) -> SampleResult:
         """Run the loop for one sample and return its result."""
-        budget = Budget(self.cfg, self.llm_cfg, clock, step_estimate_s=step_estimate_s)
+        budget = Budget(self.cfg, self.llm_cfg, clock)
         transcript = self.transcriber.transcribe(sample)
         conv, shrink_level = self.prompts.start(sample, transcript, train_mode=train_mode)
         allowed = frozenset(self.prompts.allowed_tools(sample, train_mode))
@@ -140,11 +139,27 @@ class Agent:
             if reason is not None:
                 stop = reason
                 break
-            gen = self.llm.generate(conv.as_list(), schema, sample_id=sample.id)
+            gen = self.llm.generate(conv.as_list(), schema, sample_id=sample.id, time_left_s=budget.remaining)
             budget.after_step(gen.seconds)
             llm_s += gen.seconds
             completion_total += gen.completion_tokens
             max_prompt = max(max_prompt, gen.prompt_tokens)
+            if gen.timed_out:
+                # Deadline reached mid-step: the partial text is not an action. Calls already made stay.
+                steps.append(
+                    StepRecord(
+                        i=len(steps),
+                        prompt_tokens=gen.prompt_tokens,
+                        completion_tokens=gen.completion_tokens,
+                        llm_s=gen.seconds,
+                        raw=gen.text,
+                        action=None,
+                        guard=None,
+                    )
+                )
+                self.observer.on_step(steps[-1])
+                stop = StopReason.TIMEOUT
+                break
             conv.reconcile(gen.prompt_tokens)  # logs prompt_tokens_mismatch on a difference
             conv.append_assistant(gen.text, gen.completion_tokens)
             base: dict[str, Any] = {

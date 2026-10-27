@@ -82,6 +82,7 @@ class Generation:
     prompt_tokens: int
     completion_tokens: int
     seconds: float
+    timed_out: bool = False  # aborted at the sample deadline; `text` is partial and must not be parsed
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,7 +207,17 @@ class ToolEnvLike(Protocol):
 class LLMBackend(Protocol):
     """Text generation constrained by a JSON schema."""
 
-    def generate(self, messages: list[dict[str, Any]], schema: dict[str, Any], *, sample_id: str) -> Generation: ...
+    def generate(
+        self,
+        messages: list[dict[str, Any]],
+        schema: dict[str, Any],
+        *,
+        sample_id: str,
+        time_left_s: float | None = None,
+    ) -> Generation:
+        """One completion; stop and return `timed_out=True` once `time_left_s` seconds have passed (None: no limit)."""
+        ...
+
     def warmup(self) -> None: ...
 
 

@@ -1,4 +1,4 @@
-"""T10 at Budget level: predictive deadline, steps, context, retries (SPEC 4.10)."""
+"""T10 at Budget level: real deadline, steps, context, retries (SPEC 4.10)."""
 
 from __future__ import annotations
 
@@ -12,8 +12,7 @@ from tests.fakes import FakeClock
 AGENT_CFG = AgentConfig(
     max_steps=10,
     max_retries=2,
-    hard_limit_s=28.0,
-    initial_step_estimate_s=5.0,
+    deadline_s=29.0,
     max_result_chars=4000,
     system_prompt="",
     guards=["allowed_tool", "schema", "duplicate_write"],
@@ -32,24 +31,23 @@ LLM_CFG = LLMConfig(
 )
 
 
-def test_timeout_before_sixth_step() -> None:
+def test_steps_run_until_the_real_deadline() -> None:
+    """Catches: stopping early on a predicted step time; any step may start while time is left."""
     clock = FakeClock()
-    b = Budget(AGENT_CFG, LLM_CFG, clock, step_estimate_s=None)
-    ran = 0
-    while b.before_step(10) is None:
-        clock.advance(5)
-        b.after_step(5)
-        ran += 1
-    assert ran == 5 and b.elapsed == 25
-    assert b.before_step(10) is StopReason.TIMEOUT
+    b = Budget(AGENT_CFG, LLM_CFG, clock)
+    clock.advance(28.5)
+    assert b.before_step(10) is None and b.remaining == 0.5
+    clock.advance(0.5)
+    assert b.before_step(10) is StopReason.TIMEOUT and b.remaining == 0.0
 
 
-def test_last_step_larger_than_estimate() -> None:
+def test_slow_first_step_does_not_block_later_steps() -> None:
+    """Catches the Kaggle T4 failure: a 14 s first step made the old predictor refuse a 3 s second step."""
     clock = FakeClock()
-    b = Budget(AGENT_CFG, LLM_CFG, clock, step_estimate_s=1.0)
-    clock.advance(15)
-    b.after_step(15)
-    assert b.before_step(10) is StopReason.TIMEOUT  # 15 + max(15, 1) > 28
+    b = Budget(AGENT_CFG, LLM_CFG, clock)
+    clock.advance(16)  # ASR 2 s + first step 14 s
+    b.after_step(14)
+    assert b.before_step(10) is None
 
 
 def test_max_steps() -> None:

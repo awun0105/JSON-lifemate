@@ -15,8 +15,7 @@ warmup_runs = 2
 [agent]
 max_steps = 10
 max_retries = 2
-hard_limit_s = 28
-initial_step_estimate_s = 3.0
+deadline_s = 29.0
 max_result_chars = 4000
 system_prompt = "configs/prompts/system_v0.md"
 guards = ["allowed_tool", "schema", "duplicate_write"]

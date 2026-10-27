@@ -26,11 +26,18 @@ class TimedLLM:
         """Total generate seconds."""
         return sum(self.durations)
 
-    def generate(self, messages: list[dict[str, Any]], schema: dict[str, Any], *, sample_id: str) -> Generation:
+    def generate(
+        self,
+        messages: list[dict[str, Any]],
+        schema: dict[str, Any],
+        *,
+        sample_id: str,
+        time_left_s: float | None = None,
+    ) -> Generation:
         """Delegate and time."""
         t0 = time.perf_counter()
         try:
-            return self.inner.generate(messages, schema, sample_id=sample_id)
+            return self.inner.generate(messages, schema, sample_id=sample_id, time_left_s=time_left_s)
         finally:
             self.durations.append(time.perf_counter() - t0)
 

@@ -127,14 +127,15 @@ def test_duplicate_write_proceeds() -> None:
 
 
 def test_timeout_at_agent_level() -> None:
-    """T10: 5 s steps, hard limit 28 -> 5 steps run, the 6th is refused, a result is still produced."""
+    """T10: 5 s steps, deadline 29 -> 5 steps finish (25 s), the 6th starts and is cut at 29 s;
+    the 5 calls already made are kept and a result is still produced."""
     calls = [{"name": "notes.search", "arguments": {"q": str(i)}} for i in range(8)]
     s = sample("s8", calls)
     clock = FakeClock()
     rec = Recorder()
     res = make_agent(FakeLLM([s], delay_s=5, clock=clock), rec).run(s, make_env(), clock=clock)
     assert res.stop_reason is StopReason.TIMEOUT
-    assert len(res.steps) == 5 and clock() == 25
+    assert len(res.steps) == 6 and res.steps[-1].action is None and clock() == 29
     assert list(res.tool_calls) == calls[:5]
     assert rec.events[-1] == "stop"
 
