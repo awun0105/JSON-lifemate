@@ -1,0 +1,4 @@
+data_root = "/tmp/zaic_root"   # symlink, SPEC 6.3
+runs_dir = "result"
+hf_token_source = "none"                 # model baked into the image, HF_HUB_OFFLINE=1
+persist = "local"

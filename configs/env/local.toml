@@ -1,0 +1,5 @@
+data_root = "data/train+public_test"   # relative to repo root
+runs_dir = "artifacts/runs"
+hf_token_source = "env:HF_TOKEN"
+persist = "local"
+# hf_cache omitted: HF default

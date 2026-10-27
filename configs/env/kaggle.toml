@@ -1,0 +1,5 @@
+data_root = "/kaggle/input/zac2026-lifemate/train+public_test"
+runs_dir = "/kaggle/working/runs"
+hf_cache = "/kaggle/working/hf_cache"
+hf_token_source = "kaggle_secret:HF_TOKEN"
+persist = "kaggle_dataset"

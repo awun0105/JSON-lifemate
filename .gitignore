@@ -1,0 +1,22 @@
+# competition data and everything built from it (never shared)
+data/
+# run outputs, model weights, packed code: regenerable
+artifacts/*
+!artifacts/models/
+artifacts/models/*
+!artifacts/models/registry.csv
+!artifacts/models/README.md
+# tooling
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+graphify-out/
+result/
+# local-only notes (not shared)
+docs/notes/
+# secrets
+.env
+*.token

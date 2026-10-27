@@ -1,0 +1,5 @@
+data_root = "~/zac2026/train+public_test"
+runs_dir = "~/zac2026/runs"
+hf_cache = "~/.cache/huggingface"
+hf_token_source = "env:HF_TOKEN"
+persist = "local"

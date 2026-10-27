@@ -1,0 +1,18 @@
+# configs/train/asr_v1.toml (mặc định ban đầu, chốt sau khi chọn model ASR) — SPEC 6.4.3
+[base]
+model = "vinai/PhoWhisper-medium"       # cùng model với [asr] của configs/v0.toml
+revision = "55a7e3eb6c906de891f8f06a107754427dd3be79"
+[data]
+train = "data/asr/v1.jsonl"
+[method]
+kind = "full"               # "lora" | "full"; PhoWhisper-medium 0,77B: full fine-tune vừa T4 với fp16 + grad checkpointing (approach 5.5)
+freeze_encoder = true       # giai đoạn 1 chỉ train decoder (học văn phong audio_text); mở encoder ở giai đoạn 2 nếu WER còn cao
+spec_augment = true
+[train]
+lr = 1e-5
+epochs = 3
+batch_size = 8
+grad_accum = 2
+seed = 0
+eval_every_steps = 200
+save_every_steps = 200

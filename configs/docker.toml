@@ -1,0 +1,32 @@
+# Run config for the inference image (docs/docker.md). Same as configs/v0.toml except that model
+# paths point at the weights baked into /app/models and the real ASR is on.
+[llm]
+backend = "vllm"
+model = "/app/models/llm"              # snapshot of [llm].model from configs/v0.toml (or the merged fine-tune)
+revision = ""
+dtype = "auto"
+max_model_len = 16384
+gpu_memory_utilization = 0.80
+seed = 0
+max_tokens = 512
+batch_invariant = true                 # the organisers' A30 is sm80
+warmup_runs = 2
+
+[agent]
+max_steps = 10
+max_retries = 2
+hard_limit_s = 28
+initial_step_estimate_s = 3.0
+max_result_chars = 4000
+system_prompt = "configs/prompts/system_v0.md"
+guards = ["allowed_tool", "schema", "duplicate_write"]
+
+[asr]
+backend = "asr"
+engine = "hf_seq2seq"
+model = "/app/models/asr"              # snapshot of [asr].model from configs/v0.toml (or the fine-tune)
+revision = ""
+device = "cuda"
+batch_size = 8
+generate_kwargs = { language = "vi", task = "transcribe" }
+sample_rate = 16000

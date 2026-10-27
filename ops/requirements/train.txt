@@ -1,0 +1,9 @@
+# Fine-tune stack for Kaggle/Colab (SPEC 6.2.3, 6.4.3). Installed on top of requirements/notebook.txt;
+# keeps the platform's torch/CUDA. Versions are left open on purpose: unsloth pins its own transformers/trl/peft.
+unsloth
+trl
+peft
+datasets
+soundfile
+bitsandbytes
+jiwer

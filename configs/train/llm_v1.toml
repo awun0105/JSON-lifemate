@@ -1,0 +1,24 @@
+# configs/train/llm_v1.toml (các số là mặc định ban đầu, chốt sau v0) — SPEC 6.2.3
+[base]
+model = "Qwen/Qwen3-4B-Instruct-2507"   # cùng model với [llm] của configs/v0.toml
+revision = "cdbee75f17c01a7cc42f958dc650907174af0554"
+run_config = "configs/v0.toml"   # prompt, max_result_chars, max_model_len lấy từ config lúc chạy (giống từng byte)
+[data]
+train = "data/sft/v1.jsonl"
+eval_seen = "data/sft/v1_val_seen.jsonl"      # dựng bằng cùng script, chỉ để đo loss, không train
+eval_unseen = "data/sft/v1_val_unseen.jsonl"
+[lora]
+quant = "nf4"               # QLoRA 4-bit
+r = 16
+alpha = 32
+dropout = 0.0
+target_modules = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+[train]
+lr = 2e-4
+epochs = 2
+batch_size = 1
+grad_accum = 8
+max_len = 16384
+seed = 0
+eval_every_steps = 100
+save_every_steps = 100

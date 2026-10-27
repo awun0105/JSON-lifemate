@@ -1,0 +1,30 @@
+[llm]
+backend = "vllm"                       # "vllm" | "fake"
+model = "Qwen/Qwen3-4B-Instruct-2507"  # 4,02B, Apache-2.0, 08/2025; chọn theo SPEC 6.0, approach 5.5
+revision = "cdbee75f17c01a7cc42f958dc650907174af0554"
+dtype = "auto"                         # "auto" | "float16" | "bfloat16"; auto chọn theo GPU (mục 4.16)
+max_model_len = 16384
+gpu_memory_utilization = 0.80          # chừa chỗ cho ASR chạy chung GPU (6.1, B2)
+seed = 0
+max_tokens = 512
+batch_invariant = false                # true khi chạy trên sm80+
+warmup_runs = 2
+
+[agent]
+max_steps = 10
+max_retries = 2
+hard_limit_s = 28                      # không bắt đầu bước nào dự kiến kết thúc sau mốc này
+initial_step_estimate_s = 3.0          # ước lượng cho mẫu đầu tiên của lần chạy
+max_result_chars = 4000
+system_prompt = "configs/prompts/system_v0.md"
+guards = ["allowed_tool", "schema", "duplicate_write"]   # "after_ask" có sẵn nhưng không dùng, xem 4.9
+
+[asr]
+backend = "gold"                       # "gold" | "asr"; đổi sang "asr" khi chạy trên audio thật
+engine = "hf_seq2seq"                  # "hf_seq2seq" (PhoWhisper) | "chunkformer" | "viegem"; xem approach 5.5
+model = "vinai/PhoWhisper-medium"      # 0,77B, BSD-3, 02/2024
+revision = "55a7e3eb6c906de891f8f06a107754427dd3be79"
+device = "auto"                        # "auto" | "cpu" | "cuda"
+batch_size = 8                         # số file wav mỗi lần gọi model (giữ thứ tự)
+generate_kwargs = { language = "vi", task = "transcribe" }   # luôn greedy (asr.py thêm num_beams=1)
+sample_rate = 16000                    # WAV 16 kHz mono 16-bit (data README 2.1)

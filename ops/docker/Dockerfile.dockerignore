@@ -1,0 +1,16 @@
+# Build context is the repo root (docker build -f ops/docker/Dockerfile .). Keep the context small:
+.git
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+data/
+artifacts/runs/
+artifacts/dist/
+graphify-out/
+docs/
+ops/notebooks/
+result/
+tests/
