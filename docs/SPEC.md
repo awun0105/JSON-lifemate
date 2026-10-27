@@ -28,7 +28,10 @@ Cho một yêu cầu bằng giọng nói tiếng Việt, agent phải gọi đú
 | Đề bài, EDA, hướng làm | Có | `docs/overview.md`, `docs/eda.md`, `docs/approach.md` |
 | Chia dữ liệu | Có | `eval/make_splits.py`, `splits/`: train 1098, val_seen 193, val_unseen 254 |
 | Bộ chấm local | Có | `eval/score.py`: gold được 100, toàn `[]` được 7,18 |
-| Agent, ASR, Docker, fine-tune | **Chưa có** | |
+| Agent v0 (`lifemate/`), CLI, hạ tầng đo | **Có, 27/10/2026** | 164 test pass; FakeLLM qua CLI được 100,00 (strict và canon) trên `val_seen`, `val_unseen`; `configs/fake.toml` chạy không cần model |
+| ASR | Khung có (`asr.py`, `eval_asr.py`), **chưa chọn model, chưa chạy thật** | |
+| Docker | Dockerfile, entrypoint, smoke script có; **chưa build** (không có GPU/docker ở máy dev) | `docs/docker.md` |
+| Fine-tune | Khung có (`lifemate/train/`), `sft_data` và `asr_data` đã chạy trên dữ liệu thật; train/merge **chưa chạy** | |
 
 ### 1.4. Số liệu dữ liệu dùng để thiết kế
 
@@ -907,6 +910,7 @@ uv run python -m lifemate.train.sft_data --config configs/train/llm_v1.toml --en
 [base]
 model = ""                  # CHƯA CHỌN, cùng model với [llm] của configs/v0.toml
 revision = ""
+run_config = "configs/v0.toml"   # lấy prompt, max_result_chars, max_model_len, max_tokens từ đúng config lúc chạy
 [data]
 train = "data/sft/v1.jsonl"
 eval_seen = "data/sft/v1_val_seen.jsonl"      # dựng bằng cùng script, chỉ để đo loss, không train
@@ -930,7 +934,7 @@ save_every_steps = 100
 
 - Train bằng Unsloth trên T4, fp16. `seed` cố định cho Python, NumPy, PyTorch và thứ tự trộn dữ liệu.
 - **Train tiếp được:** mỗi `save_every_steps` lưu checkpoint (adapter, optimizer, scheduler, trạng thái RNG, bước hiện tại) vào thư mục theo profile môi trường (mục 4.16). `--resume-from <checkpoint>` chạy tiếp đúng từ bước đó. Lý do: một phiên Kaggle chỉ kéo dài khoảng 9–12 giờ.
-- Mỗi `eval_every_steps` đo loss trên `eval_seen` và `eval_unseen`, ghi vào `metrics.jsonl`.
+- Mỗi `eval_every_steps` đo loss trên `eval_seen` và `eval_unseen`, ghi vào `metrics.jsonl`. Checkpoint được lưu trong callback eval, nên `save_every_steps` phải là bội số của `eval_every_steps` (config loader kiểm tra).
 
 **Chọn checkpoint:**
 

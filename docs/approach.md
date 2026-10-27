@@ -323,4 +323,4 @@ Mỗi lần chạy agent ghi một dòng. Điểm lấy từ `eval/score.py` v�
 
 | Ngày | Phiên bản | Thay đổi | ASR / LLM | val_seen | val_unseen | Public | Nhận xét |
 |---|---|---|---|---|---|---|---|
-| | | | | | | | |
+| 27/10/2026 | v0 pipeline check | Agent v0 + hạ tầng đo xong (`c720d5e`) | gold / FakeLLM (phát lại gold) | 100,00 | 100,00 | | Chỉ kiểm vòng lặp, guard, ghi file và bộ chấm; chưa có model thật |
