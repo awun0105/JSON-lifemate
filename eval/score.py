@@ -19,7 +19,13 @@ Usage (from the repo root):
   python eval/score.py submission.jsonl --partial                # score only the ids present in the submission
   python eval/score.py submission.jsonl --details out.jsonl      # also write the per-sample breakdown
   python eval/score.py --make-gold gold.jsonl                    # write the gold answers as a submission (sanity check)
+  python eval/score.py submission.jsonl --match both             # print the strict and the canon score
+
+Matching modes (--match): `strict` (default) compares non-fuzzy arguments with type-aware equality (bool only equals
+bool, int equals float when numerically equal); `canon` additionally normalises strings like zaic_tools'
+_canon_scalar (lower case, collapsed whitespace, '700 cm' == '700cm'). `both` prints both scores and details use strict.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -48,6 +54,47 @@ def load_jsonl(path: Path) -> list[dict]:
         return [json.loads(line) for line in f if line.strip()]
 
 
+_NUM_UNIT = re.compile(r"(\d)\s+(?=[^\W\d_])")  # '700 cm' -> '700cm', '2 kg' -> '2kg'
+
+
+def _local_canon_scalar(v):
+    """Fallback copy of zaic_tools.utils._canon_scalar, used only when the split's zaic_tools lacks that attribute."""
+    if isinstance(v, str):
+        return _NUM_UNIT.sub(r"\1", " ".join(v.lower().split()))
+    return v
+
+
+_canon_scalar = _local_canon_scalar
+
+
+def load_canon_scalar() -> None:
+    """Use the split's own _canon_scalar (zaic_tools must already be importable); keep the local copy otherwise."""
+    global _canon_scalar  # noqa: PLW0603
+    try:
+        from zaic_tools import utils as zutils
+    except ImportError:
+        return
+    _canon_scalar = getattr(zutils, "_canon_scalar", _local_canon_scalar)
+
+
+def values_equal(a, b, canon: bool = False) -> bool:  # noqa: PLR0911
+    """Type-aware equality: bool only equals bool; int/float equal when numerically equal; str equals str (normalised
+    with _canon_scalar when canon); list and dict compare recursively; any other type mix is unequal."""
+    if isinstance(a, bool) or isinstance(b, bool):
+        return isinstance(a, bool) and isinstance(b, bool) and a == b
+    if isinstance(a, int | float) and isinstance(b, int | float):
+        return a == b
+    if isinstance(a, str) and isinstance(b, str):
+        return _canon_scalar(a) == _canon_scalar(b) if canon else a == b
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(values_equal(x, y, canon) for x, y in zip(a, b, strict=True))
+    if isinstance(a, dict) and isinstance(b, dict):
+        return set(a) == set(b) and all(values_equal(a[k], b[k], canon) for k in a)
+    if a is None or b is None:
+        return a is None and b is None
+    return False
+
+
 def fuzzy_params(catalog: dict) -> dict[str, set[str]]:
     """{tool name: names of its x-match: fuzzy parameters}"""
     out = {}
@@ -73,7 +120,7 @@ def token_f1(a, b) -> float:
     return 2 * p * r / (p + r)
 
 
-def call_matches(sub: dict, gold: dict, fuzzy: dict[str, set[str]]) -> bool:
+def call_matches(sub: dict, gold: dict, fuzzy: dict[str, set[str]], canon: bool = False) -> bool:
     if sub.get("name") != gold["name"]:
         return False
     sa, ga = sub.get("arguments") or {}, gold.get("arguments") or {}
@@ -84,14 +131,17 @@ def call_matches(sub: dict, gold: dict, fuzzy: dict[str, set[str]]) -> bool:
         if k in fz:
             if token_f1(sa[k], gv) <= FUZZY_THRESHOLD:
                 return False
-        elif sa[k] != gv:
+        elif not values_equal(sa[k], gv, canon):
             return False
     return True
 
 
-def max_matching(sub: list[dict], gold: list[dict], fuzzy, rejected: set[int]) -> int:
+def max_matching(sub: list[dict], gold: list[dict], fuzzy, rejected: set[int], canon: bool = False) -> int:
     """Size of the maximum one-to-one matching between submitted and gold calls (order ignored)."""
-    edges = [[j for j, g in enumerate(gold) if i not in rejected and call_matches(s, g, fuzzy)] for i, s in enumerate(sub)]
+    edges = [
+        [j for j, g in enumerate(gold) if i not in rejected and call_matches(s, g, fuzzy, canon)]
+        for i, s in enumerate(sub)
+    ]
     owner = [-1] * len(gold)
 
     def augment(i, seen):
@@ -124,7 +174,7 @@ def replay(ToolEnv, split: str, root: Path, sample_id: str, calls: list[dict]):
     return env.get_state_hash(), rejected
 
 
-def score_sample(item: dict, sub: dict | None, ToolEnv, split, root, fuzzy) -> dict:
+def score_sample(item: dict, sub: dict | None, ToolEnv, split, root, fuzzy, canon: bool = False) -> dict:
     gold = item["label"]["tool_calls"]
     apps = sorted({c["name"].split(".", 1)[0] for c in gold} - {"sys"})
     d = {"id": item["id"], "category": category(gold), "gold_calls": len(gold), "apps": apps}
@@ -138,7 +188,7 @@ def score_sample(item: dict, sub: dict | None, ToolEnv, split, root, fuzzy) -> d
 
     gold_hash, _ = replay(ToolEnv, split, root, item["id"], gold)
     sub_hash, rejected = replay(ToolEnv, split, root, item["id"], calls)
-    m = max_matching(calls, gold, fuzzy, rejected)
+    m = max_matching(calls, gold, fuzzy, rejected, canon)
     u = len(calls) - m
     p = m / (m + u) if calls else 0.0
     r = m / len(gold)
@@ -155,18 +205,32 @@ def score_sample(item: dict, sub: dict | None, ToolEnv, split, root, fuzzy) -> d
         "extra_tool": sum((sub_names - gold_names).values()) > 0,
         "rejected": bool(rejected),
     }
-    return {**d, "score": f1 if hash_ok and m else 0.0, "hash_ok": hash_ok, "M": m, "U": u, "P": p, "R": r,
-            "rejected": len(rejected), "errors": [k for k, v in errors.items() if v],
-            "submitted_hash_ok": sub.get("state_hash") == sub_hash}
+    return {
+        **d,
+        "score": f1 if hash_ok and m else 0.0,
+        "hash_ok": hash_ok,
+        "M": m,
+        "U": u,
+        "P": p,
+        "R": r,
+        "rejected": len(rejected),
+        "errors": [k for k, v in errors.items() if v],
+        "submitted_hash_ok": sub.get("state_hash") == sub_hash,
+    }
 
 
 def pct(rows: list[dict]) -> float:
     return 100 * sum(r["score"] for r in rows) / len(rows) if rows else float("nan")
 
 
-def report(rows: list[dict], min_app: int) -> None:
+def report(rows: list[dict], min_app: int, extra: dict[str, list[dict]] | None = None) -> None:
     n = len(rows)
-    print(f"Final score: {pct(rows):.2f}  (N = {n})")
+    if extra:
+        for mode, mrows in extra.items():
+            print(f"Final score [{mode}]: {pct(mrows):.2f}  (N = {len(mrows)})")
+        print("(details below use strict)")
+    else:
+        print(f"Final score: {pct(rows):.2f}  (N = {n})")
     missing = sum(r.get("missing", False) for r in rows)
     if missing:
         print(f"  missing ids in submission: {missing} (scored 0)")
@@ -177,7 +241,7 @@ def report(rows: list[dict], min_app: int) -> None:
         if not g:
             continue
         scored = [r for r in g if "hash_ok" in r]
-        mean = lambda k: sum(r[k] for r in scored) / len(scored) if scored else float("nan")  # noqa: E731
+        mean = lambda k: sum(r[k] for r in scored) / len(scored) if scored else float("nan")  # noqa: B023
         print(f"{name:<18}{len(g):>6}{pct(g):>9.2f}{100 * mean('hash_ok'):>9.1f}{mean('P'):>7.3f}{mean('R'):>7.3f}")
 
     # a) what the agent decided vs what it should have decided
@@ -194,7 +258,10 @@ def report(rows: list[dict], min_app: int) -> None:
     # b) why samples that should act lose points
     acting = [r for r in rows if r["category"] != "out_of_scope" and "errors" in r]
     imperfect = [r for r in acting if r["score"] < 1]
-    print(f"\n== Error types ({len(imperfect)} of {len(acting)} execute/ask samples below a perfect score; a sample can have several)")
+    print(
+        f"\n== Error types ({len(imperfect)} of {len(acting)} execute/ask samples below a perfect score;"
+        " a sample can have several)"
+    )
     for key, label in ERRORS:
         k = sum(key in r["errors"] for r in imperfect)
         print(f"  {label:<34}{k:>6}  ({100 * k / len(acting):.1f}% of samples)" if acting else f"  {label:<34}{k:>6}")
@@ -214,7 +281,9 @@ def report(rows: list[dict], min_app: int) -> None:
     bad_hash = sum(1 for r in rows if r.get("submitted_hash_ok") is False)
     print(f"\nrejected calls (schema errors): {rejected}")
     if bad_hash:
-        print(f"WARNING: {bad_hash} submitted state_hash values differ from the replayed hash; the replayed one is used")
+        print(
+            f"WARNING: {bad_hash} submitted state_hash values differ from the replayed hash; the replayed one is used"
+        )
 
 
 def main() -> None:
@@ -222,21 +291,32 @@ def main() -> None:
     ap.add_argument("submission", nargs="?", type=Path, help="submission.jsonl to score")
     ap.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="folder holding the split folders")
     ap.add_argument("--split", default="train", help="labelled split to score against (default: train)")
-    ap.add_argument("--ids", type=Path, help="file with one sample id per line (e.g. splits/val_seen.txt); only these are scored")
+    ap.add_argument(
+        "--ids", type=Path, help="file with one sample id per line (e.g. splits/val_seen.txt); only these are scored"
+    )
     ap.add_argument("--partial", action="store_true", help="score only the ids present in the submission")
     ap.add_argument("--min-app", type=int, default=5, help="hide apps with fewer samples in the per-app table")
     ap.add_argument("--details", type=Path, help="write per-sample results to this jsonl file")
+    ap.add_argument(
+        "--match",
+        choices=["strict", "canon", "both"],
+        default="strict",
+        help="non-fuzzy argument matching: strict, canon (zaic_tools string normalisation) or both",
+    )
     ap.add_argument("--make-gold", type=Path, metavar="OUT", help="write the gold answers as a submission and exit")
     args = ap.parse_args()
 
     sys.path.insert(0, str(args.root / args.split))
     from zaic_tools import ToolEnv
 
+    load_canon_scalar()
+
     items = load_jsonl(args.root / args.split / f"{args.split}.jsonl")
     if "label" not in items[0]:
         sys.exit(f"split {args.split!r} has no labels; only a labelled split can be scored locally")
     if args.ids:
-        wanted = {line.strip() for line in open(args.ids, encoding="utf-8") if line.strip()}
+        with open(args.ids, encoding="utf-8") as f:
+            wanted = {line.strip() for line in f if line.strip()}
         unknown = wanted - {it["id"] for it in items}
         if unknown:
             sys.exit(f"{len(unknown)} ids in {args.ids} are not in {args.split}, e.g. {sorted(unknown)[:3]}")
@@ -246,7 +326,12 @@ def main() -> None:
         with open(args.make_gold, "w", encoding="utf-8") as f:
             for it in items:
                 h, _ = replay(ToolEnv, args.split, args.root, it["id"], it["label"]["tool_calls"])
-                f.write(json.dumps({"id": it["id"], "tool_calls": it["label"]["tool_calls"], "state_hash": h}, ensure_ascii=False) + "\n")
+                f.write(
+                    json.dumps(
+                        {"id": it["id"], "tool_calls": it["label"]["tool_calls"], "state_hash": h}, ensure_ascii=False
+                    )
+                    + "\n"
+                )
         print(f"{len(items)} lines -> {args.make_gold}")
         return
     if not args.submission:
@@ -266,10 +351,19 @@ def main() -> None:
         if not items:
             sys.exit("no submission id belongs to the scored ids")
 
-    catalog = json.load(open(args.root / args.split / f"{args.split}_tools_catalog.json", encoding="utf-8"))
+    with open(args.root / args.split / f"{args.split}_tools_catalog.json", encoding="utf-8") as f:
+        catalog = json.load(f)
     fuzzy = fuzzy_params(catalog)
-    rows = [score_sample(it, subs.get(it["id"]), ToolEnv, args.split, args.root, fuzzy) for it in items]
-    report(rows, args.min_app)
+
+    def run(canon: bool) -> list[dict]:
+        return [score_sample(it, subs.get(it["id"]), ToolEnv, args.split, args.root, fuzzy, canon) for it in items]
+
+    if args.match == "both":
+        rows = run(False)
+        report(rows, args.min_app, extra={"strict": rows, "canon": run(True)})
+    else:
+        rows = run(args.match == "canon")
+        report(rows, args.min_app)
     if args.details:
         with open(args.details, "w", encoding="utf-8") as f:
             for r in rows:

@@ -682,7 +682,7 @@ Bộ chấm phải khớp với cách BTC chấm càng sát càng tốt. Ba ch�
 | # | Chỗ | Vấn đề | Sửa |
 |---|---|---|---|
 | C1 | `score.py:87` `sa[k] != gv` | Python coi `True == 1` và `1 == 1.0`. Agent nộp `true` cho tham số có gold là `1` vẫn được tính là khớp | So sánh có xét kiểu: `bool` chỉ bằng `bool`; `int` và `float` bằng nhau khi cùng giá trị; list và dict so đệ quy theo cùng quy tắc |
-| C2 | Cùng chỗ | So khớp phân biệt hoa thường. Nhưng `zaic_tools/utils.py` (`_canon_scalar`, `canon`) cho thấy BTC chuẩn hóa chuỗi khi tính hash: chữ thường, gộp khoảng trắng, `700 cm` = `700cm`. Rất có thể BTC so tham số theo cùng cách | Thêm `--match strict|canon` (mặc định `strict`). `canon` dùng đúng `_canon_scalar` của `zaic_tools`. In cả hai điểm để biết điểm thật nằm trong khoảng nào |
+| C2 | Cùng chỗ | So khớp phân biệt hoa thường. Nhưng `zaic_tools/utils.py` (`_canon_scalar`, `canon`) cho thấy BTC chuẩn hóa chuỗi khi tính hash: chữ thường, gộp khoảng trắng, `700 cm` = `700cm`. Rất có thể BTC so tham số theo cùng cách | Thêm `--match strict|canon|both` (mặc định `strict`). `canon` dùng đúng `_canon_scalar` của `zaic_tools`. `both` in cả hai điểm để biết điểm thật nằm trong khoảng nào, chi tiết theo `strict` |
 | C3 | `score.py:239, 269`; `make_splits.py` (`json.load(open(...))`) | Mở file không có `with` | Dùng `with` hoặc `Path.read_text` |
 
 Giữ nguyên:
