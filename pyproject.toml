@@ -1,0 +1,79 @@
+[project]
+name = "lifemate"
+version = "0.1.0"
+description = "LifeMate agent for Zalo AI Challenge 2026: Vietnamese voice requests to tool calls"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = { text = "MIT" }
+dependencies = [
+    "structlog>=25.2.0",
+]
+
+[project.optional-dependencies]
+# Tokenizer-based token counting (CPU). Needed by HFTokenCounter and T15.
+tokenizer = [
+    "transformers>=4.45",
+    "tokenizers>=0.20",
+]
+# LLM inference. Installed on GPU machines only; the version is pinned in uv.lock.
+gpu = [
+    "vllm>=0.9",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.11",
+    "mypy>=1.13",
+    "pre-commit>=4.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["lifemate"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+python_files = ["test_*.py"]
+markers = [
+    "data: needs the competition data package (skipped when it is absent)",
+    "tokenizer: needs a HF tokenizer in the local cache (skipped when absent)",
+]
+
+# Adapted from ai-kit pyproject.toml@ai-kit (line length, rule families); mypy replaces pyright.
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = ["train+public_test", "runs", "graphify-out", "*.ipynb"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF", "PL"]
+ignore = [
+    "PLR0913",  # many arguments: constructors wire dependencies explicitly
+    "PLR2004",  # magic values are allowed in tests and small comparisons
+    "PLR0917",  # positional arguments: same reason as PLR0913
+    "PLR0911",  # many returns in small pure matchers (parse, values_equal)
+    "PLC0415",  # optional extras are imported where used (docs/CONTRIBUTING.md)
+    "RUF001", "RUF002", "RUF003",  # Vietnamese text contains ambiguous unicode on purpose
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["PLR0915", "PLR0912"]
+"eval/*" = ["PLR0912", "PLR0915", "E731", "N803"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["lifemate"]
+warn_unreachable = true
+# Optional heavy libraries have no stubs; they are imported inside the backend that needs them.
+[[tool.mypy.overrides]]
+module = ["vllm", "vllm.*", "transformers", "transformers.*", "torch", "torch.*", "structlog", "structlog.*"]
+ignore_missing_imports = true

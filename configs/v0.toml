@@ -1,0 +1,25 @@
+[llm]
+backend = "vllm"                       # "vllm" | "fake"
+model = ""                             # CHƯA CHỌN: tên model trên HF, điền khi chốt (mục 6.0)
+revision = ""                          # CHƯA CHỌN: commit hash cố định của model
+dtype = "auto"                         # "auto" | "float16" | "bfloat16"; auto chọn theo GPU (mục 4.16)
+max_model_len = 16384
+gpu_memory_utilization = 0.85          # giảm khi có ASR chạy chung GPU
+seed = 0
+max_tokens = 512
+batch_invariant = false                # true khi chạy trên sm80+
+warmup_runs = 2
+
+[agent]
+max_steps = 10
+max_retries = 2
+hard_limit_s = 28                      # không bắt đầu bước nào dự kiến kết thúc sau mốc này
+initial_step_estimate_s = 3.0          # ước lượng cho mẫu đầu tiên của lần chạy
+max_result_chars = 4000
+system_prompt = "prompts/system_v0.md"
+guards = ["allowed_tool", "schema", "duplicate_write"]   # "after_ask" có sẵn nhưng không dùng, xem 4.9
+
+[asr]
+backend = "gold"                       # "gold" | "asr" (sau v0)
+model = ""                             # CHƯA CHỌN: chỉ cần khi backend = "asr"
+revision = ""

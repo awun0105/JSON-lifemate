@@ -1,0 +1,5 @@
+data_root = "/content/drive/MyDrive/zac2026/train+public_test"
+runs_dir = "/content/drive/MyDrive/zac2026/runs"
+hf_cache = "/content/hf_cache"
+hf_token_source = "colab_userdata:HF_TOKEN"
+persist = "drive"
