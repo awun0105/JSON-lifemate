@@ -1,4 +1,8 @@
-"""Packaging checks (SPEC 4.16): code zip, notebook requirements, notebooks hold no logic."""
+"""Kiểm tra đóng gói (SPEC 4.16): file zip mã nguồn, requirements cho notebook, notebook không chứa logic.
+
+Chạy script `ops/scripts/pack_code.sh` thật (cần git checkout, nếu không thì skip) và đọc file trong repo.
+Không cần dữ liệu cuộc thi hay tokenizer.
+"""
 
 from __future__ import annotations
 
@@ -17,6 +21,7 @@ NOTEBOOKS = [REPO / "ops" / "notebooks" / "kaggle_run.ipynb", REPO / "ops" / "no
 
 @pytest.mark.skipif(shutil.which("git") is None or not (REPO / ".git").exists(), reason="needs a git checkout")
 def test_pack_code_zip(tmp_path: Path) -> None:
+    """Script đóng gói in đường dẫn zip và sha256; zip có mã nguồn, file VERSION, không có cache hay venv."""
     out = subprocess.run(
         ["bash", str(REPO / "ops" / "scripts" / "pack_code.sh")],
         env={"DIST_DIR": str(tmp_path), "PATH": "/usr/bin:/bin:/usr/local/bin"},
@@ -39,6 +44,7 @@ def test_pack_code_zip(tmp_path: Path) -> None:
 
 
 def test_notebook_requirements_pinned_sorted_no_gpu() -> None:
+    """Requirements của notebook ghim phiên bản, sắp xếp theo tên và không kéo gói GPU."""
     lines = [
         ln for ln in (REPO / "ops" / "requirements" / "notebook.txt").read_text().splitlines() if ln and ln[0] != "#"
     ]
@@ -53,6 +59,7 @@ def test_notebook_requirements_pinned_sorted_no_gpu() -> None:
 
 @pytest.mark.parametrize("path", NOTEBOOKS, ids=lambda p: p.stem)
 def test_notebook_holds_no_logic(path: Path) -> None:
+    """Notebook chỉ gọi CLI; dòng import lifemate chỉ được nằm trong lệnh `!python -c`."""
     nb = json.loads(path.read_text(encoding="utf-8"))
     assert nb["nbformat"] == 4
     code = ["".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code"]

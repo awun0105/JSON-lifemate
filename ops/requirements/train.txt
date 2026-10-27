@@ -1,6 +1,7 @@
 # Fine-tune stack for Kaggle/Colab (SPEC 6.2.3, 6.4.3). Installed on top of requirements/notebook.txt;
-# keeps the platform's torch/CUDA. Versions are left open on purpose: unsloth pins its own transformers/trl/peft.
-unsloth
+# keeps the platform's torch/CUDA. ms-swift is pinned: lifemate/train/swift_sft.py builds its arguments for 4.6.0.
+ms-swift==4.6.0
+# unsloth  # was the LLM trainer before ms-swift; install it only for `tuner_backend = "unsloth"` in configs/train
 trl
 peft
 datasets

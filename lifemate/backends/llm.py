@@ -1,4 +1,16 @@
-"""LLM backends (SPEC 4.8): FakeLLM for tests, VLLMBackend for real runs."""
+"""Các backend LLM (SPEC 4.8): FakeLLM cho test, VLLMBackend cho lần chạy thật.
+
+Cả hai cùng giao diện `generate(messages, schema, *, sample_id, time_left_s)` trả `Generation` và `warmup()`.
+
+Cách xây dựng:
+- `FakeLLM` phát lại `label.tool_calls` của từng mẫu dưới dạng JSON chuẩn hóa, rồi `{"action":"done"}`; có thể
+  chèn trước các chuỗi hỏng và mô phỏng thời gian bằng đồng hồ giả, nên test được cả nhánh hết giờ mà không cần GPU.
+- `VLLMBackend` import vllm bên trong hàm khởi tạo (extra `gpu`) và nhận `engine_factory` để test thay engine giả.
+  Đầu ra bị ràng buộc theo JSON schema (structured output), với lớp tương thích giữa các phiên bản vLLM.
+- Khi có `time_left_s`, request được đưa vào engine rồi chạy từng bước (`step`) và bị hủy (`abort_request`) ngay khi
+  chạm hạn, nên một mẫu không bao giờ vượt hạn chót. Engine thiếu API này thì quay về `LLM.chat` và ghi log lỗi.
+- Prefix caching luôn bật; `batch_invariant` đặt biến môi trường của vLLM để kết quả không phụ thuộc kích thước lô.
+"""
 
 from __future__ import annotations
 
@@ -14,14 +26,15 @@ from lifemate.core.config import ConfigError, LLMConfig
 from lifemate.core.jsonutil import canonical_json
 from lifemate.core.types import Generation, Sample
 
+# Đầu ra mặc định khi hàng đợi của mẫu đã hết
 _DONE = canonical_json({"action": "done"})
 
 
 class FakeLLM:
-    """Replays each sample's `label.tool_calls`, then `{"action":"done"}` forever.
+    """Phát lại `label.tool_calls` của từng mẫu, sau đó trả `{"action":"done"}` mãi mãi.
 
-    `broken_outputs[sample_id]` raw strings are yielded first. With a `clock` (FakeClock-like, has `.advance`)
-    each call advances it by `delay_s` instead of sleeping.
+    Các chuỗi thô trong `broken_outputs[sample_id]` được trả trước. Khi có `clock` (kiểu FakeClock, có `.advance`),
+    mỗi lần gọi đẩy đồng hồ tới `delay_s` thay vì ngủ thật.
     """
 
     def __init__(
@@ -43,6 +56,7 @@ class FakeLLM:
                 for c in calls
             ]
             self._queues[s.id] = list(broken.get(s.id, ())) + replies
+        # Mẫu chỉ có đầu ra hỏng (không có trong `samples`) vẫn có hàng đợi riêng
         for sid, raws in broken.items():
             self._queues.setdefault(sid, list(raws))
         self._cursor: dict[str, int] = {}
@@ -55,19 +69,24 @@ class FakeLLM:
         sample_id: str,
         time_left_s: float | None = None,
     ) -> Generation:
-        """Next scripted output for `sample_id`; a step longer than `time_left_s` is cut there (timed_out)."""
+        """Đầu ra kế tiếp đã soạn sẵn cho `sample_id`; bước dài hơn `time_left_s` bị cắt tại đó (timed_out).
+
+        Khi hết giờ, văn bản trả về rỗng và thời gian tiêu tốn bằng đúng `time_left_s`, giống backend thật bị hủy.
+        """
         queue = self._queues.get(sample_id, [])
         i = self._cursor.get(sample_id, 0)
         text = queue[i] if i < len(queue) else _DONE
         self._cursor[sample_id] = i + 1
         timed_out = time_left_s is not None and self.delay_s > time_left_s
         spent = time_left_s if timed_out and time_left_s is not None else self.delay_s
+        # Có đồng hồ giả thì đẩy đồng hồ; không có đồng hồ thì ngủ thật; đồng hồ không có `.advance` thì bỏ qua
         if spent > 0:
             advance = getattr(self.clock, "advance", None)
             if advance is not None:
                 advance(spent)
             elif self.clock is None:
                 time.sleep(spent)
+        # Số token chỉ ước lượng thô bằng số từ
         prompt = " ".join(str(m.get("content") or "") for m in messages)
         return Generation(
             text="" if timed_out else text,
@@ -78,14 +97,15 @@ class FakeLLM:
         )
 
     def warmup(self) -> None:
-        """Nothing to warm up."""
+        """Không có gì cần khởi động."""
 
 
 _log = structlog.get_logger(__name__)
 
+# Chế độ batch-invariant của vLLM chỉ chạy trên GPU từ Ampere (sm80) trở lên
 _MIN_BATCH_INVARIANT_CC = (8, 0)
 _WARMUP_SENTENCE = "Hôm nay trời đẹp, tôi muốn bật đèn phòng khách và đặt báo thức lúc bảy giờ sáng mai. "
-_WARMUP_REPEATS = 200  # ~20 tokens each -> roughly 4K prompt tokens
+_WARMUP_REPEATS = 200  # mỗi câu ~20 token -> khoảng 4K token prompt
 _WARMUP_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {"action": {"const": "done"}},
@@ -94,7 +114,11 @@ _WARMUP_SCHEMA: dict[str, Any] = {
 
 
 def _structured_kwargs(schema: dict[str, Any]) -> dict[str, Any]:
-    """SamplingParams kwargs for JSON-schema constrained decoding, across vLLM versions."""
+    """Tham số SamplingParams cho giải mã ràng buộc theo JSON schema, tương thích nhiều phiên bản vLLM.
+
+    vLLM mới dùng `StructuredOutputsParams` (khóa `structured_outputs`); bản cũ dùng `GuidedDecodingParams`
+    (khóa `guided_decoding`).
+    """
     try:
         from vllm.sampling_params import (
             StructuredOutputsParams,  # type: ignore[import-not-found,attr-defined,unused-ignore]
@@ -109,7 +133,11 @@ def _structured_kwargs(schema: dict[str, Any]) -> dict[str, Any]:
 
 
 class VLLMBackend:
-    """vLLM offline engine with JSON-schema structured output (SPEC 4.8)."""
+    """Engine vLLM offline với đầu ra có cấu trúc theo JSON schema (SPEC 4.8).
+
+    Giải mã tham lam (temperature 0, seed cố định). Hai cờ tự hạ cấp khi engine không hỗ trợ:
+    `_use_template_kwargs` (truyền `enable_thinking=False` vào chat template) và `_abortable` (API step/abort).
+    """
 
     def __init__(
         self,
@@ -124,17 +152,18 @@ class VLLMBackend:
         self.cfg = cfg
         self.warmup_seconds: float | None = None
         self._use_template_kwargs = True
-        self._abortable = True  # set False (and logged) if the engine lacks the step/abort API
+        self._abortable = True  # đặt False (và ghi log) khi engine thiếu API step/abort
         self._next_request = 0
         if cfg.batch_invariant:
             if compute_capability is not None and compute_capability < _MIN_BATCH_INVARIANT_CC:
                 cc = compute_capability
                 raise ConfigError(f"llm.batch_invariant needs compute capability >= 8.0, got {cc[0]}.{cc[1]}")
+            # Phải đặt trước khi engine được tạo thì vLLM mới đọc được
             os.environ["VLLM_BATCH_INVARIANT"] = "1"
         if hf_token:
             os.environ["HF_TOKEN"] = hf_token
         if engine_factory is None:
-            import vllm  # type: ignore[import-not-found,unused-ignore]  # extra `gpu`
+            import vllm  # type: ignore[import-not-found,unused-ignore]  # extra `gpu`, import muộn
 
             engine_factory = vllm.LLM
         try:
@@ -161,6 +190,7 @@ class VLLMBackend:
         )
 
     def _sampling_params(self, schema: dict[str, Any]) -> Any:
+        """SamplingParams tham lam, giới hạn `max_tokens`, ràng buộc đầu ra theo `schema`."""
         from vllm import SamplingParams  # type: ignore[import-not-found,unused-ignore]
 
         return SamplingParams(
@@ -178,16 +208,16 @@ class VLLMBackend:
         sample_id: str,
         time_left_s: float | None = None,
     ) -> Generation:
-        """One constrained completion; `sample_id` is ignored.
+        """Một lần sinh có ràng buộc; `sample_id` bị bỏ qua.
 
-        With `time_left_s`, the request is driven step by step on the engine and aborted when the time is up
-        (`timed_out=True`), so a sample never runs past its deadline. Without it, `LLM.chat` is used.
+        Khi có `time_left_s`, request được chạy từng bước trên engine và bị hủy khi hết giờ (`timed_out=True`), nên
+        một mẫu không bao giờ chạy quá hạn chót. Khi không có, hàm dùng `LLM.chat`.
         """
         params = self._sampling_params(schema)
         if time_left_s is not None and self._abortable:
             try:
                 return self._generate_until(messages, params, time_left_s)
-            except (AttributeError, TypeError) as exc:  # engine API differs from what this code expects
+            except (AttributeError, TypeError) as exc:  # API engine khác với điều mã này giả định
                 _log.error("vllm_abortable_generate_unsupported", error=str(exc))
                 self._abortable = False
         t0 = time.perf_counter()
@@ -200,6 +230,7 @@ class VLLMBackend:
                     chat_template_kwargs={"enable_thinking": False},
                 )
             except TypeError as exc:
+                # vLLM cũ không nhận `chat_template_kwargs`: tắt hẳn và gọi lại không có tham số này
                 _log.warning("chat_template_kwargs_unsupported", error=str(exc))
                 self._use_template_kwargs = False
                 t0 = time.perf_counter()
@@ -217,7 +248,7 @@ class VLLMBackend:
         )
 
     def _render(self, messages: list[dict[str, Any]]) -> str:
-        """Chat template exactly as `LLM.chat` applies it (generation prompt on, thinking off)."""
+        """Áp chat template đúng như `LLM.chat` làm (bật generation prompt, tắt thinking), trả chuỗi prompt."""
         tok = self.engine.get_tokenizer()
         kwargs: dict[str, Any] = {"tokenize": False, "add_generation_prompt": True}
         if self._use_template_kwargs:
@@ -225,11 +256,16 @@ class VLLMBackend:
         return str(tok.apply_chat_template(messages, **kwargs))
 
     def _generate_until(self, messages: list[dict[str, Any]], params: Any, time_left_s: float) -> Generation:
-        """Add one request to the engine and step it until it finishes or `time_left_s` passes, then abort it."""
+        """Thêm một request vào engine và chạy từng bước đến khi xong hoặc quá `time_left_s`, khi đó hủy request.
+
+        Hạn chót được kiểm tra giữa các bước, nên thời gian vượt tối đa là một bước giải mã. Khi bị hủy, văn bản trả
+        về rỗng (JSON dở dang không dùng được) nhưng số token vẫn lấy từ đầu ra mới nhất.
+        """
         engine = self.engine.llm_engine
         t0 = time.perf_counter()
         deadline = t0 + time_left_s
         self._next_request += 1
+        # id request duy nhất trong vòng đời engine
         rid = f"lm-{self._next_request}"
         engine.add_request(rid, self._render(messages), params)
         final: Any = None
@@ -240,6 +276,7 @@ class VLLMBackend:
                 engine.abort_request([rid])
                 timed_out = True
                 break
+            # Một bước có thể trả đầu ra của nhiều request; chỉ giữ đầu ra của request `rid`
             for out in engine.step():
                 if out.request_id == rid:
                     latest = out
@@ -259,7 +296,11 @@ class VLLMBackend:
         )
 
     def warmup(self) -> None:
-        """Compile kernels / CUDA graphs on a ~4K-token synthetic conversation."""
+        """Biên dịch kernel / CUDA graph trên một hội thoại tổng hợp dài ~4K token.
+
+        Chạy `warmup_runs` lần qua đúng đường `generate` có hạn giờ (300 giây) để làm nóng cả nhánh step/abort;
+        tổng thời gian lưu vào `warmup_seconds`.
+        """
         messages = [
             {"role": "system", "content": _WARMUP_SENTENCE * _WARMUP_REPEATS},
             {"role": "user", "content": "Bật đèn phòng khách."},

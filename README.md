@@ -21,6 +21,7 @@ Ràng buộc chính: một mô hình ngôn ngữ (LLM) dưới 5 tỷ tham số 
    - [5.4. Thuê GPU (RunPod hoặc máy khác)](#54-thuê-gpu-runpod-hoặc-máy-khác)
    - [5.5. Đóng gói](#55-đóng-gói)
    - [5.6. Lưu trữ dữ liệu và kết quả](#56-lưu-trữ-dữ-liệu-và-kết-quả)
+   - [5.7. Chia dữ liệu và fine-tune](#57-chia-dữ-liệu-và-fine-tune)
 - [6. Thuật ngữ](#6-thuật-ngữ)
 - [7. Đọc thêm](#7-đọc-thêm)
 
@@ -227,8 +228,34 @@ Chi tiết ở `docs/docker.md`. Phần lớn máy thuê RunPod không chạy đ
 | Bảng tổng hợp các lần chạy | `artifacts/runs/index.csv`, xem bằng `make report` | Không |
 | Trọng số mô hình | `artifacts/models/llm/`, `artifacts/models/asr/` trên máy; bản đã fine-tune lưu trên Kaggle Models hoặc HF riêng tư | Không |
 | Sổ đăng ký mô hình đã fine-tune | `artifacts/models/registry.csv` | Có |
+| Danh sách id của các tập (`configs/splits/`) | Sinh lại bằng `make splits` | Không |
+| Slide trình bày (`docs/slides/`) | Trên máy, đang sửa | Không |
 
 Kết quả trên Kaggle được giữ lại bằng cách lưu thành phiên bản mới của một dataset riêng tư; trên Colab là Google Drive; trên RunPod là ổ `/workspace` (ổ duy nhất còn lại sau khi tắt pod). Cách lưu này được chọn qua trường `persist` của profile.
+
+### 5.7. Chia dữ liệu và fine-tune
+
+**Chia dữ liệu.** `make splits` chia tập train có nhãn theo cách của team lead, có sửa lỗi rò rỉ:
+
+| Tập | Số mẫu | Cách lấy |
+|---|---|---|
+| `val_unseen` | 178 | Tách ra trước: mọi mẫu dùng 6 app giữ lại (medication, fitness, flights, bike_rental, library, subscriptions), mô phỏng app lạ của đề private |
+| `val_seen` | 274 | Fold 0 trong 5 fold của phần còn lại; câu gần trùng nằm chung một fold |
+| `train` | 1.093 | Fold 1 đến 4 |
+| `smoke` | 30 | Lấy từ `val_seen` để chạy thử nhanh |
+
+**Fine-tune LLM** chạy trên máy GPU bằng một lệnh, qua các bước dựng dữ liệu, train bằng ms-swift, chọn 2 checkpoint, merge, chạy agent thật để chấm, chọn bản tốt nhất và ghi sổ đăng ký:
+
+```bash
+make train-deps
+uv run python -m lifemate.train.asr_cache --config configs/v0.toml --env kaggle --out data/asr/train_asr.json \
+    --ids configs/splits/train.txt configs/splits/val_seen.txt configs/splits/val_unseen.txt
+uv run python -m lifemate.train.llm_pipeline --config configs/train/llm_v1.toml --env kaggle
+```
+
+Lệnh thứ hai chạy ASR một lần cho mọi tập và lưu chữ lại, vì dữ liệu fine-tune trộn 70% chữ ASR. Trước khi train, pipeline kiểm tra template của ms-swift khớp từng token với chat template lúc chạy. Tham số train nằm trong `configs/train/llm_v1.toml`.
+
+**Rà lỗi một lần chạy:** `python -m lifemate.eval.audit artifacts/runs/<tên>/submission.jsonl` liệt kê từng lời gọi thiếu, thừa, sai tham số so với nhãn.
 
 ## 6. Thuật ngữ
 
@@ -242,6 +269,9 @@ Kết quả trên Kaggle được giữ lại bằng cách lưu thành phiên b�
 | Profile | File cấu hình theo loại máy trong `configs/env/`. |
 | Split | Một tập dữ liệu: `train`, `public_test`, hoặc tập con chia từ train (`val_seen`, `val_unseen`, `smoke`). |
 | QLoRA | Cách fine-tune tiết kiệm bộ nhớ: nén mô hình gốc xuống 4 bit và chỉ học thêm một lớp nhỏ gắn bên cạnh. |
+| ms-swift | Thư viện fine-tune của ModelScope, dùng chung với team lead; chạy bằng lệnh `swift sft`. |
+| Fold | Một phần trong k phần bằng nhau khi chia dữ liệu; một phần làm tập kiểm tra, các phần còn lại để học. |
+| App giữ lại | App bị loại khỏi dữ liệu học để giả lập app chưa từng thấy ở đề thi. |
 | p50, p95 | Mốc thời gian mà 50% (hoặc 95%) số mẫu chạy không vượt quá. |
 
 ## 7. Đọc thêm

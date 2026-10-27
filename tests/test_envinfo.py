@@ -1,4 +1,7 @@
-"""T20 resolve_dtype, T22 code_version fallback."""
+"""Kiểm tra T20 `resolve_dtype` và T22 cách lấy `code_version` khi không có git.
+
+`EnvInfo` được dựng tay qua helper `_info` (GPU giả theo compute capability). Không cần dữ liệu cuộc thi hay tokenizer.
+"""
 
 from pathlib import Path
 
@@ -10,11 +13,12 @@ from lifemate.core.envinfo import EnvInfo, code_version, detect, resolve_dtype
 
 
 def _info(cc: tuple[int, int] | None) -> EnvInfo:
+    """Tạo `EnvInfo` giả; `cc=None` nghĩa là máy không có GPU."""
     return EnvInfo("fake" if cc else None, cc, 16.0 if cc else None, "x", False, {})
 
 
 def test_resolve_dtype() -> None:
-    """T20. Protects: dtype per GPU. Catches: wrong dtype or no raise for bf16 on sm75."""
+    """T20. Bảo vệ: chọn dtype theo GPU. Bắt lỗi: sai dtype hoặc không báo lỗi khi ép bf16 trên sm75."""
     assert resolve_dtype("auto", _info((7, 5))) == "float16"
     assert resolve_dtype("auto", _info((8, 0))) == "bfloat16"
     assert resolve_dtype("auto", _info(None)) == "float16"
@@ -25,7 +29,7 @@ def test_resolve_dtype() -> None:
 
 
 def test_code_version_fallback(tmp_path: Path) -> None:
-    """T22. Protects: VERSION file read without .git; else "unknown" with a warning."""
+    """T22. Bảo vệ: không có .git thì đọc file VERSION; không có cả hai thì trả "unknown" kèm cảnh báo."""
     with structlog.testing.capture_logs() as logs:
         assert code_version(tmp_path) == ("unknown", None)
     assert any(e["event"] == "code_version_unknown" for e in logs)

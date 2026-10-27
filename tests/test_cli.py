@@ -1,7 +1,12 @@
-"""End-to-end CLI with FakeLLM, token leak and source scans (SPEC 4.11, 4.16; T1, T9, T21, T23)."""
+"""Kiểm thử CLI từ đầu đến cuối với FakeLLM, chống lộ token và quét mã nguồn (SPEC 4.11, 4.16; T1, T9, T21, T23).
+
+Cấu hình v0.toml được đổi sang backend `fake`. Test có marker `data` cần dữ liệu cuộc thi (fixture `data_root`);
+các test quét mã nguồn chỉ đọc thư mục lifemate/. Không cần tokenizer.
+"""
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -12,6 +17,7 @@ SENTINEL = "hf_SENTINEL_do_not_leak_123"
 
 
 def fake_config(repo_root: Path, tmp_path: Path) -> Path:
+    """Ghi bản sao v0.toml dùng backend LLM `fake` vào `tmp_path`."""
     text = (
         (repo_root / "configs" / "v0.toml").read_text(encoding="utf-8").replace('backend = "vllm"', 'backend = "fake"')
     )
@@ -23,7 +29,7 @@ def fake_config(repo_root: Path, tmp_path: Path) -> Path:
 @pytest.mark.data
 @pytest.mark.parametrize("ids", ["configs/splits/val_seen.txt", "configs/splits/val_unseen.txt"])
 def test_fake_llm_end_to_end(repo_root: Path, data_root: Path, tmp_path: Path, ids: str) -> None:
-    """T1: replaying gold through the whole Runner scores 100.00 in both match modes."""
+    """T1: phát lại nhãn gold qua toàn bộ Runner đạt 100.00 ở cả hai chế độ so khớp."""
     argv = ["--config", str(fake_config(repo_root, tmp_path)), "--env", "local", "--split", "train"]
     argv += ["--ids", ids, "--root", str(data_root), "--out", str(tmp_path / "run")]
     assert cli.main(argv) == 0
@@ -36,7 +42,7 @@ def test_fake_llm_end_to_end(repo_root: Path, data_root: Path, tmp_path: Path, i
 
 @pytest.mark.data
 def test_no_token_leak(repo_root: Path, data_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """T23: the HF token never reaches config.json, trace.jsonl or summary.json."""
+    """T23: HF token không bao giờ xuất hiện trong config.json, trace.jsonl hay summary.json."""
     monkeypatch.setenv("HF_TOKEN", SENTINEL)
     argv = ["--config", str(fake_config(repo_root, tmp_path)), "--env", "local", "--split", "train"]
     argv += ["--ids", "configs/splits/smoke.txt", "--limit", "2", "--root", str(data_root)]
@@ -47,21 +53,23 @@ def test_no_token_leak(repo_root: Path, data_root: Path, tmp_path: Path, monkeyp
 
 
 def _sources(repo_root: Path) -> list[Path]:
+    """Liệt kê mọi file .py trong lifemate/."""
     return sorted((repo_root / "lifemate").rglob("*.py"))
 
 
 def test_no_environment_access(repo_root: Path) -> None:
-    """T9: only zaic.py may mention `_environment` or `state.json`."""
+    """T9: chỉ zaic.py được nhắc tới `_environment` hoặc `state.json`."""
     for path in _sources(repo_root):
         if path.name == "zaic.py":
             continue
         text = path.read_text(encoding="utf-8")
-        for needle in ("_environment", "state.json"):
-            assert needle not in text, f"{path}: {needle}"
+        # `trainer_state.json` (log huấn luyện HF/ms-swift) không phải state.json của trình mô phỏng.
+        for needle in (r"_environment", r"(?<!trainer_)state\.json"):
+            assert not re.search(needle, text), f"{path}: {needle}"
 
 
 def test_no_hardcoded_paths(repo_root: Path) -> None:
-    """T21: no machine paths inside lifemate/."""
+    """T21: không có đường dẫn riêng của máy nào trong lifemate/."""
     for path in _sources(repo_root):
         text = path.read_text(encoding="utf-8")
         for needle in ("/kaggle", "/content", "/home", "train+public_test"):

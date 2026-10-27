@@ -1,4 +1,8 @@
-"""check_submission on the real train split (SPEC 4.11 B3; T25)."""
+"""Kiểm thử check_submission trên tập train thật (SPEC 4.11 B3; T25).
+
+Cả file mang marker `data`: dùng fixture `data_root`, tự bỏ qua khi thiếu dữ liệu cuộc thi.
+File submission được dựng trong `tmp_path` với các lỗi cài sẵn. Không cần tokenizer.
+"""
 
 from __future__ import annotations
 
@@ -14,12 +18,13 @@ pytestmark = pytest.mark.data
 
 
 def test_check_submission_flags_each_problem(data_root: Path, tmp_path: Path) -> None:
-    """Missing id, duplicated id and a call missing a required param are each reported."""
+    """Bảo vệ: thiếu id, id trùng, dòng JSON hỏng và lời gọi thiếu tham số bắt buộc đều được báo riêng."""
     samples = [s for s in load_split(data_root, "train") if (s.label or {}).get("tool_calls")][:5]
     rows = [{"id": s.id, "tool_calls": (s.label or {})["tool_calls"], "state_hash": ""} for s in samples]
     missing = rows.pop(4)["id"]
-    rows.append(dict(rows[0]))  # duplicate
+    rows.append(dict(rows[0]))  # id trùng
     bad_call = dict(rows[1]["tool_calls"][0])
+    # Xoá hết tham số để lời gọi thiếu tham số bắt buộc.
     bad_call["arguments"] = {}
     rows[1] = {**rows[1], "tool_calls": [bad_call]}
     sub = tmp_path / "submission.jsonl"
@@ -30,6 +35,7 @@ def test_check_submission_flags_each_problem(data_root: Path, tmp_path: Path) ->
     assert not report.ok
     assert missing in report.missing_ids
     assert report.duplicate_ids == [rows[0]["id"]]
+    # 5 dòng hợp lệ, dòng thứ 6 là "{broken".
     assert report.invalid_lines == [6]
     assert report.validate_errors is not None and report.validate_errors >= 1, report.validate_output
     assert rows[1]["id"] in report.rejected

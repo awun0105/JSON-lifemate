@@ -1,4 +1,8 @@
-"""lifemate.run.report: text tables over index.csv and metrics.jsonl (no plotting dependency)."""
+"""Kiểm tra lifemate.run.report: bảng văn bản dựng từ index.csv và metrics.jsonl (không phụ thuộc thư viện vẽ).
+
+Cách kiểm tra: ghi index.csv bằng `append_index` và metrics.jsonl bằng `MetricsLogger` vào `tmp_path`, rồi đọc lại
+qua `runs_table`, `train_report` và `main`. Không cần dữ liệu cuộc thi hay tokenizer.
+"""
 
 from pathlib import Path
 
@@ -10,7 +14,7 @@ from lifemate.train.common import MetricsLogger
 
 
 def test_runs_table_newest_first(tmp_path: Path) -> None:
-    """Protects: index rows render newest first with the chosen columns."""
+    """Bảo vệ: các dòng của index hiện theo thứ tự mới nhất trước, đúng các cột đã chọn."""
     idx = tmp_path / "index.csv"
     append_index(
         idx, {"run": "a", "date": "d1", "git_commit": "c", "model": "m", "split": "train", "n": 3, "score": 10.0}
@@ -19,13 +23,15 @@ def test_runs_table_newest_first(tmp_path: Path) -> None:
         idx, {"run": "b", "date": "d2", "git_commit": "c", "model": "m", "split": "train", "n": 3, "score": 20.0}
     )
     out = runs_table(idx)
+    # Bỏ hai dòng đầu (tiêu đề và gạch ngang) để lấy các dòng dữ liệu.
     rows = out.splitlines()[2:]
     assert [r.split()[0] for r in rows] == ["b", "a"] and "p95_seconds" in out
+    # limit=1: chỉ còn tiêu đề, gạch ngang và một dòng dữ liệu.
     assert runs_table(idx, limit=1).count("\n") == 2
 
 
 def test_train_report_best_and_png_skip(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """Protects: numeric columns found, best eval step reported, missing matplotlib is not an error."""
+    """Bảo vệ: tìm đúng các cột số, báo bước eval tốt nhất, thiếu matplotlib không bị coi là lỗi."""
     work = tmp_path / "w"
     log = MetricsLogger(work / "sft" / "metrics.jsonl")
     log.log({"step": 1, "epoch": 0.1, "loss": 2.0})

@@ -1,4 +1,8 @@
-"""ASRTranscriber with a scripted fake backend (no model)."""
+"""Kiểm thử ASRTranscriber với backend giả có kịch bản (không tải mô hình).
+
+FakeASRBackend trả `text:<tên file>` cho mỗi đường dẫn; faster_whisper và torch được thay bằng module giả
+qua monkeypatch. Không cần dữ liệu cuộc thi hay tokenizer.
+"""
 
 from collections.abc import Sequence
 from pathlib import Path
@@ -12,7 +16,7 @@ from lifemate.core.types import Sample, Turn
 
 
 class FakeASRBackend:
-    """Returns `text:<file name>` per path; records calls."""
+    """Trả `text:<tên file>` cho mỗi đường dẫn; ghi lại các lời gọi. `drop` bỏ bớt kết quả cuối để giả lỗi."""
 
     def __init__(self, drop: int = 0) -> None:
         self.calls: list[list[Path]] = []
@@ -20,15 +24,18 @@ class FakeASRBackend:
         self.drop = drop
 
     def transcribe_batch(self, wav_paths: Sequence[Path]) -> list[str]:
+        """Ghi lô đường dẫn và trả văn bản giả, thiếu `drop` phần tử cuối."""
         self.calls.append(list(wav_paths))
         out = [f"text:{p.name}" for p in wav_paths]
         return out[: len(out) - self.drop]
 
     def warmup(self) -> None:
+        """Đếm số lần khởi động."""
         self.warmups += 1
 
 
 def _turn(role: str, audio: str | None) -> Turn:
+    """Tạo lượt hội thoại chỉ có đường dẫn audio."""
     return Turn(role=role, audio=audio, audio_text=None, text=None, tool_calls=(), tool_results=())  # type: ignore[arg-type]
 
 
@@ -41,7 +48,7 @@ SAMPLE = Sample(
     history=(
         _turn("user", "audio/t1/t1_u1.wav"),
         _turn("assistant", None),
-        _turn("user", None),  # path derived from the id
+        _turn("user", None),  # đường dẫn suy ra từ id
         _turn("assistant", None),
     ),
     label=None,
@@ -49,12 +56,14 @@ SAMPLE = Sample(
 
 
 def _make(batch_size: int = 8, drop: int = 0) -> tuple[ASRTranscriber, FakeASRBackend]:
+    """Dựng ASRTranscriber gắn backend giả, gốc dữ liệu `/data`."""
     fake = FakeASRBackend(drop)
     cfg = ASRConfig(backend="asr", model="m", revision="r", batch_size=batch_size)
     return ASRTranscriber(cfg, data_root=Path("/data"), split="train", backend=fake), fake
 
 
 def test_order_and_transcript() -> None:
+    """Bảo vệ: các lượt user được nhận dạng theo thứ tự lịch sử rồi đến câu cuối, trong một lô duy nhất."""
     tr, fake = _make()
     t = tr.transcribe(SAMPLE)
     assert [p.name for p in fake.calls[0]] == ["t1_u1.wav", "t1_u2.wav", "t1.wav"]
@@ -66,6 +75,7 @@ def test_order_and_transcript() -> None:
 
 
 def test_batching_keeps_order() -> None:
+    """Bảo vệ: chia lô nhỏ vẫn giữ đúng thứ tự gán văn bản cho từng lượt."""
     tr, fake = _make(batch_size=2)
     t = tr.transcribe(SAMPLE)
     assert [len(c) for c in fake.calls] == [2, 1]
@@ -73,12 +83,14 @@ def test_batching_keeps_order() -> None:
 
 
 def test_count_mismatch_raises() -> None:
+    """Bảo vệ: backend trả thiếu văn bản thì báo lỗi, không gán lệch."""
     tr, _ = _make(drop=1)
     with pytest.raises(ValueError, match="texts"):
         tr.transcribe(SAMPLE)
 
 
 def test_warmup_once() -> None:
+    """Bảo vệ: gọi warmup nhiều lần chỉ khởi động backend một lần và không nhận dạng gì."""
     tr, fake = _make()
     tr.warmup()
     tr.warmup()
@@ -86,7 +98,7 @@ def test_warmup_once() -> None:
 
 
 def test_engine_registry_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Protects: `engine` picks the backend; ASRTranscriber builds it when none is injected."""
+    """Bảo vệ: `engine` chọn backend; ASRTranscriber tự dựng backend khi không được truyền vào."""
     built: list[ASRConfig] = []
 
     def factory(cfg: ASRConfig) -> FakeASRBackend:
@@ -102,7 +114,7 @@ def test_engine_registry_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_faster_whisper_engine_and_sanitize(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """faster_whisper engine passes generate_kwargs through; sanitize=true cleans history hallucinations."""
+    """Bảo vệ: engine faster_whisper chuyển nguyên generate_kwargs; sanitize=true xoá câu ảo giác trong lịch sử."""
     import sys
     import types
 
@@ -111,15 +123,20 @@ def test_faster_whisper_engine_and_sanitize(monkeypatch: pytest.MonkeyPatch, tmp
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
 
     class _Seg:
+        """Đoạn kết quả giả của faster_whisper."""
+
         def __init__(self, text: str) -> None:
             self.text = text
 
     class _Model:
+        """WhisperModel giả: ghi tham số khởi tạo và tham số transcribe."""
+
         def __init__(self, path: str, device: str, compute_type: str) -> None:
             calls.append({"path": path, "device": device, "compute_type": compute_type})
 
         def transcribe(self, audio, **kw):  # type: ignore[no-untyped-def]
             calls.append(kw)
+            # Lần gọi chẵn trả câu ảo giác kiểu phụ đề, lần lẻ trả câu thật.
             text = "Hãy subscribe cho kênh La La School" if len(calls) % 2 == 0 else "bật đèn"
             return iter([_Seg(text)]), None
 

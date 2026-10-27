@@ -1,4 +1,8 @@
-"""Timing decorators for LLM backends and transcribers (SPEC 4.0, Decorator)."""
+"""Lớp bọc đo thời gian cho backend LLM và transcriber (SPEC 4.0, mẫu Decorator).
+
+Hai lớp bọc giữ nguyên giao diện của đối tượng bên trong và chỉ ghi thời gian thực (wall clock) của mỗi lần gọi;
+thời gian được ghi trong `finally`, nên lần gọi lỗi vẫn được tính. Lời gọi `warmup` không được tính.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +14,7 @@ from lifemate.core.types import Generation, LLMBackend, Sample, Transcriber, Tra
 
 
 class TimedLLM:
-    """Wraps an LLMBackend; records wall seconds of every `generate` call."""
+    """Bọc một LLMBackend; ghi số giây thực của mọi lần gọi `generate`."""
 
     def __init__(self, inner: LLMBackend) -> None:
         self.inner = inner
@@ -18,12 +22,12 @@ class TimedLLM:
 
     @property
     def calls(self) -> int:
-        """Number of generate calls."""
+        """Số lần gọi generate."""
         return len(self.durations)
 
     @property
     def seconds(self) -> float:
-        """Total generate seconds."""
+        """Tổng số giây của các lần generate."""
         return sum(self.durations)
 
     def generate(
@@ -34,7 +38,7 @@ class TimedLLM:
         sample_id: str,
         time_left_s: float | None = None,
     ) -> Generation:
-        """Delegate and time."""
+        """Chuyển lời gọi xuống đối tượng bên trong và đo thời gian."""
         t0 = time.perf_counter()
         try:
             return self.inner.generate(messages, schema, sample_id=sample_id, time_left_s=time_left_s)
@@ -42,12 +46,15 @@ class TimedLLM:
             self.durations.append(time.perf_counter() - t0)
 
     def warmup(self) -> None:
-        """Delegate (not recorded in `durations`)."""
+        """Chuyển lời gọi xuống (không ghi vào `durations`)."""
         self.inner.warmup()
 
 
 class TimedTranscriber:
-    """Wraps a Transcriber; accumulates seconds and call count of `transcribe`."""
+    """Bọc một Transcriber; cộng dồn số giây và số lần gọi `transcribe`.
+
+    `source` lấy từ thuộc tính của đối tượng bên trong; khi thiếu thì suy ra "gold" hoặc "asr" theo kiểu.
+    """
 
     def __init__(self, inner: Transcriber) -> None:
         self.inner = inner
@@ -56,7 +63,7 @@ class TimedTranscriber:
         self.source: str = str(getattr(inner, "source", "gold" if isinstance(inner, GoldTranscriber) else "asr"))
 
     def transcribe(self, sample: Sample) -> Transcript:
-        """Delegate and time."""
+        """Chuyển lời gọi xuống đối tượng bên trong và đo thời gian."""
         t0 = time.perf_counter()
         try:
             return self.inner.transcribe(sample)
@@ -65,5 +72,5 @@ class TimedTranscriber:
             self.seconds += time.perf_counter() - t0
 
     def warmup(self) -> None:
-        """Delegate."""
+        """Chuyển lời gọi xuống đối tượng bên trong."""
         self.inner.warmup()

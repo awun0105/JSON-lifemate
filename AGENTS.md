@@ -19,6 +19,7 @@ Hard rules (competition and safety):
 - Do not run model inference, training or Docker builds on the dev machine without a GPU; those steps are
   for Kaggle, Colab or a rented pod (SPEC 4.16).
 - One `ToolEnv` per sample; always `env.validate` before `env.call` (every call, even rejected, is scored).
+- Split id lists in `configs/splits/` are git-ignored; run `make splits` after cloning (needs the data package).
 - Data for SFT comes only from `configs/splits/train.txt` (plus synthetic data built from the train catalog);
   never from `val_*` or `public_test`.
 

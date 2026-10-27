@@ -1,4 +1,10 @@
-"""Command line entry: parse args, load config and profile, build, run (SPEC 4.11)."""
+"""Điểm vào dòng lệnh: đọc tham số, nạp cấu hình và profile môi trường, lắp ráp, chạy (SPEC 4.11).
+
+Luồng: `parse_args` -> `run` (nạp config TOML và env profile, chuẩn hóa đường dẫn theo gốc repo, nạp mẫu của split,
+gọi `factory.build`, chọn thư mục run, ghi lại toàn bộ thông tin cấu hình vào bản ghi run, giao cho `Runner`)
+-> `main` in đường dẫn summary, điểm và báo cáo. Module không chứa logic agent; mọi việc lắp ráp đối tượng nằm ở
+`factory`.
+"""
 
 from __future__ import annotations
 
@@ -22,13 +28,13 @@ log = structlog.get_logger(__name__)
 
 
 def _abs(path: str, repo_root: Path) -> Path:
-    """Expand `~`; relative paths are taken from the repo root (SPEC 4.16 local profile)."""
+    """Mở rộng `~`; đường dẫn tương đối được tính từ gốc repo (SPEC 4.16, profile local)."""
     p = Path(path).expanduser()
     return p if p.is_absolute() else repo_root / p
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    """CLI arguments."""
+    """Đọc tham số dòng lệnh."""
     ap = argparse.ArgumentParser(prog="python -m lifemate.run.cli", description="Run the LifeMate agent on one split.")
     ap.add_argument("--config", required=True, type=Path, help="run config TOML (e.g. configs/v0.toml)")
     ap.add_argument("--env", default="local", help="env profile name (configs/env/<name>.toml) or path")
@@ -44,7 +50,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def run(args: argparse.Namespace, repo_root: Path = REPO_ROOT) -> RunSummary:
-    """Do one run from parsed arguments."""
+    """Thực hiện một lần chạy từ tham số đã đọc.
+
+    `--out` ghi đè thư mục run (index.csv đặt ở thư mục cha); nếu không, thư mục run là `runs_dir/<name>` với tên
+    mặc định là dấu thời gian UTC. Điểm chỉ được tính khi mọi mẫu đều có nhãn.
+    """
     config = load_config(_abs(str(args.config), repo_root))
     raw_profile = load_profile(args.env, repo_root).with_overrides(root=args.root)
     profile: EnvProfile = dataclasses.replace(
@@ -57,6 +67,7 @@ def run(args: argparse.Namespace, repo_root: Path = REPO_ROOT) -> RunSummary:
     ids_file = _abs(str(args.ids), repo_root) if args.ids is not None else None
     ids = read_ids(ids_file) if ids_file is not None else None
     samples = load_split(root, args.split, ids)
+    # Sắp theo id trước khi cắt để `--limit` luôn chọn cùng một tập mẫu
     if args.limit is not None:
         samples = sorted(samples, key=lambda s: s.id)[: args.limit]
     has_labels = all(s.label is not None for s in samples)
@@ -70,6 +81,7 @@ def run(args: argparse.Namespace, repo_root: Path = REPO_ROOT) -> RunSummary:
         run_dir = Path(profile.runs_dir) / (args.name or start.strftime("%Y-%m-%d_%H%M%S"))
         index_csv = Path(profile.runs_dir) / "index.csv"
     store = RunStore(run_dir, resume=args.resume)
+    # Bản ghi cấu hình đầy đủ của run, để tái lập kết quả sau này
     record = {
         "config": dataclasses.asdict(config),
         "dtype": {"config": config.llm.dtype, "resolved": built.dtype},
@@ -95,7 +107,7 @@ def run(args: argparse.Namespace, repo_root: Path = REPO_ROOT) -> RunSummary:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Entry point; prints the summary path and the score if any."""
+    """Điểm vào chương trình; in đường dẫn summary, điểm (nếu có) và báo cáo; trả mã thoát 0."""
     result = run(parse_args(argv))
     print(f"summary: {result.run_dir / 'summary.json'}")
     if result.score is not None:

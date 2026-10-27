@@ -1,4 +1,8 @@
-"""eval_asr metrics (SPEC 6.4.2)."""
+"""Kiểm tra các chỉ số của eval_asr: WER, CER, tỉ lệ bỏ sót thực thể, phân vị (SPEC 6.4.2).
+
+Sample dựng tay qua `_sample`; `evaluate` chạy với `GoldTranscriber` (trả đúng văn bản gốc).
+Không cần dữ liệu cuộc thi hay tokenizer.
+"""
 
 from typing import Any
 
@@ -10,6 +14,7 @@ from lifemate.eval.eval_asr import cer, entity_miss_rate, evaluate, normalize_te
 
 
 def _sample(sid: str, text: str, calls: list[dict[str, Any]], history: tuple[Turn, ...] = ()) -> Sample:
+    """Tạo `Sample` có văn bản gốc `text` và nhãn là danh sách tool call `calls`."""
     return Sample(
         id=sid,
         split="train",
@@ -22,10 +27,12 @@ def _sample(sid: str, text: str, calls: list[dict[str, Any]], history: tuple[Tur
 
 
 def test_normalize() -> None:
+    """Chuẩn hoá văn bản: viết thường, bỏ dấu câu, gộp khoảng trắng, giữ dấu tiếng Việt."""
     assert normalize_text("  Chào, BẠN!  nhé. ") == "chào bạn nhé"
 
 
 def test_wer_cer_known() -> None:
+    """WER và CER khớp giá trị tính tay; hai chuỗi rỗng cho 0 thay vì chia cho 0."""
     assert wer("a b c d", "a x c") == pytest.approx(0.5)
     assert wer("Xin chào", "xin chào!") == 0.0
     assert cer("abcd", "abed") == pytest.approx(0.25)
@@ -33,6 +40,7 @@ def test_wer_cer_known() -> None:
 
 
 def test_entity_miss() -> None:
+    """Thực thể trong tham số nhãn ("Huy") bị ASR nghe sai thì được tính là bỏ sót; số 150000 vẫn khớp."""
     s = _sample(
         "e", "chuyển cho Huy 150000", [{"name": "bank.transfer", "arguments": {"contact": "Huy", "amount": 150000}}]
     )
@@ -42,6 +50,7 @@ def test_entity_miss() -> None:
 
 
 def test_entity_skips_ask_and_absent() -> None:
+    """Bỏ qua tham số của tool hỏi lại và thực thể không xuất hiện trong văn bản gốc."""
     s = _sample(
         "e",
         "đặt bàn",
@@ -51,6 +60,7 @@ def test_entity_skips_ask_and_absent() -> None:
 
 
 def test_percentile() -> None:
+    """Phân vị theo cách làm tròn của hàm; danh sách rỗng cho 0."""
     xs = [float(i) for i in range(1, 21)]
     assert percentile(xs, 95) == 19.0
     assert percentile(xs, 50) == 10.0
@@ -58,6 +68,7 @@ def test_percentile() -> None:
 
 
 def test_evaluate_gold() -> None:
+    """Với transcript vàng: WER/CER bằng 0, đếm cả lượt user trong history, báo cáo có đủ các khoá."""
     u = Turn(role="user", audio=None, audio_text="trước đó", text=None, tool_calls=(), tool_results=())
     a = Turn(role="assistant", audio=None, audio_text=None, text="ok", tool_calls=(), tool_results=())
     samples = [
@@ -68,6 +79,7 @@ def test_evaluate_gold() -> None:
     rep = evaluate(samples, GoldTranscriber())
     assert rep.wer == 0.0 and rep.cer == 0.0
     assert (rep.entity_missed, rep.entity_total) == (0, 3)
+    # 3 câu cuối cộng 1 lượt user trong history của sample "b".
     assert rep.n_utterances == 4
     text = rep.to_text()
     for key in ("WER", "CER", "entity_miss_rate", "p95"):

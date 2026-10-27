@@ -1,4 +1,18 @@
-"""Shared value objects, enums and Protocols (SPEC 4.0, 4.2, 4.4, 4.7, 4.8, 4.9, 4.12, 4.13)."""
+"""Đối tượng giá trị, enum và Protocol dùng chung (SPEC 4.0, 4.2, 4.4, 4.7, 4.8, 4.9, 4.12, 4.13).
+
+Nội dung file:
+- Enum: `StopReason` (lý do dừng một mẫu), `ErrorCode` (mã lỗi), `GuardVerdict` (kết luận của guard).
+- Dataclass giá trị: dữ liệu vào (`Turn`, `Sample`, `Transcript`), kết quả LLM (`Generation`, `Action`,
+  `ParseError`), guard (`GuardResult`, `GuardContext`) và bản ghi trace (`StepRecord`, `SampleResult`).
+- Protocol: giao diện của môi trường công cụ, backend LLM, bộ đếm token, bộ chuyển giọng nói, đồng hồ, guard
+  và observer.
+
+Cách xây dựng:
+- Module này không import gì trong lifemate, nên mọi tầng (io, backends, agent) dùng được mà không vòng import.
+- Dataclass `frozen=True, slots=True`: giá trị bất biến, an toàn khi truyền qua các tầng và khi ghi trace.
+- Phụ thuộc giữa các tầng đi qua Protocol (kiểu cấu trúc), nên test thay backend thật bằng bản giả dễ dàng.
+- `to_dict` đổi enum thành `.value` để trace.jsonl chỉ chứa kiểu JSON thuần.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +23,7 @@ from typing import Any, Literal, Protocol
 
 
 class StopReason(Enum):
-    """Why the agent loop ended for a sample."""
+    """Lý do vòng lặp agent kết thúc với một mẫu."""
 
     DONE = "done"
     ASKED = "asked"
@@ -22,7 +36,7 @@ class StopReason(Enum):
 
 
 class ErrorCode(Enum):
-    """Error codes recorded in steps and in the sample error list."""
+    """Mã lỗi ghi trong từng bước và trong danh sách lỗi của mẫu."""
 
     PARSE_ERROR = "parse_error"
     UNKNOWN_TOOL = "unknown_tool"
@@ -32,7 +46,7 @@ class ErrorCode(Enum):
 
 
 class GuardVerdict(Enum):
-    """Outcome of a guard check."""
+    """Kết luận của một lần kiểm tra guard: cho qua, chặn, cảnh báo hoặc dừng hẳn."""
 
     PASS = "pass"
     BLOCK = "block"
@@ -42,7 +56,7 @@ class GuardVerdict(Enum):
 
 @dataclass(frozen=True, slots=True)
 class Turn:
-    """One turn of the conversation history."""
+    """Một lượt trong lịch sử hội thoại (của user hoặc assistant)."""
 
     role: Literal["user", "assistant"]
     audio: str | None
@@ -54,7 +68,7 @@ class Turn:
 
 @dataclass(frozen=True, slots=True)
 class Sample:
-    """One competition sample; `label` is read only by FakeLLM and the scorer."""
+    """Một mẫu dữ liệu của cuộc thi; chỉ FakeLLM và bộ chấm điểm được đọc `label`."""
 
     id: str
     split: str
@@ -67,7 +81,7 @@ class Sample:
 
 @dataclass(frozen=True, slots=True)
 class Transcript:
-    """Text of the final turn and of the user turns in history."""
+    """Văn bản của lượt cuối và của các lượt user trong lịch sử; `seconds` là thời gian chuyển giọng nói."""
 
     final: str
     history: tuple[str | None, ...]
@@ -76,31 +90,31 @@ class Transcript:
 
 @dataclass(frozen=True, slots=True)
 class Generation:
-    """One LLM completion."""
+    """Một lần sinh văn bản của LLM, kèm số token và thời gian."""
 
     text: str
     prompt_tokens: int
     completion_tokens: int
     seconds: float
-    timed_out: bool = False  # aborted at the sample deadline; `text` is partial and must not be parsed
+    timed_out: bool = False  # bị dừng tại hạn chót của mẫu; `text` chỉ là một phần, không được parse
 
 
 @dataclass(frozen=True, slots=True)
 class Action:
-    """A parsed LLM decision: call a tool or finish."""
+    """Quyết định của LLM sau khi parse: gọi một công cụ (`call`) hoặc kết thúc (`done`)."""
 
     kind: Literal["call", "done"]
     name: str | None
     arguments: dict[str, Any] | None
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialise for the trace."""
+        """Tuần tự hóa thành dict để ghi trace."""
         return {"kind": self.kind, "name": self.name, "arguments": self.arguments}
 
 
 @dataclass(frozen=True, slots=True)
 class ParseError:
-    """LLM output that could not be parsed into an Action."""
+    """Đầu ra LLM không parse được thành Action; giữ lại `raw` để gỡ lỗi."""
 
     message: str
     raw: str
@@ -108,7 +122,7 @@ class ParseError:
 
 @dataclass(frozen=True, slots=True)
 class GuardResult:
-    """Result of one guard check."""
+    """Kết quả một lần kiểm tra guard; `code` và `message` là None khi cho qua."""
 
     verdict: GuardVerdict
     code: ErrorCode | None
@@ -117,7 +131,7 @@ class GuardResult:
 
 @dataclass(frozen=True, slots=True)
 class GuardContext:
-    """What a guard may look at."""
+    """Những gì guard được phép xem: môi trường, danh sách công cụ cho phép, loại công cụ, các lần gọi trước."""
 
     env: ToolEnvLike
     allowed: frozenset[str]
@@ -127,7 +141,7 @@ class GuardContext:
 
 @dataclass(frozen=True, slots=True)
 class StepRecord:
-    """One agent step, as written to trace.jsonl."""
+    """Một bước của agent, đúng như được ghi vào trace.jsonl."""
 
     i: int
     prompt_tokens: int
@@ -142,7 +156,7 @@ class StepRecord:
     tool_s: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialise for the trace, enums as `.value`."""
+        """Tuần tự hóa thành dict để ghi trace, enum được đổi thành `.value`."""
         return {
             "i": self.i,
             "prompt_tokens": self.prompt_tokens,
@@ -160,7 +174,7 @@ class StepRecord:
 
 @dataclass(frozen=True, slots=True)
 class SampleResult:
-    """Outcome of one sample, as written to trace.jsonl."""
+    """Kết quả của một mẫu, đúng như được ghi vào trace.jsonl."""
 
     id: str
     stop_reason: StopReason
@@ -176,7 +190,7 @@ class SampleResult:
     traceback: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialise for the trace, enums as `.value`."""
+        """Tuần tự hóa thành dict để ghi trace, enum được đổi thành `.value`."""
         t = self.transcript
         return {
             "id": self.id,
@@ -196,7 +210,7 @@ class SampleResult:
 
 
 class ToolEnvLike(Protocol):
-    """One zaic_tools environment for one sample."""
+    """Một môi trường zaic_tools cho một mẫu: kiểm tra, gọi công cụ, lấy danh sách lần gọi và hash trạng thái."""
 
     def validate(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]: ...
     def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]: ...
@@ -205,7 +219,7 @@ class ToolEnvLike(Protocol):
 
 
 class LLMBackend(Protocol):
-    """Text generation constrained by a JSON schema."""
+    """Backend sinh văn bản bị ràng buộc theo JSON schema."""
 
     def generate(
         self,
@@ -215,39 +229,39 @@ class LLMBackend(Protocol):
         sample_id: str,
         time_left_s: float | None = None,
     ) -> Generation:
-        """One completion; stop and return `timed_out=True` once `time_left_s` seconds have passed (None: no limit)."""
+        """Sinh một lần; dừng và trả về `timed_out=True` khi đã hết `time_left_s` giây (None: không giới hạn)."""
         ...
 
     def warmup(self) -> None: ...
 
 
 class TokenCounter(Protocol):
-    """Counts prompt tokens of a message list."""
+    """Đếm số token prompt của một danh sách tin nhắn."""
 
     def count(self, messages: list[dict[str, Any]]) -> int: ...
 
 
 class Transcriber(Protocol):
-    """Turns sample audio into text."""
+    """Chuyển audio của mẫu thành văn bản."""
 
     def transcribe(self, sample: Sample) -> Transcript: ...
     def warmup(self) -> None: ...
 
 
 class Clock(Protocol):
-    """Monotonic seconds."""
+    """Đồng hồ trả về số giây đơn điệu tăng (thay được bằng đồng hồ giả trong test)."""
 
     def __call__(self) -> float: ...
 
 
 class Guard(Protocol):
-    """One link of the guard chain."""
+    """Một mắt xích trong chuỗi guard, kiểm tra từng Action trước khi thực thi."""
 
     def check(self, action: Action, ctx: GuardContext) -> GuardResult: ...
 
 
 class AgentObserver(Protocol):
-    """Receives agent events (tracer, null observer)."""
+    """Nhận sự kiện của agent (tracer, observer rỗng)."""
 
     def on_sample_start(self, sample: Sample, transcript: Transcript) -> None: ...
     def on_step(self, step: StepRecord) -> None: ...

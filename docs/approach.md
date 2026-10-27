@@ -95,18 +95,21 @@ Hạ tầng đo lường (mục 4) làm cùng lúc với bước 1, không tách
 
 ### 3.2. Cách chia train (`lifemate/eval/make_splits.py`)
 
+Cách chia theo team lead (ThanhDanh1510/ZaloAI2026, `split.py`@7033c9f), có sửa lỗi rò rỉ của bản gốc (28/10/2026).
+
 | Phần | Số mẫu | Cách lấy | Đo cái gì |
 |---|---|---|---|
-| `train` | 1.098 | Phần còn lại | Dùng để học, lấy ví dụ mẫu cho prompt |
-| `val_seen` | 193 | 15% phần còn lại, chia đều theo loại đáp án và theo có/không có history | Khả năng với app quen |
-| `val_unseen` | 254 | Mọi mẫu có đáp án gọi tới 8 app bị rút, cộng 10 mẫu gold `[]` mà yêu cầu nói về app bị rút (gắn tay trong `UNSEEN_OUT_OF_SCOPE`) | Khả năng gặp app lạ, gần với điểm private |
+| `val_unseen` | 178 | Tách ra **đầu tiên**: mọi mẫu có đáp án gọi tới 6 app giữ lại, cộng 5 mẫu gold `[]` mà yêu cầu nói về các app đó (gắn tay trong `UNSEEN_OUT_OF_SCOPE`) | Khả năng gặp app lạ, gần với điểm private |
+| `val_seen` | 274 | Fold 0 trong 5 fold của phần còn lại | Khả năng với app quen |
+| `train` | 1.093 | Fold 1 đến 4 của phần còn lại | Dùng để học, lấy ví dụ mẫu cho prompt |
 | `smoke` | 30 | Lấy phân tầng từ `val_seen` | Chạy thử nhanh sau mỗi lần sửa |
 
-- **8 app bị rút:** door_lock, fitness, home_security, learning, library, loyalty, medication, robot_vacuum. Đều là app chỉ có ở train, nên có thể không xuất hiện lại. Các app dùng chung (contacts, calendar, …) được giữ lại để học.
-- **Quy tắc bắt buộc:** 490 mẫu train có *cài* một trong 8 app bị rút (dù không dùng). Khi dựng prompt cho các mẫu này phải **xóa 8 app đó khỏi `installed_apps`**, nếu không model sẽ đọc thấy hướng dẫn của chúng và chúng không còn "lạ". Việc xóa không làm sai đáp án vì đáp án không gọi tới các app đó. Ngoài ra 65 mẫu train có *history* gọi tool của app bị rút; các mẫu này bị bỏ khi dựng dữ liệu fine-tune hoặc few-shot (`SPEC.md` mục 4.5).
-- `val_unseen` chỉ có 10 mẫu `[]`, đủ để phát hiện lỗi lớn (gặp app lạ là gọi bừa) nhưng không đủ để so hai phiên bản chênh ít điểm. Khả năng nhận ra câu ngoài phạm vi đo chủ yếu trên `val_seen` (15 mẫu) và public.
-- **Khi chỉ làm prompt (chưa fine-tune):** không lấy ví dụ mẫu từ 8 app bị rút và không viết quy tắc riêng cho chúng.
-- Danh sách id nằm ở `configs/splits/`, cố định với seed = 42. Mọi thí nghiệm dùng chung một cách chia để điểm so sánh được với nhau.
+- **6 app giữ lại:** medication, fitness, flights, bike_rental, library, subscriptions (đại diện các nhóm sức khỏe, du lịch, di chuyển, cá nhân, tài chính).
+- **5 fold:** câu gần trùng (giống nhau từ 85% theo difflib) được gom thành cụm và cả cụm nằm chung một fold, để `val_seen` không có câu gần giống `train`. Các fold được cân bằng theo số lời gọi (0, 1, 2-3, từ 4) và có hay không `sys.ask_missing_info`.
+- **Sửa lỗi của bản gốc:** bản của lead chia fold trên toàn bộ mẫu rồi mới tách app giữ lại, nên 137/173 mẫu `val_unseen` lọt vào tập train. Ở đây app giữ lại bị tách trước, `meta.json` ghi kết quả kiểm tra rò rỉ (phải bằng 0) và có test bảo vệ.
+- **Quy tắc bắt buộc:** nhiều mẫu train có *cài* một trong 6 app giữ lại (dù không dùng). Khi dựng prompt cho các mẫu này phải **xóa 6 app đó khỏi `installed_apps`**, nếu không model sẽ đọc thấy hướng dẫn của chúng và chúng không còn "lạ". Mẫu train có *history* gọi tool của app giữ lại bị bỏ khi dựng dữ liệu fine-tune (`SPEC.md` mục 4.5).
+- **Khi chỉ làm prompt (chưa fine-tune):** không lấy ví dụ mẫu từ 6 app giữ lại và không viết quy tắc riêng cho chúng.
+- **Không có trong git:** danh sách id suy ra từ dữ liệu thi nên bị bỏ qua trong `.gitignore`. Lệnh `make splits` sinh lại giống từng byte (seed 42); kernel Kaggle và script RunPod tự chạy lệnh này. Mọi thí nghiệm dùng chung một cách chia để điểm so sánh được với nhau. Điểm đo trên cách chia cũ (trước 28/10) không so được với điểm mới.
 
 ### 3.3. Bộ chấm local (`lifemate/eval/score.py`)
 
@@ -215,7 +218,7 @@ Cuối mỗi lần chạy in bảng đếm từng loại lỗi kèm vài id mẫ
 
 - **Scorer:** chấm đáp án ra 100, nộp toàn `[]` ra 7,18.
 - **Tách đầu ra LLM:** một bộ đầu ra lỗi mẫu (thiếu ngoặc, thừa chữ, JSON sai).
-- **Dựng prompt:** đã xóa 8 app bị rút khỏi `installed_apps`; không vượt ngân sách token.
+- **Dựng prompt:** đã xóa 6 app giữ lại khỏi `installed_apps`; không vượt ngân sách token.
 - **Vòng lặp với LLM giả (FakeLLM):** LLM giả trả đúng đáp án, điểm phải ra 100. Kiểm tra cả vòng lặp mà không cần GPU.
 - **Tính tất định:** chạy cùng 5 mẫu hai lần, kết quả giống hệt nhau.
 
@@ -271,9 +274,10 @@ Chọn ngày 27/10/2026 theo điều kiện ở SPEC 6.0. Số tham số lấy t
 | Model | Vai trò | Số tham số | Ngày phát hành | Giấy phép | Revision |
 |---|---|---|---|---|---|
 | `Qwen/Qwen3-4B-Instruct-2507` | LLM (mặc định) | 4,02B | 05/08/2025 | Apache-2.0 | `cdbee75f` |
-| `vinai/PhoWhisper-medium` | ASR (mặc định) | 0,77B | 18/02/2024 | BSD-3 | `55a7e3eb` |
+| `Systran/faster-whisper-large-v3` | ASR (mặc định từ 28/10) | 1,55B | 11/2023 | MIT | `edaa852e` |
+| `vinai/PhoWhisper-medium` | ASR (mặc định tới 27/10, vẫn chạy được với `engine = "hf_seq2seq"`) | 0,77B | 18/02/2024 | BSD-3 | `55a7e3eb` |
 
-Tổng 4,79B < 6B, LLM 4,02B < 5B. Ứng viên A/B (chưa dùng khi nộp): LLM `Qwen/Qwen3.5-4B` (4,66B kể cả vision encoder, Apache-2.0, 02/03/2026); ASR `khanhld/chunkformer-ctc-large-vie` (0,11B, CC-BY-NC-4.0, 02/2025) và `5CD-AI/VieGem-ASR` (0,36B, CC-BY-NC-SA-4.0, 19/10/2026). Hai ASR này có `engine` riêng trong `lifemate/backends/asr.py`; giấy phép phi thương mại phải được BTC xác nhận trước khi nộp.
+Tổng 5,57B < 6B (với PhoWhisper là 4,79B), LLM 4,02B < 5B. Ứng viên A/B (chưa dùng khi nộp): LLM `Qwen/Qwen3.5-4B` (4,66B kể cả vision encoder, Apache-2.0, 02/03/2026); ASR `khanhld/chunkformer-ctc-large-vie` (0,11B, CC-BY-NC-4.0, 02/2025) và `5CD-AI/VieGem-ASR` (0,36B, CC-BY-NC-SA-4.0, 19/10/2026). Hai ASR này có `engine` riêng trong `lifemate/backends/asr.py`; giấy phép phi thương mại phải được BTC xác nhận trước khi nộp.
 
 #### 5.5.1. Vì sao chọn như vậy
 
@@ -283,24 +287,26 @@ Tổng 4,79B < 6B, LLM 4,02B < 5B. Ứng viên A/B (chưa dùng khi nộp): LLM 
 - Nhãn SFT là chuỗi tool call trực tiếp, không có lời suy nghĩ. Fine-tune bản Thinking bằng dữ liệu không có think sẽ dạy nó bỏ think, mất luôn lợi thế của bản đó.
 - Instruct-2507 là Transformer chuẩn, chạy trên vLLM ≥ 0,8.5 và fp16 trên T4; Qwen3.5-4B dùng Gated DeltaNet, cần vLLM ≥ 0,17 (bản khóa 0,32 đủ) nhưng chưa rõ fp16/T4, và 4,66B sát trần 5B nếu BTC đếm cả vision encoder. Nên Qwen3.5-4B chỉ là ứng viên A/B sau khi có baseline.
 
-**ASR.** PhoWhisper-medium được chọn mặc định vì cắm thẳng vào `HFSeq2SeqASR` (transformers pipeline) không cần code thêm, giấy phép BSD, và đầu ra chữ thường, số viết bằng chữ, cùng văn phong với `audio_text`. Điểm yếu: WER khi xen tiếng Anh cao (PhoWhisper-large 31% trên ViMedCSS) và Whisper hay bịa chữ ở đoạn im lặng. ChunkFormer (N-WER 6,89, tốt nhất trong bài EACL 2026, nhẹ 110M) và VieGem-ASR (WER trung bình 6,34, xen tiếng Anh 14,3%) tốt hơn trên benchmark công khai nhưng cần adapter và vướng giấy phép phi thương mại. Cả ba được đo trên `val_seen` / `val_unseen` theo SPEC 6.4.2 trước khi chốt.
+**ASR (cập nhật 28/10/2026).** Theo team lead, ASR mặc định đổi sang whisper-large-v3 bản CTranslate2 (faster-whisper): beam 5, best_of 5, VAD, `condition_on_previous_text = false`, có câu mồi; sau đó qua bộ lọc ảo giác `lifemate/backends/asr_sanitizer.py`. Lead đo 98% lỗi nặng của Whisper là câu ảo giác kiểu phụ đề YouTube, nên bộ lọc là phần quan trọng. Chưa đo WER, tốc độ và bộ nhớ của large-v3 trên pipeline này. Đoạn dưới là lý do chọn PhoWhisper lúc đầu (27/10).
+
+**ASR (27/10/2026).** PhoWhisper-medium được chọn mặc định vì cắm thẳng vào `HFSeq2SeqASR` (transformers pipeline) không cần code thêm, giấy phép BSD, và đầu ra chữ thường, số viết bằng chữ, cùng văn phong với `audio_text`. Điểm yếu: WER khi xen tiếng Anh cao (PhoWhisper-large 31% trên ViMedCSS) và Whisper hay bịa chữ ở đoạn im lặng. ChunkFormer (N-WER 6,89, tốt nhất trong bài EACL 2026, nhẹ 110M) và VieGem-ASR (WER trung bình 6,34, xen tiếng Anh 14,3%) tốt hơn trên benchmark công khai nhưng cần adapter và vướng giấy phép phi thương mại. Cả ba được đo trên `val_seen` / `val_unseen` theo SPEC 6.4.2 trước khi chốt.
 
 #### 5.5.2. Kế hoạch fine-tune cho từng model
 
-**LLM: Qwen3-4B-Instruct-2507, QLoRA (SPEC 6.2).**
+**LLM: Qwen3-4B-Instruct-2507, QLoRA bằng ms-swift (SPEC 6.2). Cập nhật 28/10/2026 theo team lead.**
 
 | Việc | Cách làm | Vì sao |
 |---|---|---|
-| Phương pháp | QLoRA: model gốc nf4, LoRA r=16, alpha=32 trên 7 ma trận attention + MLP; Unsloth trên T4 fp16 | Full fine-tune 4B cần > 40 GB VRAM, không vừa T4/Kaggle. LoRA trên cả attention và MLP giữ được kiến thức chung, chỉ dạy định dạng và quy tắc gọi tool. 1098 mẫu train là ít, r=16 đủ và ít overfit hơn r lớn |
-| Dữ liệu | 1098 mẫu `configs/splits/train.txt` dựng bằng đúng `PromptBuilder` lúc chạy, xóa 8 app bị rút; transcript là `audio_text`; kết quả tool phát lại qua `zaic_tools` | Prompt lúc train và lúc chạy phải giống từng byte, nếu không model học một phân bố và chạy trên phân bố khác. Xóa app bị rút để `val_unseen` vẫn đo được khả năng đọc app lạ |
+| Phương pháp | QLoRA: model gốc nf4, LoRA r=32, alpha=64 trên 7 ma trận attention + MLP; train bằng ms-swift 4.6.0 (`swift sft`), fp16 trên T4. Trước mỗi lần train, so token và nhãn loss của ms-swift với chat template của vLLM | Full fine-tune 4B cần > 40 GB VRAM, không vừa T4/Kaggle. LoRA trên cả attention và MLP giữ được kiến thức chung, chỉ dạy định dạng và quy tắc gọi tool. r=32 theo lead; bộ cũ r=16 (ít overfit hơn trên dữ liệu nhỏ) để so ở lượt đầu |
+| Dữ liệu | 1093 mẫu `configs/splits/train.txt` dựng bằng đúng `PromptBuilder` lúc chạy, xóa 6 app giữ lại; transcript trộn 70% chữ ASR và 30% `audio_text` (mẫu ASR mất tên hoặc số của đáp án thì dùng `audio_text`); 3% mẫu phục hồi lỗi (lượt gọi sai không tính loss); kết quả tool phát lại qua `zaic_tools` | Prompt lúc train và lúc chạy phải giống từng byte, nếu không model học một phân bố và chạy trên phân bố khác. Xóa app bị rút để `val_unseen` vẫn đo được khả năng đọc app lạ |
 | Che loss | Chỉ trên token của lượt assistant | Không che thì model học thuộc mô tả tool và kết quả tool, làm hỏng khả năng đọc tool docs mới |
 | Chat template | Render với tham số như lúc chạy; Instruct-2507 không có chế độ thinking nên không cần `enable_thinking` | Giữ đúng token đặc biệt mà vLLM sẽ sinh lúc chạy |
-| Siêu tham số ban đầu | lr 2e-4, 2 epoch, batch 1 × grad_accum 8, max_len 16384, seed 0 | Mặc định quen thuộc của QLoRA cho SFT nhỏ; chốt lại sau khi có số đo v0 |
+| Siêu tham số ban đầu | lr 2e-4 cosine, warmup 5%, 3 epoch, batch 1 × grad_accum 16, max_len 10240, seed 0 | Theo lead; max_len theo prompt dài nhất lead đo được (9.544 token). Bộ cũ (2 epoch, grad_accum 8, max_len 16384) để so. Chưa đo trên pipeline này |
 | Chọn checkpoint | 2 checkpoint có loss `eval_unseen` thấp nhất, merge, chạy agent thật, lấy điểm `val_unseen` cao nhất | Loss không phản ánh đúng điểm thi; nhưng chỉ chạy agent thật 2 lần để không chọn model theo val quá nhiều |
 | Đưa vào hệ thống | Merge adapter vào bf16, lưu safetensors, trỏ `[llm].model` (Docker: `/app/models/llm`) | vLLM nạp model đã merge như model thường, không tốn thêm thời gian chạy, Docker đơn giản |
-| Giai đoạn 2 (nếu bảng lỗi cần) | `transcript_source = "asr"`: dựng lại dữ liệu bằng chữ ASR thật; thêm dữ liệu tổng hợp từ catalog train | Model quen lỗi ASR thật; chỉ làm khi điểm mất do ASR lớn |
+| Bước tiếp theo (lộ trình của lead) | Lần lượt bật: nhân bản ca khó 1,5-2 lần (`oversample_hard`), app gây nhiễu (`distractor_apps`), lọc cụm câu trùng (`dedup_max_k`); mỗi kỹ thuật một lượt train riêng | Đo riêng từng kỹ thuật để biết cái nào có ích |
 
-**ASR: PhoWhisper-medium, full fine-tune hai giai đoạn (SPEC 6.4). Chỉ làm khi điểm mất do ASR ≥ 3 hoặc tỉ lệ nghe sai thực thể ≥ 10%.**
+**ASR: full fine-tune hai giai đoạn (SPEC 6.4). Chỉ làm khi điểm mất do ASR ≥ 3 hoặc tỉ lệ nghe sai thực thể ≥ 10%.** Kế hoạch dưới viết cho PhoWhisper-medium (27/10). Với whisper-large-v3 (1,55B), fine-tune làm trên bản transformers rồi chuyển sang CTranslate2 bằng `ct2-transformers-converter`; full fine-tune 1,55B không vừa T4, nên phải dùng LoRA hoặc GPU lớn hơn.
 
 | Việc | Cách làm | Vì sao |
 |---|---|---|
@@ -314,7 +320,7 @@ Tổng 4,79B < 6B, LLM 4,02B < 5B. Ứng viên A/B (chưa dùng khi nộp): LLM 
 **Thứ tự làm, rút ra từ phân tích nguyên lý gốc (27/10/2026, lập luận đầy đủ ở mục 9):**
 
 1. Cắm ASR gốc, đo WER, tỉ lệ nghe sai thực thể, thời gian.
-2. LLM v1: QLoRA trên `audio_text` gold.
+2. LLM v1: QLoRA trên `audio_text` gold. *(Cập nhật 28/10: gộp bước 2 và 3 thành một lượt, dữ liệu trộn 70% chữ ASR theo lead.)*
 3. **LLM v2: dựng lại dữ liệu với chữ ASR thật** (`transcript_source = "asr"`), nhãn vẫn gold. Lý do: danh bạ, tên thiết bị, app đã cài nằm trong ngữ cảnh mẫu mà chỉ LLM nhìn thấy, ASR thì không. LLM train trên chữ ASR học được quy ước "chọn tên trong danh bạ gần nhất với chữ nghe được", tức sửa lỗi nghe bằng thông tin chỉ nó có, không tốn thêm thời gian lúc chạy.
 4. **Chỉ sau LLM v2** mới đo điểm mất do ASR và tỉ lệ nghe sai thực thể để quyết định fine-tune ASR. Đo sớm hơn thì con số gồm cả phần LLM v2 tự sửa được, dẫn tới tốn 1–2 ngày GPU vào thứ có thể biến mất.
 5. Nếu fine-tune ASR: làm dữ liệu TTS nhắm vào ba nhóm thực thể (tên người, thiết bị và địa điểm, số tiền và giờ) với encoder đóng băng **trước** khi nghĩ tới mở encoder, vì đó là lớp rẻ, rủi ro thấp và đo được ngay; mở encoder là bước rủi ro cao nhất với 13 giờ audio.
@@ -374,7 +380,8 @@ Tổng 4,79B < 6B, LLM 4,02B < 5B. Ứng viên A/B (chưa dùng khi nộp): LLM 
 | 28/10/2026 | ASR: whisper-large-v3 bản CTranslate2 (faster-whisper), beam 5, VAD, kèm bộ lọc ảo giác của lead | Lead đo 98% lỗi nặng của Whisper là câu ảo giác kiểu phụ đề. Chưa đo tốc độ và bộ nhớ trên T4 cạnh vLLM |
 | 28/10/2026 | Fine-tune theo lead: LoRA r=32, alpha=64, lr 2e-4 cosine, warmup 5%, 3 epoch, batch hiệu dụng 16, max_len 10240 | Chưa đo trên pipeline này; so với bộ cũ (r=16, 2 epoch) ở lượt train đầu |
 | 28/10/2026 | Dữ liệu SFT theo lead @c703bd9: 70% chữ ASR (mẫu mất tên hoặc số thì dùng chữ chuẩn), 3% mẫu phục hồi lỗi (lượt gọi sai không tính loss, câu lỗi lấy từ guard thật). Nhân bản ca khó, app gây nhiễu, lọc cụm trùng có sẵn nhưng tắt | Theo lộ trình của lead: baseline trước, bật từng kỹ thuật ở lượt sau để đo riêng. Thay cho quyết định "LLM v2 học trên toàn chữ ASR" ở trên |
-| 28/10/2026 | Không làm theo lead: định dạng tool-call gốc của Qwen, ms-swift, xáo thứ tự tool | Giữ JSON ép schema và prompt giống từng byte giữa train và chạy thật. App gây nhiễu được thêm vào ngữ cảnh mẫu nên vẫn giữ quy tắc này |
+| 28/10/2026 | Chuyển trình train LLM từ Unsloth sang ms-swift 4.6.0 (cùng công cụ với lead); giữ dữ liệu, chọn checkpoint, merge, sổ đăng ký của repo | Đo trên 60 mẫu thật (25 mẫu phục hồi lỗi): token và nhãn loss của template `qwen3_nothinking` giống hệt chat template của vLLM. Kiểm tra này chạy lại trước mỗi lần train |
+| 28/10/2026 | Không làm theo lead: định dạng tool-call gốc của Qwen, xáo thứ tự tool (ms-swift thì đã chuyển, xem dòng trên) | Giữ JSON ép schema và prompt giống từng byte giữa train và chạy thật. App gây nhiễu được thêm vào ngữ cảnh mẫu nên vẫn giữ quy tắc này |
 
 ## 8. Nhật ký thí nghiệm
 
@@ -387,6 +394,8 @@ Mỗi lần chạy agent ghi một dòng. Điểm lấy từ `lifemate/eval/scor
 ## 9. Phân tích nguyên lý gốc về fine-tune (27/10/2026)
 
 Chuỗi lập luận dẫn tới mục 5.5.2. Đọc mục này khi muốn biết **vì sao** chứ không chỉ **làm gì**.
+
+> Mục này viết ngày 27/10/2026, trước khi chuyển theo các quyết định của team lead. Số liệu trong đây (1098 mẫu train, 8 app bị rút, PhoWhisper-medium, r=16) là của lúc đó. Lập luận vẫn đúng; số liệu hiện tại xem mục 3.2, 5.5 và bảng quyết định ở mục 7.
 
 ### 9.1. Bản chất bài toán
 

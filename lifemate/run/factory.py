@@ -1,4 +1,11 @@
-"""The only place that wires objects from Config (SPEC 4.0, Factory + registry)."""
+"""Nơi duy nhất lắp ráp các đối tượng từ Config (SPEC 4.0, mẫu Factory + registry).
+
+Cách xây dựng: backend LLM và transcriber được chọn theo tên qua hai registry `LLM_BACKENDS` và `TRANSCRIBERS`
+(tên lạ gây ConfigError). `build` tạo lần lượt: dtype, chỉ mục catalog tool, bộ đếm token, `PromptBuilder` (từ file
+system prompt, kèm danh sách app giữ lại khi train), chuỗi guard, rồi bọc LLM và transcriber trong lớp đo thời gian
+(`TimedLLM`, `TimedTranscriber`) trước khi tạo `Agent`. Kết quả trả về trong `Built`, kèm SHA-256 của template prompt
+để truy vết run.
+"""
 
 from __future__ import annotations
 
@@ -30,7 +37,7 @@ log = structlog.get_logger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class Built:
-    """Everything a run needs, wired."""
+    """Mọi thứ một lần chạy cần, đã lắp ráp xong."""
 
     agent: Agent
     loader: ZaicLoader
@@ -43,12 +50,14 @@ class Built:
 
 
 def _fake_llm(config: Config, profile: EnvProfile, samples: Sequence[Sample], env_info: EnvInfo, dtype: str) -> Any:
+    """Tạo FakeLLM; cần split có nhãn vì FakeLLM phát lại lời gọi tool gốc."""
     if any(s.label is None for s in samples):
         raise ConfigError("llm.backend = 'fake' needs a labelled split")
     return FakeLLM(samples)
 
 
 def _vllm(config: Config, profile: EnvProfile, samples: Sequence[Sample], env_info: EnvInfo, dtype: str) -> Any:
+    """Tạo VLLMBackend với cache, token HF và compute capability lấy từ profile và thông tin môi trường."""
     return VLLMBackend(
         config.llm,
         dtype=dtype,
@@ -58,6 +67,7 @@ def _vllm(config: Config, profile: EnvProfile, samples: Sequence[Sample], env_in
     )
 
 
+# Registry theo tên: `[llm].backend` và `[asr].backend` -> hàm tạo; hàm chỉ chạy khi tên được chọn
 LLM_BACKENDS: dict[str, Callable[[Config, EnvProfile, Sequence[Sample], EnvInfo, str], LLMBackend]] = {
     "vllm": _vllm,
     "fake": _fake_llm,
@@ -69,6 +79,7 @@ TRANSCRIBERS: dict[str, Callable[[Config, Path, str], Transcriber]] = {
 
 
 def _counter(config: Config) -> TokenCounter:
+    """Bộ đếm token: tokenizer HF của mô hình; đếm đơn giản với backend fake hoặc khi thiếu transformers."""
     if config.llm.backend == "fake":
         return SimpleTokenCounter()
     try:
@@ -79,6 +90,7 @@ def _counter(config: Config) -> TokenCounter:
 
 
 def _held_out(repo_root: Path) -> frozenset[str]:
+    """Tập app giữ lại (held-out) đọc từ `configs/splits/meta.json`; rỗng khi file không tồn tại."""
     meta = repo_root / "configs" / "splits" / "meta.json"
     if not meta.is_file():
         return frozenset()
@@ -95,7 +107,11 @@ def build(
     samples: Sequence[Sample] | None = None,
     observer: AgentObserver | None = None,
 ) -> Built:
-    """Wire LLM, transcriber, prompts, guards and agent for `split` under `profile.data_root`."""
+    """Lắp ráp LLM, transcriber, prompt, guard và agent cho `split` dưới `profile.data_root`.
+
+    Kiểm tra tên backend trước khi tạo bất kỳ đối tượng nặng nào, để lỗi cấu hình hiện ra ngay. Với backend fake mà
+    không truyền `samples`, toàn bộ split được nạp để lấy nhãn.
+    """
     llm_factory = LLM_BACKENDS.get(config.llm.backend)
     if llm_factory is None:
         raise ConfigError(f"llm.backend: unknown backend {config.llm.backend!r}")

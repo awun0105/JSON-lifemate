@@ -1,1 +1,1 @@
-"""Test package (a regular package so an installed top-level `tests` cannot shadow tests.fakes)."""
+"""Gói test (package thường, để gói `tests` cài sẵn ở cấp cao nhất không che mất tests.fakes)."""

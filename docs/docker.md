@@ -21,7 +21,8 @@ Weights are baked in: put them in a folder of the build context (default `artifa
 
 ```bash
 # artifacts/models/llm  <- the LLM snapshot (config.json, tokenizer, safetensors)
-# artifacts/models/asr  <- the ASR snapshot, only when [asr].backend = "asr"
+# artifacts/models/asr  <- the ASR snapshot (CTranslate2 files of Systran/faster-whisper-large-v3: model.bin,
+#                          config.json, tokenizer.json, vocabulary.json, preprocessor_config.json), only when [asr].backend = "asr"
 docker build -f ops/docker/Dockerfile --build-arg MODEL_DIR=artifacts/models -t lifemate:dev .     # or: make docker-build
 ```
 

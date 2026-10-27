@@ -1,3 +1,8 @@
+"""Kiểm thử GoldTranscriber và việc chọn dtype cho ASR.
+
+Dùng Sample dựng tay, không cần mô hình, dữ liệu cuộc thi hay tokenizer.
+"""
+
 import dataclasses
 
 import pytest
@@ -7,6 +12,7 @@ from lifemate.core.types import Sample, Turn
 
 
 def _turn(role: str, audio_text: str | None) -> Turn:
+    """Tạo lượt hội thoại chỉ có `audio_text`."""
     return Turn(role=role, audio=None, audio_text=audio_text, text=None, tool_calls=(), tool_results=())  # type: ignore[arg-type]
 
 
@@ -22,6 +28,7 @@ SAMPLE = Sample(
 
 
 def test_gold_ok() -> None:
+    """Bảo vệ: GoldTranscriber trả transcript gold của câu cuối và lịch sử (lượt assistant là None)."""
     t = GoldTranscriber()
     t.warmup()
     tr = t.transcribe(SAMPLE)
@@ -29,11 +36,13 @@ def test_gold_ok() -> None:
 
 
 def test_gold_missing_final() -> None:
+    """Bảo vệ: thiếu transcript gold của câu cuối thì báo lỗi ValueError."""
     with pytest.raises(ValueError):
         GoldTranscriber().transcribe(dataclasses.replace(SAMPLE, audio_text=None))
 
 
 def test_gold_missing_history() -> None:
+    """Bảo vệ: lượt user trong lịch sử thiếu transcript gold thì báo lỗi ValueError."""
     with pytest.raises(ValueError):
         GoldTranscriber().transcribe(dataclasses.replace(SAMPLE, history=(_turn("user", None),)))
 
@@ -42,19 +51,19 @@ def test_gold_missing_history() -> None:
     ("cfg", "on_gpu", "cc", "want"),
     [
         ("auto", True, (8, 0), "bfloat16"),  # A30
-        ("auto", True, (7, 5), "float16"),  # T4: no fast bfloat16
+        ("auto", True, (7, 5), "float16"),  # T4: không có bfloat16 nhanh
         ("auto", False, None, "float32"),  # CPU
-        ("float32", True, (8, 0), "float32"),  # explicit wins
+        ("float32", True, (8, 0), "float32"),  # giá trị đặt rõ được ưu tiên
         ("float16", True, (8, 6), "float16"),
     ],
 )
 def test_resolve_asr_dtype(cfg: str, on_gpu: bool, cc: tuple[int, int] | None, want: str) -> None:
-    """Protects: ASR is never left in float32 on a GPU by default (it OOMed next to vLLM on a T4)."""
+    """Bảo vệ: mặc định ASR không bao giờ chạy float32 trên GPU (từng hết bộ nhớ khi chạy cạnh vLLM trên T4)."""
     assert resolve_asr_dtype(cfg, on_gpu, cc) == want
 
 
 @pytest.mark.parametrize(("cfg", "on_gpu", "cc"), [("bfloat16", True, (7, 5)), ("float16", False, None)])
 def test_resolve_asr_dtype_rejects(cfg: str, on_gpu: bool, cc: tuple[int, int] | None) -> None:
-    """Catches: bfloat16 on a pre-sm80 GPU, or a half-precision dtype on CPU."""
+    """Bắt lỗi: bfloat16 trên GPU đời trước sm80, hoặc dtype nửa độ chính xác trên CPU."""
     with pytest.raises(ValueError, match=r"asr\.dtype"):
         resolve_asr_dtype(cfg, on_gpu, cc)

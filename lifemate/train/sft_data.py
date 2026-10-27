@@ -1,7 +1,25 @@
-"""Build SFT rows exactly as the agent sees them at run time (SPEC 6.2.1).
+"""Dựng các dòng dữ liệu SFT đúng như agent nhìn thấy lúc chạy thật (SPEC 6.2.1).
 
-Prompt from the run's PromptBuilder (train mode strips held-out apps), gold transcript, gold calls replayed through
-a fresh zaic_tools env per sample for byte-exact `KẾT QUẢ` turns.
+Nội dung file:
+- `load_run_config`, `make_counter`, `make_builder`: dựng PromptBuilder giống hệt lifemate.run.factory.build.
+- `MixedTranscriber`, `_transcriber`: chọn transcript gold, ASR hoặc trộn hai nguồn.
+- `Augment` cùng các hàm `dedup_clusters`, `with_distractors`, `hard_copies`: tăng cường dữ liệu, chỉ cho tập train.
+- `build_sample`, `build_rows`: dựng hội thoại cho từng mẫu.
+- `write_jsonl`, `write_outputs`, `run`, `main`: ghi file jsonl, file dropped và file meta; giao diện dòng lệnh.
+
+Cách dựng và luồng dữ liệu:
+1. Prompt lấy từ PromptBuilder của cấu hình run (train mode loại các app held-out), nhờ đó prompt lúc train và lúc
+   chạy giống nhau đến từng byte.
+2. Transcript: gold `audio_text`, transcript ASR đã lưu, hoặc trộn (mặc định 70% mẫu dùng ASR); mẫu nào mất thực thể
+   gold trong transcript ASR thì quay về gold.
+3. Các lời gọi gold được phát lại qua một env zaic_tools mới cho từng mẫu, để các lượt `KẾT QUẢ` khớp từng byte với
+   lúc chạy; lệch so với kết quả gold chỉ ghi cảnh báo.
+4. `Augment` (chỉ áp dụng ở train mode): lọc gần trùng, thêm app gây nhiễu, chèn một lời gọi lỗi rồi sửa, nhân bản
+   các mẫu khó.
+5. Dòng nào vượt `max_model_len` token bị bỏ và ghi lý do vào `<out>.dropped.txt`.
+
+Ví dụ:
+    python -m lifemate.train.sft_data --config configs/train/llm_v1.toml --ids <file id> --out data/sft/v1.jsonl
 """
 
 from __future__ import annotations
@@ -50,7 +68,7 @@ EVAL_ID_FILES = ("configs/splits/val_seen.txt", "configs/splits/val_unseen.txt")
 
 @dataclass(slots=True)
 class BuildResult:
-    """Rows kept, samples dropped with reasons, replay mismatches and shrink levels."""
+    """Kết quả dựng dữ liệu: các dòng giữ lại, mẫu bị bỏ kèm lý do, chỗ phát lại lệch và mức thu gọn prompt."""
 
     rows: list[dict[str, Any]] = field(default_factory=list)
     dropped: list[tuple[str, str]] = field(default_factory=list)
@@ -60,14 +78,17 @@ class BuildResult:
 
 @dataclass(frozen=True, slots=True)
 class RunPromptConfig:
-    """The [llm] and [agent] sections of the run config: everything that shapes the prompt."""
+    """Hai mục [llm] và [agent] của cấu hình run: mọi thứ quyết định hình dạng prompt."""
 
     llm: LLMConfig
     agent: AgentConfig
 
 
 def load_run_config(path: Path) -> RunPromptConfig:
-    """[llm] and [agent] of a run config; unlike load_config it accepts an empty llm.model (SPEC 6.0)."""
+    """Đọc [llm] và [agent] của cấu hình run; khác load_config, hàm này chấp nhận llm.model rỗng (SPEC 6.0).
+
+    Lý do: lúc dựng dữ liệu có thể chưa chọn model, nhưng prompt vẫn cần độ dài ngữ cảnh và các giới hạn kết quả.
+    """
     with open(path, "rb") as f:
         raw = tomllib.load(f)
     for key in ("llm", "agent"):
@@ -79,7 +100,7 @@ def load_run_config(path: Path) -> RunPromptConfig:
 
 
 def make_counter(model: str, revision: str) -> TokenCounter:
-    """SimpleTokenCounter while no model is chosen, else the base model's HFTokenCounter."""
+    """Bộ đếm token: SimpleTokenCounter khi chưa chọn model, ngược lại là HFTokenCounter của model gốc."""
     if not model:
         return SimpleTokenCounter()
     return HFTokenCounter(model, revision or None)
@@ -88,7 +109,7 @@ def make_counter(model: str, revision: str) -> TokenCounter:
 def make_builder(
     run_cfg: RunPromptConfig, repo_root: Path, index: CatalogIndex, counter: TokenCounter
 ) -> PromptBuilder:
-    """PromptBuilder wired exactly like lifemate.run.factory.build."""
+    """Tạo PromptBuilder nối dây giống hệt lifemate.run.factory.build, để prompt train trùng prompt lúc chạy."""
     template = (repo_root / run_cfg.agent.system_prompt).read_text(encoding="utf-8")
     return PromptBuilder(
         template,
@@ -105,13 +126,16 @@ TRANSCRIPT_SOURCES = ("gold", "asr", "mix")
 
 
 def _frac(seed: int, tag: str, sample_id: str) -> float:
-    """Stable number in [0, 1) from (seed, tag, id): the same choice on every rebuild."""
+    """Số ổn định trong [0, 1) từ (seed, tag, id): mỗi lần dựng lại đều cho cùng một lựa chọn.
+
+    Dùng băm sha256 thay cho bộ sinh ngẫu nhiên, nên kết quả không phụ thuộc thứ tự duyệt mẫu.
+    """
     h = hashlib.sha256(f"{seed}:{tag}:{sample_id}".encode()).digest()
     return int.from_bytes(h[:4], "big") / 2**32
 
 
 def category(sample: Sample) -> str:
-    """`execute`, `ask_missing_info` or `out_of_scope` (empty gold)."""
+    """Nhóm của mẫu: `execute`, `ask_missing_info` hoặc `out_of_scope` (gold rỗng)."""
     calls = (sample.label or {}).get("tool_calls") or []
     if not calls:
         return "out_of_scope"
@@ -120,18 +144,20 @@ def category(sample: Sample) -> str:
 
 @dataclass(frozen=True, slots=True)
 class Augment:
-    """Train-only data augmentation, adapted from the team lead's repo ThanhDanh1510/ZaloAI2026
-    (src/preprocessing/dataset/builder.py and docs/llm_finetuning.md@c703bd9). Every choice is a hash of
-    (seed, id), so a rebuild gives the same file. All of it keeps the prompt built by the run-time PromptBuilder.
+    """Tăng cường dữ liệu chỉ cho tập train, adapted from the team lead's repo ThanhDanh1510/ZaloAI2026
+    (src/preprocessing/dataset/builder.py and docs/llm_finetuning.md@c703bd9).
+    Chuyển thể từ repo của trưởng nhóm. Mọi lựa chọn là giá trị băm của (seed, id), nên dựng lại cho ra cùng một
+    file. Mọi phép tăng cường đều giữ nguyên prompt do PromptBuilder lúc chạy tạo ra.
 
-    - error_recovery_ratio: share of samples that get one failed call first (a required argument dropped, the real
-      guard error text from `env.validate`), then the correct call. The failed call has `"loss": false`: the model
-      learns to recover from the error, never to make it.
-    - oversample_hard: copies of `ask_missing_info` and `out_of_scope` rows (1.0 = none, 1.5 = half get a 2nd copy).
-    - distractor_apps: extra installed apps (never held-out ones) added to the context so the model has to read
-      the schema. Not applied to `out_of_scope` samples: an added app could serve the request and make the empty
-      label wrong.
-    - dedup_max_k: keep at most k samples per near-duplicate cluster (0 = keep all)."""
+    - error_recovery_ratio: tỉ lệ mẫu nhận trước một lời gọi lỗi (bỏ một tham số bắt buộc, kèm đúng thông báo lỗi
+      của guard từ `env.validate`), sau đó mới tới lời gọi đúng. Lời gọi lỗi có `"loss": false`: model học cách
+      sửa sau lỗi, không học cách gây lỗi.
+    - oversample_hard: số bản sao của dòng `ask_missing_info` và `out_of_scope` (1.0 = không sao, 1.5 = một nửa số
+      dòng có thêm bản thứ hai).
+    - distractor_apps: số app cài thêm (không bao giờ là app held-out) đưa vào ngữ cảnh, buộc model phải đọc schema.
+      Không áp dụng cho mẫu `out_of_scope`: app thêm vào có thể phục vụ được yêu cầu và làm nhãn rỗng thành sai.
+    - dedup_max_k: giữ tối đa k mẫu cho mỗi cụm gần trùng (0 = giữ tất cả).
+    - seed: hạt giống cho mọi lựa chọn băm ở trên."""
 
     error_recovery_ratio: float = 0.0
     oversample_hard: float = 1.0
@@ -141,7 +167,7 @@ class Augment:
 
 
 def dedup_clusters(samples: Sequence[Sample], max_k: int, threshold: float = 0.85) -> list[Sample]:
-    """At most `max_k` samples (lowest ids first) per near-duplicate cluster; order kept."""
+    """Giữ tối đa `max_k` mẫu (id nhỏ trước) cho mỗi cụm gần trùng theo `audio_text`; giữ nguyên thứ tự."""
     if max_k <= 0:
         return list(samples)
     items = [{"id": s.id, "audio_text": s.audio_text or ""} for s in samples]
@@ -152,7 +178,10 @@ def dedup_clusters(samples: Sequence[Sample], max_k: int, threshold: float = 0.8
 def with_distractors(
     sample: Sample, index: CatalogIndex, held_out: frozenset[str], k: int, seed: int
 ) -> tuple[Sample, list[str]]:
-    """`sample` with `k` extra installed apps picked by hash among apps that are neither installed nor held out."""
+    """Trả về `sample` có thêm `k` app cài đặt, chọn theo băm trong các app chưa cài và không held-out.
+
+    Trả kèm danh sách app đã thêm. Mẫu `out_of_scope` hoặc `k <= 0` được trả nguyên.
+    """
     if k <= 0 or category(sample) == "out_of_scope":
         return sample, []
     installed: dict[str, Any] = dict(sample.context.get("installed_apps") or {})
@@ -164,7 +193,10 @@ def with_distractors(
 
 
 def hard_copies(sample: Sample, factor: float, seed: int) -> int:
-    """Extra copies of a hard (`ask_missing_info`, `out_of_scope`) sample for `oversample_hard = factor`."""
+    """Số bản sao thêm của một mẫu khó (`ask_missing_info`, `out_of_scope`) khi `oversample_hard = factor`.
+
+    Phần nguyên của `factor - 1` luôn được thêm; phần lẻ quyết định theo băm có thêm một bản nữa hay không.
+    """
     if factor <= 1.0 or category(sample) == "execute":
         return 0
     extra = factor - 1.0
@@ -172,11 +204,12 @@ def hard_copies(sample: Sample, factor: float, seed: int) -> int:
 
 
 class MixedTranscriber:
-    """Team lead's data mix (ThanhDanh1510/ZaloAI2026 builder.py@7033c9f): a fixed share of samples use the saved
-    ASR transcript, the rest the gold `audio_text`. A sample falls back to gold when its ASR text is empty or lost a
-    gold entity (a name, amount or phone number the calls need), so the model is never taught to call tools with
-    arguments the transcript does not contain. The choice per sample is a hash of (seed, id): stable across rebuilds.
-    `chosen` records what each sample got."""
+    """Transcriber trộn ASR và gold theo cách của trưởng nhóm (ThanhDanh1510/ZaloAI2026 builder.py@7033c9f).
+
+    Một tỉ lệ cố định mẫu dùng transcript ASR đã lưu, phần còn lại dùng `audio_text` gold. Mẫu quay về gold khi
+    văn bản ASR rỗng hoặc làm mất một thực thể gold (tên, số tiền, số điện thoại mà lời gọi cần), để model không
+    bao giờ học gọi tool với tham số không có trong transcript. Lựa chọn cho từng mẫu là băm của (seed, id), ổn
+    định qua các lần dựng lại. `chosen` ghi lại nguồn mà từng mẫu nhận được (`asr`, `gold_fallback`, `gold`)."""
 
     def __init__(self, asr: CachedTranscriber, ratio: float, seed: int = 0) -> None:
         self._asr, self._gold = asr, GoldTranscriber()
@@ -184,11 +217,12 @@ class MixedTranscriber:
         self.chosen: dict[str, str] = {}
 
     def _picked(self, sample_id: str) -> bool:
+        """Mẫu có rơi vào phần dùng ASR hay không, theo băm của (seed, id)."""
         h = hashlib.sha256(f"{self._seed}:{sample_id}".encode()).digest()
         return int.from_bytes(h[:4], "big") / 2**32 < self._ratio
 
     def transcribe(self, sample: Sample) -> Transcript:
-        """ASR transcript for picked samples that keep every gold entity, gold otherwise."""
+        """Transcript ASR cho mẫu được chọn và giữ đủ thực thể gold, ngược lại là transcript gold."""
         if self._ratio > 0 and self._asr.has(sample.id) and self._picked(sample.id):
             t = self._asr.transcribe(sample)
             calls = (sample.label or {}).get("tool_calls") or []
@@ -201,10 +235,11 @@ class MixedTranscriber:
         return self._gold.transcribe(sample)
 
     def warmup(self) -> None:
-        """Nothing to warm up."""
+        """Không có gì cần khởi động trước."""
 
 
 def _transcriber(source: str, asr_cache: Path | None = None, asr_ratio: float = 0.7, seed: int = 0) -> Transcriber:
+    """Tạo transcriber theo nguồn `gold`, `asr` hoặc `mix`; báo lỗi sớm khi thiếu cache ASR."""
     if source == "gold":
         return GoldTranscriber()
     if source not in TRANSCRIPT_SOURCES:
@@ -232,8 +267,14 @@ def build_sample(
     result: BuildResult,
     inject_error: bool = False,
 ) -> None:
-    """Append one row (or one dropped entry) for `sample` to `result`. With `inject_error`, the first call that has
-    a required argument is preceded by the same call without it and the guard's error turn (see `Augment`)."""
+    """Thêm một dòng (hoặc một mục bị bỏ) cho `sample` vào `result`.
+
+    Luồng xử lý: dựng prompt bằng `builder.start`, rồi phát lại từng lời gọi gold qua env mới, nối lượt assistant
+    (lời gọi) và lượt user (`KẾT QUẢ: ...`), kết thúc bằng `DONE_TEXT`. Mẫu bị bỏ khi lộ app held-out,
+    khi `ask_missing_info` không phải lời gọi cuối, hoặc khi vượt `max_model_len` token.
+
+    Với `inject_error`, lời gọi đầu tiên có tham số bắt buộc được đặt sau chính lời gọi đó nhưng thiếu tham số,
+    kèm lượt báo lỗi của guard (xem `Augment`)."""
     label = sample.label or {}
     calls: list[dict[str, Any]] = list(label.get("tool_calls") or [])
     gold_results: list[Any] = list(label.get("tool_results") or [])
@@ -246,32 +287,35 @@ def build_sample(
     if ask_at and ask_at[0] != len(calls) - 1:
         result.dropped.append((sample.id, "ask_missing_info_not_last"))
         return
-    env = loader.open_env(sample.id)
+    env = loader.open_env(sample.id)  # env mới cho từng mẫu: trạng thái không rò từ mẫu trước
     no_loss: list[int] = []
     for i, call in enumerate(calls):
         name, arguments = str(call["name"]), dict(call.get("arguments") or {})
+        # Chỉ chèn một lời gọi lỗi cho mỗi mẫu (no_loss rỗng), và không chèn trước ask_missing_info.
         if inject_error and not no_loss and name != ASK_TOOL:
+            # Thử bỏ lần lượt từng tham số; tham số đầu tiên khiến guard từ chối được dùng làm lỗi.
             for key in arguments:
                 faulty = {k: v for k, v in arguments.items() if k != key}
                 verdict = env.validate(name, copy.deepcopy(faulty))
                 if not verdict.get("ok"):
-                    no_loss.append(len(conv.as_list()))
+                    no_loss.append(len(conv.as_list()))  # vị trí lượt assistant lỗi sắp thêm
                     conv.append_assistant(call_text(name, faulty), 0)
                     conv.append_user(BLOCK_PREFIX + str(verdict.get("error")))
                     break
         conv.append_assistant(call_text(name, arguments), 0)
         replayed = env.call(name, copy.deepcopy(arguments))
+        # Kết quả phát lại mới là thứ model thấy lúc chạy; lệch với gold chỉ ghi cảnh báo, không bỏ mẫu.
         if i >= len(gold_results) or canonical_json(replayed) != canonical_json(gold_results[i]):
             log.warning("sft_replay_mismatch", id=sample.id, call=i, name=name)
             result.replay_warnings.append({"id": sample.id, "call": i, "name": name})
         if name == ASK_TOOL:
-            break  # run time stops right after ask_missing_info (StopReason.ASKED): no result turn, no done
+            break  # lúc chạy dừng ngay sau ask_missing_info (StopReason.ASKED): không có lượt kết quả, không có done
         conv.append_user(RESULT_PREFIX + truncate_result(replayed, max_result_chars))
-    else:
+    else:  # vòng for chạy hết không gặp break: thêm lượt kết thúc
         conv.append_assistant(DONE_TEXT, 0)
     messages = conv.as_list()
     for k in no_loss:
-        messages[k]["loss"] = False  # sft.build_labels trains no token of this turn
+        messages[k]["loss"] = False  # sft.build_labels không train token nào của lượt này
     n_tokens = counter.count(messages)
     if n_tokens > max_model_len:
         result.dropped.append((sample.id, f"too_long:{n_tokens}>{max_model_len}"))
@@ -306,10 +350,13 @@ def build_rows(
     index: CatalogIndex | None = None,
     held_out: frozenset[str] = frozenset(),
 ) -> BuildResult:
-    """Rows for every sample in order; one fresh env per sample from `loader`. `augment` applies only in train
-    mode (eval files stay plain); distractors need `index`."""
+    """Dựng dòng cho mọi mẫu theo thứ tự; mỗi mẫu một env mới từ `loader`.
+
+    `augment` chỉ áp dụng ở train mode (file eval giữ nguyên dạng thô); thêm app gây nhiễu cần `index`.
+    Thứ tự áp dụng: lọc gần trùng, thêm app gây nhiễu, dựng mẫu (có thể chèn lỗi), rồi nhân bản mẫu khó.
+    """
     transcriber = transcriber if transcriber is not None else _transcriber(transcript_source)
-    aug = augment if (augment is not None and train_mode) else Augment()
+    aug = augment if (augment is not None and train_mode) else Augment()  # Augment() mặc định = không tăng cường
     result = BuildResult()
     for original in dedup_clusters(samples, aug.dedup_max_k):
         sample = original
@@ -329,7 +376,7 @@ def build_rows(
             result=result,
             inject_error=_frac(aug.seed, "error", sample.id) < aug.error_recovery_ratio,
         )
-        if len(result.rows) > n_before:
+        if len(result.rows) > n_before:  # mẫu được giữ: nhân bản dòng vừa thêm nếu là mẫu khó
             row = result.rows[-1]
             result.rows.extend(
                 {**row, "copy": c + 1} for c in range(hard_copies(sample, aug.oversample_hard, aug.seed))
@@ -338,7 +385,7 @@ def build_rows(
 
 
 def eval_ids(repo_root: Path) -> set[str]:
-    """Ids of val_seen and val_unseen."""
+    """Tập id của val_seen và val_unseen, dùng để chặn rò dữ liệu eval vào train."""
     out: set[str] = set()
     for rel in EVAL_ID_FILES:
         p = repo_root / rel
@@ -348,7 +395,7 @@ def eval_ids(repo_root: Path) -> set[str]:
 
 
 def write_jsonl(path: Path, rows: Sequence[dict[str, Any]]) -> None:
-    """Write rows as jsonl via a temp file, fsync and rename."""
+    """Ghi các dòng thành jsonl qua file tạm, fsync rồi đổi tên, để file đích không bao giờ ghi dở."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
@@ -362,7 +409,11 @@ def write_jsonl(path: Path, rows: Sequence[dict[str, Any]]) -> None:
 def write_outputs(
     out: Path, result: BuildResult, *, ids: Sequence[str], argv: Sequence[str], repo_root: Path, extra: dict[str, Any]
 ) -> dict[str, Any]:
-    """Write `<out>`, `<out>.dropped.txt` and `<out>.meta.json`; return the meta dict."""
+    """Ghi `<out>`, `<out>.dropped.txt` và `<out>.meta.json`; trả về dict meta.
+
+    Meta chứa sha256 của file, argv, phiên bản mã, danh sách id, thống kê lý do bỏ mẫu, cảnh báo phát lại và
+    phân bố mức thu gọn prompt, cộng thêm các khóa trong `extra`.
+    """
     write_jsonl(out, result.rows)
     dropped_path = Path(f"{out}.dropped.txt")
     dropped_path.write_text("".join(f"{i}\t{r}\n" for i, r in result.dropped), encoding="utf-8")
@@ -387,7 +438,7 @@ def write_outputs(
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    """CLI arguments."""
+    """Đọc tham số dòng lệnh."""
     ap = argparse.ArgumentParser(prog="python -m lifemate.train.sft_data", description="Build SFT data (SPEC 6.2.1).")
     ap.add_argument("--config", required=True, type=Path, help="train config TOML (configs/train/llm_v1.toml)")
     ap.add_argument("--env", default="local", help="env profile name or path")
@@ -408,7 +459,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def run(args: argparse.Namespace, repo_root: Path = REPO_ROOT, argv: Sequence[str] | None = None) -> dict[str, Any]:
-    """Build one SFT file from parsed arguments; returns the meta dict."""
+    """Dựng một file SFT từ tham số đã đọc; trả về dict meta.
+
+    Từ chối id thuộc val_seen/val_unseen trừ khi có `--allow-eval` (khi đó tắt train mode và tăng cường).
+    """
     cfg: LLMTrainConfig = load_llm_train_config(abs_path(args.config, repo_root))
     run_cfg = load_run_config(abs_path(cfg.base.run_config, repo_root))
     profile = load_profile(args.env, repo_root).with_overrides(root=args.root)
@@ -417,15 +471,16 @@ def run(args: argparse.Namespace, repo_root: Path = REPO_ROOT, argv: Sequence[st
     leaked = sorted(set(ids) & eval_ids(repo_root))
     if leaked and not args.allow_eval:
         raise SystemExit(f"refusing: {len(leaked)} ids are in val_seen/val_unseen (e.g. {leaked[:3]}); --allow-eval")
-    train_mode = not args.allow_eval  # SPEC 4.5: held-out rule only for train ids
+    train_mode = not args.allow_eval  # SPEC 4.5: quy tắc held-out chỉ áp dụng cho id train
     asr_cache = abs_path(args.asr_cache, repo_root) if args.asr_cache else None
-    transcriber = _transcriber(args.transcript_source, asr_cache, args.asr_ratio, args.mix_seed)  # fail fast
+    # Báo lỗi sớm, trước khi tải dữ liệu.
+    transcriber = _transcriber(args.transcript_source, asr_cache, args.asr_ratio, args.mix_seed)
     counter = make_counter(cfg.base.model, cfg.base.revision)
     index = CatalogIndex(load_catalog(root, args.split))
     builder = make_builder(run_cfg, repo_root, index, counter)
     samples = load_split(root, args.split, ids)
     order = {sid: i for i, sid in enumerate(ids)}
-    samples.sort(key=lambda s: order[s.id])
+    samples.sort(key=lambda s: order[s.id])  # giữ đúng thứ tự trong file id
     loader = ZaicLoader(root, args.split, EnvRegistry())
     result = build_rows(
         samples,
@@ -481,7 +536,7 @@ def run(args: argparse.Namespace, repo_root: Path = REPO_ROOT, argv: Sequence[st
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Entry point."""
+    """Điểm vào dòng lệnh."""
     meta = run(parse_args(argv), argv=argv)
     print(f"rows={meta['n_rows']} dropped={meta['n_dropped']} replay_warnings={meta['n_replay_warnings']}")
     return 0

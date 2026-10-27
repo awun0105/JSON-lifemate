@@ -1,6 +1,6 @@
 # configs/train/asr_v1.toml (mặc định ban đầu, chốt sau khi chọn model ASR) — SPEC 6.4.3
 [base]
-model = "vinai/PhoWhisper-medium"       # cùng model với [asr] của configs/v0.toml
+model = "vinai/PhoWhisper-medium"       # kế hoạch cũ: ASR lúc chạy đã đổi sang whisper-large-v3 (CT2) từ 28/10, xem SPEC 6.4
 revision = "55a7e3eb6c906de891f8f06a107754427dd3be79"
 [data]
 train = "data/asr/v1.jsonl"

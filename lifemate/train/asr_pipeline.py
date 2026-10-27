@@ -1,7 +1,10 @@
-"""One command: ASR pairs → fine-tune → choose checkpoint by entity-miss rate → merge → measure (SPEC 6.4.5 item 6).
+"""Một lệnh: cặp ASR → fine-tune → chọn checkpoint theo tỉ lệ sót thực thể → gộp → đo (SPEC 6.4.5 mục 6).
 
-Stage outputs live in `<work>/pipeline_progress.json`; `--from-stage` resumes. Train, select, merge and measure need
-the GPU extras and are not run in tests.
+Kết quả từng giai đoạn nằm trong `<work>/pipeline_progress.json`; `--from-stage` để chạy tiếp. Các giai đoạn train,
+select, merge và measure cần gói phụ GPU và không chạy trong test.
+
+Cách xây dựng: các giai đoạn data→train→select→merge→measure là hàm `stage_*(ctx, state)` ghi kết quả vào dict
+`state`; `run_pipeline` lưu state nguyên tử sau mỗi giai đoạn nên có thể dừng và chạy lại từ bất kỳ giai đoạn nào.
 """
 
 from __future__ import annotations
@@ -28,7 +31,7 @@ STAGES = ("data", "train", "select", "merge", "measure")
 
 @dataclass(frozen=True, slots=True)
 class ASRPipelineContext:
-    """Paths and options shared by every stage."""
+    """Đường dẫn và tùy chọn dùng chung cho mọi giai đoạn."""
 
     repo_root: Path
     config_path: Path
@@ -41,17 +44,17 @@ class ASRPipelineContext:
 
     @property
     def state_path(self) -> Path:
-        """Where stage outputs are remembered (same layout as llm_pipeline)."""
+        """Nơi ghi nhớ kết quả các giai đoạn (cùng bố cục với llm_pipeline)."""
         return self.work_dir / "pipeline_progress.json"
 
     def val_file(self, split: str) -> Path:
-        """`data/asr/<v>_<split>.jsonl` next to the train file."""
+        """`data/asr/<v>_<split>.jsonl` cạnh file train."""
         train = abs_path(self.cfg.data.train, self.repo_root)
         return train.with_name(f"{train.stem}_{split}{train.suffix}")
 
 
 def stage_data(ctx: ASRPipelineContext, state: dict[str, Any]) -> None:
-    """Train pairs from configs/splits/train.txt; val_unseen and val_seen pairs for measurement only."""
+    """Cặp train từ configs/splits/train.txt; cặp val_unseen và val_seen chỉ dùng để đo."""
     jobs = [(abs_path(ctx.cfg.data.train, ctx.repo_root), "configs/splits/train.txt", False)]
     jobs += [(ctx.val_file(s), f"configs/splits/{s}.txt", True) for s in ("val_seen", "val_unseen")]
     out: dict[str, Any] = {}
@@ -64,7 +67,7 @@ def stage_data(ctx: ASRPipelineContext, state: dict[str, Any]) -> None:
 
 
 def stage_train(ctx: ASRPipelineContext, state: dict[str, Any]) -> None:
-    """Fine-tune; resumes from the latest checkpoint of an interrupted run."""
+    """Fine-tune; chạy tiếp từ checkpoint mới nhất nếu lần chạy trước bị ngắt."""
     out = ctx.work_dir / "asr"
     latest = CheckpointManager(out / "checkpoints").latest()
     asr.train(
@@ -79,6 +82,7 @@ def stage_train(ctx: ASRPipelineContext, state: dict[str, Any]) -> None:
 
 
 def _merged_or_raw(ctx: ASRPipelineContext, ckpt: CheckpointInfo) -> Path:
+    """Thư mục mô hình dùng được ngay: checkpoint gốc (full) hoặc bản gộp LoRA, có cache dưới `<work>/merged`."""
     if ctx.cfg.method.kind != "lora":
         return ckpt.path
     out = ctx.work_dir / "merged" / ckpt.path.name
@@ -88,7 +92,7 @@ def _merged_or_raw(ctx: ASRPipelineContext, ckpt: CheckpointInfo) -> Path:
 
 
 def stage_select(ctx: ASRPipelineContext, state: dict[str, Any]) -> None:
-    """Score every kept checkpoint on val_unseen pairs; choose by entity-miss rate then WER."""
+    """Chấm mọi checkpoint còn giữ trên cặp val_unseen; chọn theo tỉ lệ sót thực thể rồi WER."""
     mgr = CheckpointManager(ctx.work_dir / "asr" / "checkpoints", metric_name=asr.EVAL_METRIC)
     rows = read_jsonl(ctx.val_file("val_unseen"))
     split_dir = ctx.data_root / ctx.data_split
@@ -102,14 +106,15 @@ def stage_select(ctx: ASRPipelineContext, state: dict[str, Any]) -> None:
 
 
 def stage_merge(ctx: ASRPipelineContext, state: dict[str, Any]) -> None:
-    """Merge the chosen checkpoint (LoRA) or keep it as is (full)."""
+    """Gộp checkpoint đã chọn (LoRA) hoặc giữ nguyên (full)."""
     path = Path(state["select"]["chosen"])
     state["merge"] = {"model": str(_merged_or_raw(ctx, CheckpointInfo(path, state["select"]["step"], None)))}
 
 
 def stage_measure(ctx: ASRPipelineContext, state: dict[str, Any]) -> None:
-    """WER / entity-miss rate of the final model on val_seen and val_unseen; written to <work>/measure.json."""
+    """WER / tỉ lệ sót thực thể của mô hình cuối trên val_seen và val_unseen; ghi vào <work>/measure.json."""
     model = Path(state["merge"]["model"])
+    # Bản gộp LoRA có sẵn processor; bản full thì lấy processor lưu lúc train.
     processor = model if (model / "preprocessor_config.json").is_file() else ctx.work_dir / "asr" / "processor"
     result: dict[str, Any] = {}
     for split in ("val_seen", "val_unseen"):
@@ -130,20 +135,21 @@ STAGE_FUNCS: dict[str, Callable[[ASRPipelineContext, dict[str, Any]], None]] = {
 
 
 def run_pipeline(ctx: ASRPipelineContext, *, from_stage: str = STAGES[0], to_stage: str = STAGES[-1]) -> dict[str, Any]:
-    """Run stages `from_stage..to_stage`, saving state after each."""
+    """Chạy các giai đoạn `from_stage..to_stage`, lưu state sau mỗi giai đoạn."""
     state: dict[str, Any] = {}
     if ctx.state_path.is_file():
         state = dict(json.loads(ctx.state_path.read_text(encoding="utf-8")))
     for stage in STAGES[STAGES.index(from_stage) : STAGES.index(to_stage) + 1]:
         log.info("asr_pipeline_stage_start", stage=stage, name=ctx.name)
         STAGE_FUNCS[stage](ctx, state)
+        # Đưa giai đoạn vừa xong xuống cuối danh sách, không lặp tên.
         state["done"] = [*[s for s in state.get("done", []) if s != stage], stage]
         write_json_atomic(ctx.state_path, state)
     return state
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    """CLI arguments."""
+    """Tham số dòng lệnh."""
     ap = argparse.ArgumentParser(prog="python -m lifemate.train.asr_pipeline", description="ASR pipeline (6.4).")
     ap.add_argument("--config", required=True, type=Path, help="configs/train/asr_vN.toml")
     ap.add_argument("--env", default="local")
@@ -155,7 +161,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def make_context(args: argparse.Namespace, repo_root: Path = REPO_ROOT) -> ASRPipelineContext:
-    """Context from CLI arguments."""
+    """Tạo context từ tham số dòng lệnh."""
     config_path = abs_path(args.config, repo_root)
     cfg = asr.load_asr_train_config(config_path)
     profile = load_profile(args.env, repo_root)
@@ -167,7 +173,7 @@ def make_context(args: argparse.Namespace, repo_root: Path = REPO_ROOT) -> ASRPi
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Entry point."""
+    """Điểm vào CLI."""
     args = parse_args(argv)
     ctx = make_context(args)
     state = run_pipeline(ctx, from_stage=args.from_stage, to_stage=args.to_stage)

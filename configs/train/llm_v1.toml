@@ -27,6 +27,7 @@ target_modules = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj"
 [train]
 lr = 2e-4
 lr_scheduler = "cosine"
+tuner_backend = "peft"      # ms-swift --tuner_backend: peft (mặc định) hoặc unsloth (nhanh hơn trên T4, cần cài unsloth)
 warmup_ratio = 0.05
 epochs = 3
 batch_size = 1

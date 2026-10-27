@@ -1,4 +1,8 @@
-"""T4, T13: output parser and per-sample schema (SPEC 4.7)."""
+"""T4, T13: kiểm tra bộ phân tích đầu ra của mô hình và schema đầu ra theo từng mẫu (SPEC 4.7).
+
+Cách kiểm tra: gọi trực tiếp `parse`, `call_text`, `output_schema`, `schema_json` trên các chuỗi viết tay
+(GOOD là đầu ra hợp lệ, BAD là đầu ra hỏng). Không dùng fake, không cần dữ liệu cuộc thi hay tokenizer.
+"""
 
 from __future__ import annotations
 
@@ -36,30 +40,34 @@ BAD = [
 
 @pytest.mark.parametrize(("text", "want"), GOOD)
 def test_parse_good(text: str, want: Action) -> None:
+    """Đầu ra hợp lệ (kể cả có khoảng trắng, chữ xung quanh hoặc khối ```json) được phân tích đúng thành Action."""
     assert parse(text) == want
 
 
 @pytest.mark.parametrize("text", BAD)
 def test_parse_bad_never_raises(text: str) -> None:
-    """T4: broken output gives ParseError, never an exception or an Action."""
+    """T4: đầu ra hỏng trả về ParseError giữ nguyên chuỗi gốc, không bao giờ ném ngoại lệ hay trả Action."""
     got = parse(text)
     assert isinstance(got, ParseError)
     assert got.raw == text
 
 
 def test_round_trip_texts() -> None:
+    """Chuỗi do DONE_TEXT và call_text sinh ra phân tích ngược lại đúng Action ban đầu, kể cả ký tự tiếng Việt."""
     assert parse(DONE_TEXT) == Action("done", None, None)
     assert parse(call_text("a.b", {"z": 1, "a": "ư"})) == Action("call", "a.b", {"z": 1, "a": "ư"})
 
 
 def test_output_schema() -> None:
-    """T13: names sorted, sys tool once, same tool set -> same schema string."""
+    """T13: tên tool được sắp xếp, tool sys chỉ xuất hiện một lần, cùng tập tool thì cùng chuỗi schema."""
     schema = output_schema(["sms.send", "alarm.list", ASK_TOOL])
     names = schema["anyOf"][0]["properties"]["name"]["enum"]
     assert names == sorted(names) == ["alarm.list", "sms.send", ASK_TOOL]
+    # ASK_TOOL luôn được thêm vào dù danh sách đầu vào không có.
     assert output_schema(["b.x"])["anyOf"][0]["properties"]["name"]["enum"] == ["b.x", ASK_TOOL]
     assert schema_json(("sms.send", "alarm.list")) == schema_json(["alarm.list", "sms.send", ASK_TOOL])
     assert schema_json(["sms.send"]) != schema_json(["alarm.list"])
+    # Nhánh thứ hai của anyOf là hành động "done", không cho thêm trường lạ.
     assert schema["anyOf"][1] == {
         "type": "object",
         "properties": {"action": {"const": "done"}},

@@ -26,14 +26,14 @@ Cho một yêu cầu bằng giọng nói tiếng Việt, agent phải gọi đú
 | Thành phần | Trạng thái | Bằng chứng |
 |---|---|---|
 | Đề bài, EDA, hướng làm | Có | `docs/overview.md`, `docs/eda.md`, `docs/approach.md` |
-| Chia dữ liệu | Có | `lifemate/eval/make_splits.py`, `configs/splits/`: train 1098, val_seen 193, val_unseen 254 |
+| Chia dữ liệu | **Đổi 28/10/2026** theo team lead | `lifemate/eval/make_splits.py`: 6 app giữ lại tách trước, 5 fold theo cụm câu gần trùng; train 1093, val_seen 274, val_unseen 178, kiểm tra rò rỉ bằng 0. `configs/splits/` không có trong git, sinh bằng `make splits` |
 | Bộ chấm local | Có | `lifemate/eval/score.py`: gold được 100, toàn `[]` được 7,18 |
-| Agent v0 (`lifemate/`), CLI, hạ tầng đo | **Có, 27/10/2026** | 171 test pass; FakeLLM qua CLI được 100,00 (strict và canon) trên `val_seen`, `val_unseen`; `configs/fake.toml` chạy không cần model |
-| Chọn model | **Đã chọn 27/10/2026** (mục 6.0, `approach.md` 5.5): Qwen3-4B-Instruct-2507 + PhoWhisper-medium, đã điền `configs/v0.toml`, `docker.toml`, `train/*.toml` | Chưa chạy thật model nào (không có GPU ở máy dev) |
+| Agent v0 (`lifemate/`), CLI, hạ tầng đo | **Có, 27/10/2026**; đã chạy thật trên Kaggle T4 với hạn 29 s | 211 test pass (28/10); FakeLLM qua CLI được 100,00 (strict và canon) trên `val_seen`, `val_unseen`; `configs/fake.toml` chạy không cần model |
+| Chọn model | **Đã chọn** (mục 6.0, `approach.md` 5.5): Qwen3-4B-Instruct-2507; ASR whisper-large-v3 bản CTranslate2 (đổi từ PhoWhisper-medium ngày 28/10 theo team lead) | Qwen3 và PhoWhisper đã chạy trên Kaggle T4; large-v3 chưa chạy |
 | vLLM thật | `VLLMBackend` viết theo API 0.32, **chỉ test với engine giả** (Q3) | |
-| ASR | `ASRTranscriber` + 3 engine (`hf_seq2seq`, `chunkformer`, `viegem`), `eval_asr.py`; **chưa chạy model thật** | Test với backend giả |
+| ASR | `ASRTranscriber` + 4 engine (`faster_whisper` mặc định, `hf_seq2seq`, `chunkformer`, `viegem`), bộ lọc ảo giác `asr_sanitizer.py`, `eval_asr.py` | PhoWhisper đo trên Kaggle (WER 29,1%); large-v3 chỉ test với module giả |
 | Docker | Dockerfile, entrypoint, `configs/docker.toml`, smoke script; **chưa build** | `docs/docker.md` |
-| Fine-tune | Khung có (`lifemate/train/`), 4 notebook train, `ops/requirements/train.txt`; `sft_data` và `asr_data` đã chạy trên dữ liệu thật; **train/merge chưa chạy** | `approach.md` 5.5.2 ghi kế hoạch và thứ tự |
+| Fine-tune | LLM train bằng ms-swift 4.6.0 (`swift_sft.py`, 28/10); dữ liệu trộn 70% chữ ASR, 3% mẫu phục hồi lỗi; template ms-swift đã so khớp với chat template trên 60 mẫu thật; `sft_data` và `asr_data` đã chạy trên dữ liệu thật; **train/merge chưa chạy** | `approach.md` 5.5.2 ghi kế hoạch và thứ tự |
 | Môi trường | Profile local/kaggle/colab/rented/runpod/docker, notebook run và train, `ops/scripts/runpod_setup.sh` | Chỉ profile local đã chạy |
 | Báo cáo | `lifemate/run/report.py` (`make report`, `make report-train`) | Test với dữ liệu giả |
 
@@ -126,6 +126,7 @@ lifemate/                 # code, chia theo vai trò; mỗi gói 2–7 module
 │   ├── jsonutil.py       # canonical_json(): mọi JSON ảnh hưởng tới tính tất định đi qua đây
 │   ├── envinfo.py        # nhận GPU, chọn dtype, lấy phiên bản code và gói (4.16)
 │   ├── tokens.py         # TokenCounter dùng tokenizer của model (CPU)
+│   ├── textsim.py        # gom câu gần trùng (difflib), dùng cho chia dữ liệu và lọc dữ liệu fine-tune
 │   └── paths.py          # REPO_ROOT, định nghĩa một lần
 ├── agent/                # vòng lặp suy luận, không biết gì về file hay GPU
 │   ├── agent.py          # A6: Agent.run(sample, env) -> SampleResult
@@ -137,7 +138,8 @@ lifemate/                 # code, chia theo vai trò; mỗi gói 2–7 module
 │   └── observers.py      # A10: AgentObserver, Tracer, NullObserver
 ├── backends/             # model thật và giả, sau Protocol LLMBackend / Transcriber
 │   ├── llm.py            # A5: VLLMBackend, FakeLLM
-│   └── asr.py            # A2: GoldTranscriber, ASRTranscriber, ASR_ENGINES (hf_seq2seq, chunkformer, viegem)
+│   ├── asr.py            # A2: GoldTranscriber, ASRTranscriber, ASR_ENGINES (faster_whisper, hf_seq2seq, chunkformer, viegem)
+│   └── asr_sanitizer.py  # lọc câu ảo giác và vòng lặp của Whisper, kiểm tra giữ thực thể (theo team lead)
 ├── io/                   # đọc dữ liệu thi, ghi kết quả
 │   ├── data.py           # A1: đọc <split>.jsonl thành Sample
 │   ├── zaic.py           # nạp zaic_tools đúng split, tạo ToolEnv (một lần mỗi mẫu)
@@ -152,16 +154,17 @@ lifemate/                 # code, chia theo vai trò; mỗi gói 2–7 module
 ├── eval/                 # chấm điểm và chia dữ liệu (script, ngoài mypy strict)
 │   ├── score.py          # `python -m lifemate.eval.score` (mục 4.15)
 │   ├── make_splits.py    # sinh configs/splits/ (mục 3)
+│   ├── audit.py          # rà từng lời gọi của một lần chạy so với nhãn (theo team lead)
 │   └── eval_asr.py       # WER, CER, tỉ lệ nghe sai thực thể (6.4.2)
-└── train/                # fine-tune: common, sft_data, sft, llm_pipeline, asr_data, asr, asr_pipeline (6.2, 6.4, 6.5)
+└── train/                # fine-tune: common, sft_data, sft, swift_sft (ms-swift), llm_pipeline, asr_cache, asr_data, asr, asr_pipeline (6.2, 6.4, 6.5)
 tests/                    # pytest, CPU; tests/train/ cho phần fine-tune
 configs/                  # mọi đầu vào cố định, có phiên bản
 ├── v0.toml  fake.toml  docker.toml
 ├── env/                  # local, kaggle, colab, rented, runpod, docker (4.16)
 ├── train/                # llm_v1.toml, asr_v1.toml
-├── prompts/system_v0.md
-└── splits/               # train, val_seen, val_unseen, smoke (.txt), meta.json
-docs/                     # SPEC, approach, overview, eda, CONTRIBUTING, docker, runpod, diagrams/ (mmd + png)
+├── prompts/              # system_v0.md, system_v1.md (đang dùng)
+└── splits/               # KHÔNG vào git: train, val_seen, val_unseen, smoke (.txt), folds/, meta.json; `make splits`
+docs/                     # SPEC, approach, overview, eda, CONTRIBUTING, docker, runpod, diagrams/ (png + src); slides/ không vào git
 ops/                      # vận hành: không có logic, chỉ gọi lifemate
 ├── docker/               # Dockerfile, Dockerfile.dockerignore, entrypoint.sh, smoke.sh (6.3)
 ├── notebooks/            # {kaggle,colab}_run.ipynb, {kaggle,colab}_train_{llm,asr}.ipynb
@@ -350,8 +353,8 @@ Mọi trường của catalog (`parameters`, `x-*`, `returns`) đều phải xu�
 
 **Quy tắc app bị rút (chế độ `train_mode`):** chỉ áp dụng khi dựng prompt cho mẫu thuộc `configs/splits/train.txt` (few-shot, dữ liệu fine-tune). Khi đó:
 
-1. Xóa 8 app trong `configs/splits/meta.json` → `held_out_apps` khỏi `installed_apps` trước khi gọi `render_tools`.
-2. **Bỏ hẳn mẫu** nếu `history` có lượt assistant gọi tool của app bị rút (A4). Đã đếm: 65 mẫu trong `configs/splits/train.txt` như vậy (ví dụ `train_0682`, `train_0732`). Nếu chỉ xóa khỏi tool docs thì model vẫn thấy `[đã gọi] medication.xxx(...)` trong lịch sử. `PromptBuilder.start(..., train_mode=True)` raise `HeldOutLeak`, và `sft_data.py` ghi id vào `data/sft/vN.dropped.txt` với lý do.
+1. Xóa 6 app trong `configs/splits/meta.json` → `held_out_apps` khỏi `installed_apps` trước khi gọi `render_tools`. Thiếu `meta.json` thì `read_held_out` báo lỗi, không coi là danh sách rỗng.
+2. **Bỏ hẳn mẫu** nếu `history` có lượt assistant gọi tool của app bị rút (A4), ví dụ `train_0655`. Nếu chỉ xóa khỏi tool docs thì model vẫn thấy `[đã gọi] medication.xxx(...)` trong lịch sử. `PromptBuilder.start(..., train_mode=True)` raise `HeldOutLeak`, và `sft_data.py` ghi id vào `data/sft/vN.dropped.txt` với lý do.
 
 Khi chạy đánh giá trên `val_seen` và `val_unseen` thì **không** áp dụng chế độ này.
 
@@ -714,10 +717,12 @@ guards = ["allowed_tool", "schema", "duplicate_write"]   # "after_ask" có sẵn
 
 [asr]
 backend = "gold"                       # "gold" | "asr" (sau v0)
-engine = "hf_seq2seq"                  # "hf_seq2seq" | "chunkformer" | "viegem": cách nạp model khi backend = "asr" (mục 6.1)
+engine = "faster_whisper"              # "faster_whisper" | "hf_seq2seq" | "chunkformer" | "viegem" (mục 6.1)
 dtype = "auto"                         # "auto" | "float32" | "float16" | "bfloat16"; auto: bf16 trên sm80+, fp16 trên GPU cũ, fp32 trên CPU
-model = "vinai/PhoWhisper-medium"      # bắt buộc khi backend = "asr" (mục 6.0)
-revision = ""
+model = "Systran/faster-whisper-large-v3"   # bắt buộc khi backend = "asr" (mục 6.0)
+revision = "edaa852ec7e145841d8ffdb056a99866b5f0a478"
+sanitize = true                        # lọc câu ảo giác bằng lifemate/backends/asr_sanitizer.py
+# generate_kwargs: beam 5, best_of 5, temperature 0, VAD, condition_on_previous_text = false, câu mồi (xem configs/v0.toml)
 ```
 
 ### 4.15. Sửa bộ chấm `lifemate/eval/score.py`
@@ -869,20 +874,21 @@ Mỗi test ghi rõ ba ý: **bảo vệ** điều gì, **bắt lỗi** khi nào, 
 | Chạy được | vLLM bản đã khóa, trên cả T4 (fp16) và sm80+ (bf16); có chat template | Chạy offline trong Docker, giải mã greedy |
 | Tiếng Việt | Hiểu tiếng Việt, kể cả câu xen tiếng Anh | Nhận dạng tiếng Việt, kể cả từ tiếng Anh xen kẽ |
 
-**Đã chọn** (lý do và kế hoạch fine-tune ở `approach.md` mục 5.5): LLM `Qwen/Qwen3-4B-Instruct-2507` (4,02B, Apache-2.0, không có chế độ thinking), ASR `vinai/PhoWhisper-medium` (0,77B, BSD-3, `engine = "hf_seq2seq"`). Tổng 4,79B. Đã điền `model` và `revision` vào `configs/v0.toml`, `configs/docker.toml` (đường dẫn `/app/models/*`) và `configs/train/*.toml`. Ứng viên A/B: `Qwen/Qwen3.5-4B`; ASR `chunkformer` và `viegem` (hai engine tùy chọn trong `lifemate/backends/asr.py`, extras `asr-chunkformer` / `asr-viegem`, giấy phép phi thương mại cần BTC xác nhận).
+**Đã chọn** (lý do và kế hoạch fine-tune ở `approach.md` mục 5.5): LLM `Qwen/Qwen3-4B-Instruct-2507` (4,02B, Apache-2.0, không có chế độ thinking), ASR `Systran/faster-whisper-large-v3` (1,55B, MIT, `engine = "faster_whisper"`, từ 28/10/2026 theo team lead; trước đó là `vinai/PhoWhisper-medium` 0,77B, BSD-3, `engine = "hf_seq2seq"`). Tổng 5,57B. Đã điền `model` và `revision` vào `configs/v0.toml`, `configs/docker.toml` (đường dẫn `/app/models/*`) và `configs/train/*.toml`. Ứng viên A/B: `Qwen/Qwen3.5-4B`; ASR `chunkformer` và `viegem` (hai engine tùy chọn trong `lifemate/backends/asr.py`, extras `asr-chunkformer` / `asr-viegem`, giấy phép phi thương mại cần BTC xác nhận).
 
 **Trước khi chọn LLM, v0 vẫn làm được:** mọi việc trừ #4 (VLLMBackend chạy thật) và #8 (chạy v0 trên Kaggle) đều không cần model. `config.py` báo lỗi rõ ràng nếu `llm.backend = "vllm"` mà `model` còn trống.
 
 ### 6.1. ASR (A2, A3, B5)
 
-- `ASRTranscriber` cài theo interface `Transcriber`. Model được nạp qua `[asr].engine` (`ASR_ENGINES` trong `asr.py`): `hf_seq2seq` (transformers pipeline, dùng cho PhoWhisper), `chunkformer` (gói `chunkformer`, CTC), `viegem` (code trong snapshot `5CD-AI/VieGem-ASR`, CTC). Engine mới chỉ cần một class có `transcribe_batch` và `warmup` rồi đăng ký vào `ASR_ENGINES`.
+- `ASRTranscriber` cài theo interface `Transcriber`. Model được nạp qua `[asr].engine` (`ASR_ENGINES` trong `asr.py`): `faster_whisper` (CTranslate2, mặc định, whisper-large-v3), `hf_seq2seq` (transformers pipeline, dùng cho PhoWhisper), `chunkformer` (gói `chunkformer`, CTC), `viegem` (code trong snapshot `5CD-AI/VieGem-ASR`, CTC). Engine mới chỉ cần một class có `transcribe_batch` và `warmup` rồi đăng ký vào `ASR_ENGINES`.
 - Chạy chung GPU với vLLM. **Thứ tự nạp (B2):** nạp vLLM trước với `gpu_memory_utilization` đã chừa chỗ cho ASR (vLLM tính tỉ lệ trên tổng VRAM lúc khởi động), nạp ASR sau, rồi warm-up cả hai. `Runner` đo VRAM còn trống sau khi nạp xong và ghi vào `config.json`; ASR hết chỗ thì báo lỗi ngay, không chạy mẫu nào.
 - Chép chữ cho **mọi** lượt user trong history, tối đa 13 file mỗi mẫu. Thời gian ASR tính vào 30 giây.
 - Tổng thời lượng audio mỗi mẫu (đo 27/10/2026): train p50 13 s, p95 41 s, max 69 s; public p50 13 s, p95 40 s, max 83 s (11 file).
 - **Cách chạy ASR:**
   1. Gom mọi file audio **của cùng một mẫu** (lượt cuối và các lượt user trong history) vào một batch, theo thứ tự cố định: `_u1, _u2, …`, rồi lượt cuối. Batch có thể nhỏ hơn số file nếu GPU không đủ bộ nhớ, nhưng cách chia phải cố định theo thứ tự đó.
   2. **Không** gom file của nhiều mẫu khác nhau, **không** chạy ASR trước cho cả split rồi mới chạy agent. Mỗi mẫu đi trọn ASR → agent → ghi kết quả rồi mới sang mẫu sau (quyết định S5).
-  3. Giải mã greedy (`temperature = 0`, `beam_size = 1`), cố định seed.
+  3. Giải mã tất định (`temperature = 0`), cố định seed. Bản large-v3 dùng beam 5 theo team lead (`generate_kwargs` trong `configs/v0.toml`); cần đo thời gian trên T4.
+  3a. **Lọc ảo giác** (`sanitize = true`): cắt câu kiểu phụ đề YouTube và vòng lặp từ; lượt lịch sử chỉ toàn ảo giác thành chuỗi rỗng. Chữ số chỉ bị gộp khi lặp từ 8 lần để giữ số điện thoại. Kiểm tra trên 5036 câu `audio_text`: không câu nào bị đổi.
   4. Chỉ khi đo thấy ASR quá chậm mới tính đến việc bỏ bớt các lượt user cũ. Khi đó vẫn giữ `text` và `tool_calls` của các lượt assistant để giữ ngữ cảnh.
 - **Đo trước khi chọn model ASR:** chạy trên 3 mẫu có tổng audio dài nhất của train và public, ghi thời gian ASR và tổng thời gian mỗi mẫu. Trên GPU sm80+, tổng thời gian mỗi mẫu phải ≤ 25 s.
 - **Normalizer (A3): không làm (quyết định 27/10/2026).** Đo trên Kaggle (30 mẫu smoke): `audio_text` của BTC viết số bằng chữ số ("8 giờ kém 15", "30 phần trăm", "126 triệu"), còn PhoWhisper viết bằng chữ ("tám giờ kém mười lăm", "ba mươi phần trăm"). BTC không chấm chữ ASR, chỉ chấm tool call và trạng thái cuối, nên **giữ nguyên chữ ASR nghe ra** và cho LLM học trên chính chữ đó (LLM v2, `transcript_source = "asr"`, mục 6.2.1). LLM tự đổi số theo quy tắc trong system prompt. Không đổi chữ ASR về dạng `audio_text` trước khi đưa vào LLM.
@@ -909,8 +915,8 @@ uv run python -m lifemate.train.sft_data --config configs/train/llm_v1.toml --en
 
 **Quy tắc dựng một mẫu, phải giống hệt lúc chạy thật:**
 
-1. Dựng prompt bằng đúng `PromptBuilder` và `system_v0.md` của lúc chạy. Sau đó, **xóa 8 app bị rút** (`configs/splits/meta.json` → `held_out_apps`) khỏi `installed_apps` trước khi render tool docs (mục 4.5).
-2. Transcript lấy từ `audio_text` (mặc định, `transcript_source = "gold"`, dùng cho LLM v1). Tùy chọn `"asr"`: dùng chữ do ASR nghe ra. **Bản LLM dùng để nộp phải học trên `"asr"`** (LLM v2), vì lúc chấm LLM chỉ thấy chữ ASR, và chữ ASR khác `audio_text` cả ở lỗi nghe lẫn cách viết số (mục 6.1). Đổi ASR (model, dtype hay fine-tune) thì phải dựng lại dữ liệu và train lại LLM v2.
+1. Dựng prompt bằng đúng `PromptBuilder` và prompt hệ thống của lúc chạy (`agent.system_prompt`). Sau đó, **xóa 6 app giữ lại** (`configs/splits/meta.json` → `held_out_apps`) khỏi `installed_apps` trước khi render tool docs (mục 4.5).
+2. Transcript: `transcript_source = "mix"` (mặc định của `llm_v1.toml` từ 28/10, theo team lead) lấy chữ ASR cho 70% mẫu (chọn theo hash của id) và `audio_text` cho phần còn lại; mẫu ASR rỗng hoặc làm mất tên, số của đáp án thì dùng `audio_text`. Chữ ASR đọc từ cache dựng một lần bằng `python -m lifemate.train.asr_cache` (cần GPU). Các lựa chọn khác: `"gold"` (chỉ `audio_text`), `"asr"` (chỉ chữ ASR). **Bản LLM dùng để nộp phải học trên `"asr"`** (LLM v2), vì lúc chấm LLM chỉ thấy chữ ASR, và chữ ASR khác `audio_text` cả ở lỗi nghe lẫn cách viết số (mục 6.1). Đổi ASR (model, dtype hay fine-tune) thì phải dựng lại dữ liệu và train lại LLM v2.
 3. Với mỗi call `i` trong `label.tool_calls`:
    - Thêm lượt assistant với nội dung `canonical_json({"action":"call","name":...,"arguments":...})`.
    - Thêm lượt user `KẾT QUẢ: ...`. Kết quả này lấy bằng cách **phát lại call qua `zaic_tools`**, không chép từ `label.tool_results`, để khớp từng byte với lúc chạy thật. Sau đó cắt theo `max_result_chars` giống hệt mục 4.10. Nếu kết quả phát lại khác `label.tool_results[i]` thì ghi cảnh báo kèm id.
@@ -919,12 +925,13 @@ uv run python -m lifemate.train.sft_data --config configs/train/llm_v1.toml --en
    - Ngược lại: thêm lượt assistant `{"action":"done"}`.
    - Mẫu gold `[]`: chỉ có một lượt assistant `{"action":"done"}`.
 5. Đếm token bằng `HFTokenCounter` của model gốc. Mẫu vượt `max_model_len` thì bỏ, ghi id vào `data/sft/v1.dropped.txt`.
+6. **Tăng cường, chỉ cho tập train** (`sft_data.Augment`, theo team lead): `error_recovery_ratio` (mặc định 0,03) thêm trước lời gọi đúng một lời gọi thiếu tham số bắt buộc và câu lỗi thật của guard; lượt gọi sai mang `"loss": false`. Tắt mặc định: `oversample_hard` (nhân bản mẫu hỏi lại và nhãn rỗng), `distractor_apps` (thêm app đã cài gây nhiễu, không thêm vào mẫu nhãn rỗng, không bao giờ là app giữ lại), `dedup_max_k` (giữ tối đa k mẫu mỗi cụm câu gần trùng). File val không bị tăng cường.
 
 **Định dạng một dòng:**
 
 ```json
-{"id": "train_0874", "source": "train", "messages": [{"role": "system", "content": "..."}, ...],
- "n_tokens": 4210, "n_assistant_turns": 3}
+{"id": "train_0874", "source": "train", "category": "execute", "error_recovery": false,
+ "messages": [{"role": "system", "content": "..."}, ...], "n_tokens": 4210, "n_assistant_turns": 3}
 ```
 
 Đi kèm `data/sft/v1.meta.json`: sha256 của file, lệnh đã chạy, `code_version`, sha256 của prompt, danh sách id, số mẫu bị bỏ, số cảnh báo phát lại.
@@ -933,14 +940,15 @@ uv run python -m lifemate.train.sft_data --config configs/train/llm_v1.toml --en
 
 #### 6.2.2. Che loss
 
-- Chỉ tính loss trên token của các lượt **assistant**, gồm cả token kết thúc lượt của chat template. Không tính trên system, user, `KẾT QUẢ`.
+- Chỉ tính loss trên token của các lượt **assistant**, gồm cả token kết thúc lượt của chat template. Không tính trên system, user, `KẾT QUẢ`, và lượt assistant có `"loss": false` (lượt gọi sai của mẫu phục hồi lỗi).
+- ms-swift tự che loss theo cùng quy tắc. `sft.build_labels` (che loss bằng chat template của tokenizer, giống vLLM) là chuẩn để `swift_sft.check_template` so trước mỗi lần train.
 - Chat template render với cùng tham số như lúc chạy (quyết định S6). Qwen3-4B-Instruct-2507 không có chế độ thinking nên không cần `enable_thinking`; nếu A/B với Qwen3.5-4B thì truyền `enable_thinking=False` ở cả train và chạy.
 - Thiếu bước che loss thì model học thuộc mô tả tool và kết quả tool, làm hỏng khả năng đọc app lạ.
 
-#### 6.2.3. Script train (`lifemate/train/sft.py`)
+#### 6.2.3. Script train (`lifemate/train/swift_sft.py`, ms-swift)
 
 ```toml
-# configs/train/llm_v1.toml (các số là mặc định ban đầu, chốt sau v0)
+# configs/train/llm_v1.toml (theo team lead 28/10; chưa đo trên pipeline này)
 [base]
 model = "Qwen/Qwen3-4B-Instruct-2507"   # cùng model với [llm] của configs/v0.toml
 revision = "cdbee75f17c01a7cc42f958dc650907174af0554"
@@ -948,27 +956,37 @@ run_config = "configs/v0.toml"   # lấy prompt, max_result_chars, max_model_len
 [data]
 train = "data/sft/v1.jsonl"
 eval_seen = "data/sft/v1_val_seen.jsonl"      # dựng bằng cùng script, chỉ để đo loss, không train
-eval_unseen = "data/sft/v1_val_unseen.jsonl"
+eval_unseen = "data/sft/v1_val_unseen.jsonl"  # tập val duy nhất truyền cho ms-swift
+transcript_source = "mix"
+asr_ratio = 0.7
+asr_cache = "data/asr/train_asr.json"
+error_recovery_ratio = 0.03
+oversample_hard = 1.0
+distractor_apps = 0
+dedup_max_k = 0
 [lora]
-quant = "nf4"               # QLoRA 4-bit
-r = 16
-alpha = 32
+quant = "nf4"               # QLoRA 4-bit; "none" = LoRA 16-bit trên GPU >= 24 GB
+r = 32
+alpha = 64
 dropout = 0.0
 target_modules = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
 [train]
 lr = 2e-4
-epochs = 2
+lr_scheduler = "cosine"
+tuner_backend = "peft"      # ms-swift --tuner_backend: peft | unsloth
+warmup_ratio = 0.05
+epochs = 3
 batch_size = 1
-grad_accum = 8
-max_len = 16384
+grad_accum = 16
+max_len = 10240
 seed = 0
-eval_every_steps = 100
-save_every_steps = 100
+eval_every_steps = 50
+save_every_steps = 50
 ```
 
-- Train bằng Unsloth trên T4, fp16. `seed` cố định cho Python, NumPy, PyTorch và thứ tự trộn dữ liệu.
-- **Train tiếp được:** mỗi `save_every_steps` lưu checkpoint (adapter, optimizer, scheduler, trạng thái RNG, bước hiện tại) vào thư mục theo profile môi trường (mục 4.16). `--resume-from <checkpoint>` chạy tiếp đúng từ bước đó. Lý do: một phiên Kaggle chỉ kéo dài khoảng 9–12 giờ.
-- Mỗi `eval_every_steps` đo loss trên `eval_seen` và `eval_unseen`, ghi vào `metrics.jsonl`. Checkpoint được lưu trong callback eval, nên `save_every_steps` phải là bội số của `eval_every_steps` (config loader kiểm tra).
+- Train bằng ms-swift 4.6.0 (`swift sft`, `lifemate/train/swift_sft.py`), cùng công cụ với team lead; fp16 trên T4, bf16 trên sm80. `seed` cố định cho Python, NumPy, PyTorch và thứ tự trộn dữ liệu. Trước khi train, `check_template` so token và nhãn loss của ms-swift với chat template lúc chạy (vLLM) trên tối đa 20 mẫu, khác thì dừng. Tập val truyền cho ms-swift chỉ là `val_unseen`, vì ms-swift gộp nhiều tập val thành một loss. Trình train Unsloth cũ còn trong `sft.py`, đã comment lại.
+- **Train tiếp được:** ms-swift lưu `checkpoint-<step>/` mỗi `save_every_steps` (adapter, optimizer, scheduler, trạng thái RNG, `trainer_state.json`) vào thư mục theo profile môi trường (mục 4.16). Chạy lại thì `swift_sft.train` tự nối tiếp từ checkpoint mới nhất (`--no-resume` để chạy lại từ đầu). Lý do: một phiên Kaggle chỉ kéo dài khoảng 9–12 giờ.
+- Mỗi `eval_every_steps` đo loss trên `eval_unseen` (ms-swift gộp nhiều tập val thành một loss, nên chỉ truyền một tập). Loss nằm trong `trainer_state.json` của từng checkpoint. `save_every_steps` phải là bội số của `eval_every_steps` (config loader kiểm tra) để mỗi checkpoint có loss.
 
 **Chọn checkpoint:**
 
@@ -1036,10 +1054,12 @@ Chỉ đánh giá bằng agent thật trên 2 checkpoint, để hạn chế vi�
 - Điểm mất do ASR ≥ 3 điểm trên một trong hai bộ val. Ngưỡng 3 điểm này chốt lại sau khi biết độ dao động của điểm giữa các lần chạy.
 - Tỉ lệ nghe sai thực thể (bên dưới) ≥ 10%.
 
+> **Lưu ý 28/10/2026:** ASR lúc chạy đã đổi sang whisper-large-v3 bản CTranslate2, còn `configs/train/asr_v1.toml` vẫn là kế hoạch cho PhoWhisper-medium. Nếu fine-tune large-v3: train trên bản transformers `openai/whisper-large-v3` (1,55B, cần LoRA hoặc GPU ≥ 24 GB), rồi chuyển sang CTranslate2 bằng `ct2-transformers-converter` và trỏ `[asr].model` vào thư mục đó.
+
 #### 6.4.1. Dữ liệu (`lifemate/train/asr_data.py`)
 
 - Cặp `(file wav, audio_text)` gồm lượt cuối và **mọi lượt user trong history**.
-- Số cặp theo cách chia hiện tại (đo 27/10/2026): train **3547**, val_seen 624, val_unseen 865.
+- Số cặp theo cách chia hiện tại (28/10/2026): train **3593**, val_seen 916, val_unseen 527.
 - Chia theo **id mẫu**, đúng như `configs/splits/`. Mọi file audio của một mẫu thuộc `val_*` không bao giờ được dùng để train.
 - **Đích khi fine-tune ASR là `audio_text`**, vì đó là nhãn duy nhất có. Hệ quả: ASR sau fine-tune sẽ viết số theo kiểu BTC, khác ASR gốc. Vì LLM học trên chữ ASR (mục 6.1, 6.2.1), **sau mỗi lần fine-tune ASR phải dựng lại dữ liệu SFT bằng ASR mới và train lại LLM v2**. Đo bằng điểm agent, không chỉ WER, vì WER phạt cả khác biệt cách viết số mà BTC không chấm.
 - Dữ liệu ghi ra `data/asr/vN.jsonl` (`{"id","turn","audio","text","split"}`) kèm file meta giống mục 6.2.1. Audio không chép, chỉ ghi đường dẫn tương đối trong split.
@@ -1106,7 +1126,7 @@ save_every_steps = 200
 | `write_train_config()` | Ghi `train_config.json` gồm config, `EnvInfo` (mục 4.16), sha256 dữ liệu |
 | Đường dẫn | Lấy từ profile môi trường (mục 4.16); checkpoint ghi vào nơi được giữ lại sau phiên |
 
-Cả `sft.py` và `asr.py` dùng các thành phần này, không tự viết lại. Thêm `tests/train/` để kiểm tra `CheckpointManager` (lưu rồi nạp ra đúng bước và trạng thái RNG) và `seed_everything` (hai lần chạy cùng seed ra cùng số ngẫu nhiên).
+`asr.py` dùng các thành phần này. Fine-tune LLM dùng cơ chế checkpoint của ms-swift (`swift_sft.checkpoints`); trình train Unsloth cũ trong `sft.py` (đã comment lại) từng dùng chúng. Thêm `tests/train/` để kiểm tra `CheckpointManager` (lưu rồi nạp ra đúng bước và trạng thái RNG) và `seed_everything` (hai lần chạy cùng seed ra cùng số ngẫu nhiên).
 
 ---
 
@@ -1114,7 +1134,7 @@ Cả `sft.py` và `asr.py` dùng các thành phần này, không tự viết l�
 
 1. `uv run pytest` chạy hết 26 test ở mục 5 và đều đạt (hoặc skip có lý do theo đúng quy định ở mục 5), trên máy không có GPU. `ruff check`, `ruff format --check` và `mypy --strict lifemate/` không báo lỗi.
 2. T1 (FakeLLM) cho đúng **100,00** trên `val_seen` và trên `val_unseen`.
-3. Chạy v0 với vLLM trên `val_seen` (193 mẫu) và `val_unseen` (254 mẫu):
+3. Chạy v0 với vLLM trên `val_seen` (274 mẫu) và `val_unseen` (178 mẫu; số theo cách chia 28/10):
    - `submission.jsonl` có đúng số dòng bằng số id, không trùng id.
    - `summary.json` có `n_exception = 0`.
 4. **0 call bị từ chối** trong mọi `submission.jsonl`. Kiểm bằng cách phát lại các call qua `zaic_tools` và đếm kết quả `ok: false`.

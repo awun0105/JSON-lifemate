@@ -1,4 +1,17 @@
-"""Sanity checks of a submission for an unlabelled split (SPEC 4.11, B3)."""
+"""Kiểm tra hợp lệ một file submission cho split không có nhãn (SPEC 4.11, B3).
+
+Nội dung file: `CheckReport` (kết quả kiểm tra) và `check_submission` (chạy toàn bộ các bước kiểm tra B3).
+
+Cách xây dựng, theo thứ tự các bước:
+1. Đọc từng dòng JSON; dòng hỏng được ghi lại, với id trùng thì chỉ giữ dòng đầu.
+2. So id với split: thiếu, trùng hoặc lạ đều là lỗi (`errors`), tức file không nộp được.
+3. Tên công cụ không có trong catalog chỉ là cảnh báo (`warnings`).
+4. Chạy `zaic_tools --validate` trong tiến trình con, với PYTHONPATH trỏ vào thư mục split.
+5. So phân bố (tỉ lệ câu trả lời rỗng, tỉ lệ có lời gọi hỏi lại, số lời gọi trung bình) với tập train;
+   lệch quá `MAX_RATIO` lần thì cảnh báo.
+6. Phát lại mọi lời gọi trong một ToolEnv mới và đếm kết quả ok:false.
+Lỗi chặn việc nộp, còn cảnh báo chỉ cần xem lại; mọi bước đều chạy hết để báo cáo đầy đủ trong một lần.
+"""
 
 from __future__ import annotations
 
@@ -21,7 +34,8 @@ from lifemate.io.zaic import EnvRegistry, load_catalog, load_zaic, open_env
 
 log = structlog.get_logger(__name__)
 
-# Train reference distribution (SPEC 4.11 B3): share of empty answers, share with an ask call, mean calls.
+# Phân bố tham chiếu của tập train (SPEC 4.11 B3): tỉ lệ câu trả lời rỗng, tỉ lệ có lời gọi hỏi lại, số lời gọi
+# trung bình.
 TRAIN_EMPTY_RATE = 0.07
 TRAIN_ASK_RATE = 0.14
 TRAIN_MEAN_CALLS = 2.3
@@ -32,7 +46,7 @@ _VALIDATE_RE = re.compile(r"(\d+) lines checked, (\d+) schema errors")
 
 @dataclass(slots=True)
 class CheckReport:
-    """Findings of `check_submission`; `errors` mean the file is not submittable, `warnings` only need a look."""
+    """Kết quả của `check_submission`; có `errors` thì file không nộp được, `warnings` chỉ cần xem lại."""
 
     split: str
     n_expected: int
@@ -50,11 +64,11 @@ class CheckReport:
 
     @property
     def ok(self) -> bool:
-        """True when no error was found."""
+        """True khi không tìm thấy lỗi nào."""
         return not self.errors
 
     def to_text(self) -> str:
-        """Human-readable report for check.txt."""
+        """Báo cáo dạng văn bản dễ đọc, ghi vào check.txt."""
         out = [f"check_submission split={self.split} expected={self.n_expected} lines={self.n_lines}"]
         out.append("status: " + ("OK" if self.ok else "FAIL"))
         out += [f"ERROR: {e}" for e in self.errors]
@@ -68,13 +82,20 @@ class CheckReport:
 
 
 def _ids_text(ids: list[str]) -> str:
+    """Nối danh sách id để in, chỉ liệt kê tối đa `MAX_LISTED_IDS` id đầu và ghi số id còn lại."""
     more = f" (+{len(ids) - MAX_LISTED_IDS} more)" if len(ids) > MAX_LISTED_IDS else ""
     return ", ".join(ids[:MAX_LISTED_IDS]) + more
 
 
 def _run_validate(report: CheckReport, submission: Path, root: Path, split: str) -> None:
+    """Chạy `zaic_tools --validate` trên `submission` và ghi kết quả vào `report`.
+
+    Số lỗi schema đọc từ stdout qua `_VALIDATE_RE`. Lệnh không chạy được hoặc kết thúc bất thường chỉ thành
+    cảnh báo; có lỗi schema thì thành lỗi.
+    """
     split_dir = (root / split).resolve()
     env = dict(os.environ)
+    # Mỗi split có bản zaic_tools riêng: đặt thư mục split lên đầu PYTHONPATH để import đúng bản.
     env["PYTHONPATH"] = str(split_dir) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
     cmd = [
         sys.executable,
@@ -94,6 +115,7 @@ def _run_validate(report: CheckReport, submission: Path, root: Path, split: str)
         return
     report.validate_output = proc.stdout + (("\n" + proc.stderr) if proc.stderr.strip() else "")
     match = _VALIDATE_RE.search(proc.stdout)
+    # Không thấy dòng tổng kết thì không biết số lỗi schema, nên chỉ cảnh báo thay vì kết luận.
     if proc.returncode != 0 or match is None:
         report.warnings.append(f"zaic_tools --validate did not finish normally (exit {proc.returncode})")
         return
@@ -103,6 +125,7 @@ def _run_validate(report: CheckReport, submission: Path, root: Path, split: str)
 
 
 def _distribution(report: CheckReport, rows: list[dict[str, Any]]) -> None:
+    """Tính phân bố lời gọi của `rows` và cảnh báo khi lệch quá `MAX_RATIO` lần so với tập train."""
     if not rows:
         return
     calls = [r.get("tool_calls") or [] for r in rows]
@@ -115,12 +138,16 @@ def _distribution(report: CheckReport, rows: list[dict[str, Any]]) -> None:
     refs = {"empty_rate": TRAIN_EMPTY_RATE, "ask_rate": TRAIN_ASK_RATE, "mean_calls": TRAIN_MEAN_CALLS}
     for key, ref in refs.items():
         val = stats[key]
+        # Lệch theo tỉ lệ (gấp hoặc chia `MAX_RATIO`), không theo hiệu số, vì các chỉ số có thang khác nhau.
         if val > ref * MAX_RATIO or val < ref / MAX_RATIO:
             report.warnings.append(f"{key}={val:.3f} is more than {MAX_RATIO:g}x off the train reference {ref}")
 
 
 def _replay(report: CheckReport, rows: list[dict[str, Any]], zaic: ModuleType, root: Path, split: str) -> None:
-    """Replay every call in a fresh ToolEnv (own EnvRegistry, separate from the run's) and count ok:false."""
+    """Phát lại mọi lời gọi trong một ToolEnv mới (EnvRegistry riêng, tách khỏi registry của lượt chạy) và đếm ok:false.
+
+    Số lời gọi bị từ chối theo từng id được ghi vào `report.rejected`; tổng hợp lại thành một cảnh báo.
+    """
     registry = EnvRegistry()
     for row in rows:
         env = open_env(zaic, root, split, str(row["id"]), registry=registry)
@@ -138,7 +165,11 @@ def _replay(report: CheckReport, rows: list[dict[str, Any]], zaic: ModuleType, r
 
 
 def _read_rows(report: CheckReport, submission: Path) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """First row per id and the count of each id; bad lines go to `report.invalid_lines`."""
+    """Đọc submission: trả về dòng đầu tiên của mỗi id và số lần xuất hiện của mỗi id.
+
+    Dòng không phải JSON, không phải object, thiếu `id` hoặc có `tool_calls` không phải list được ghi số dòng
+    vào `report.invalid_lines`. Dòng trống bị bỏ qua và không tính vào `report.n_lines`.
+    """
     rows: list[dict[str, Any]] = []
     seen: dict[str, int] = {}
     for n, line in enumerate(submission.read_text(encoding="utf-8").splitlines(), start=1):
@@ -168,7 +199,17 @@ def check_submission(
     *,
     zaic: ModuleType | None = None,
 ) -> CheckReport:
-    """Run the B3 checks: ids, JSON, `zaic_tools --validate`, distribution, replay."""
+    """Chạy các bước kiểm tra B3: id, JSON, `zaic_tools --validate`, phân bố, phát lại.
+
+    Tham số:
+        submission_path: file submission.jsonl cần kiểm tra.
+        root: thư mục dữ liệu chứa `<split>/`.
+        split: tên split.
+        index: catalog công cụ đã dựng sẵn; None thì đọc từ catalog của split.
+        zaic: module zaic_tools đã import; None thì import từ thư mục split.
+
+    Trả về `CheckReport`; `report.ok` là False khi có lỗi chặn việc nộp.
+    """
     root = Path(root)
     expected = [s.id for s in load_split(root, split)]
     report = CheckReport(split=split, n_expected=len(expected))
@@ -198,13 +239,14 @@ def check_submission(
     if unknown_tools:
         report.warnings.append(f"tools not in the catalog: {unknown_tools}")
     if report.invalid_lines:
-        # zaic_tools --validate stops at the first bad JSON line; validate the parseable lines instead.
+        # zaic_tools --validate dừng ở dòng JSON hỏng đầu tiên; vì vậy chỉ validate các dòng parse được.
         with tempfile.TemporaryDirectory() as tmp:
             clean = Path(tmp) / "submission.jsonl"
             clean.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
             _run_validate(report, clean, root, split)
     else:
         _run_validate(report, Path(submission_path), root, split)
+    # Id lạ đã thành lỗi ở trên; bỏ chúng khỏi thống kê và phát lại vì ToolEnv không mở được cho id đó.
     known_rows = [r for r in rows if str(r["id"]) in expected_set]
     _distribution(report, known_rows)
     _replay(report, known_rows, zaic if zaic is not None else load_zaic(root, split), root, split)

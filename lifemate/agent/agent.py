@@ -1,4 +1,19 @@
-"""Agent loop for one sample (SPEC 4.10)."""
+"""Vòng lặp agent cho một mẫu (SPEC 4.10).
+
+Nội dung: lớp `Agent` chạy vòng LLM -> parse -> guard -> tool cho một mẫu, các hằng chuỗi phản hồi gửi lại
+mô hình (`PARSE_ERROR_MSG`, `BLOCK_PREFIX`, `RESULT_PREFIX`) và hàm `transcript_source`.
+
+Cách xây dựng:
+- Luồng dữ liệu: ASR -> `PromptBuilder.start` dựng hội thoại đầu -> mỗi bước gọi LLM với JSON schema của mẫu
+  -> `parse` -> guard -> env -> kết quả được nối vào hội thoại dưới dạng tin nhắn user -> lặp đến khi dừng.
+- Hội thoại chỉ nối thêm (append-only): tiền tố prompt không bao giờ đổi giữa các bước, nhờ đó backend
+  tái dùng được prefix cache.
+- Các hằng chuỗi là một phần prompt và phải giống hệt từng byte giữa lúc sinh dữ liệu huấn luyện và lúc
+  chạy thật; không sửa nội dung chúng.
+- `Budget` quyết định có chạy bước tiếp; hạn chót được backend thực thi bằng cách ngắt bước đang chạy.
+- Lỗi parse và BLOCK của guard tiêu một lần thử lại; hết lượt thì dừng với lý do tương ứng.
+- Agent không bao giờ bắt `Exception`: lỗi lập trình phải nổi lên, không bị nuốt thành kết quả rỗng.
+"""
 
 from __future__ import annotations
 
@@ -37,20 +52,21 @@ __all__ = ["Agent", "NullObserver", "transcript_source"]
 
 log = structlog.get_logger(__name__)
 
+# Ba chuỗi dưới đây là văn bản mô hình đọc được; phải trùng khớp với dữ liệu huấn luyện (SFT).
 PARSE_ERROR_MSG = "LỖI: đầu ra không phải JSON hợp lệ, hãy trả về đúng một JSON"
 BLOCK_PREFIX = "LỖI (chưa gọi tool): "
 RESULT_PREFIX = "KẾT QUẢ: "
 
 
 def transcript_source(transcriber: Transcriber) -> str:
-    """`source` attribute of the transcriber if any; "gold" for GoldTranscriber, else "asr"."""
+    """Thuộc tính `source` của transcriber nếu có; nếu không thì "gold" cho GoldTranscriber, còn lại "asr"."""
     default = "gold" if isinstance(transcriber, GoldTranscriber) else "asr"
     return str(getattr(transcriber, "source", default))
 
 
 @dataclass(slots=True)
 class _Run:
-    """Mutable per-sample loop state shared with the call handler."""
+    """Trạng thái thay đổi được của vòng lặp cho một mẫu, dùng chung với hàm xử lý lời gọi `_call`."""
 
     env: ToolEnvLike
     allowed: frozenset[str]
@@ -62,7 +78,18 @@ class _Run:
 
 
 class Agent:
-    """Runs the LLM / guard / tool loop for one sample; never catches Exception."""
+    """Chạy vòng LLM / guard / tool cho một mẫu; không bao giờ bắt `Exception`.
+
+    Args:
+        llm: backend sinh văn bản.
+        transcriber: chuyển audio của mẫu thành transcript (ASR hoặc gold).
+        prompts: dựng hội thoại đầu và tập tool được phép.
+        guards: chuỗi guard kiểm tra trước mỗi lời gọi tool.
+        index: chỉ mục catalog, dùng để biết loại của từng tool.
+        cfg: cấu hình agent (số bước, thử lại, hạn chót, độ dài kết quả).
+        llm_cfg: cấu hình LLM (độ dài ngữ cảnh, số token sinh tối đa).
+        observer: nhận sự kiện của vòng lặp; mặc định là `NullObserver`.
+    """
 
     def __init__(
         self,
@@ -86,12 +113,22 @@ class Agent:
         self._tool_kind = index.tool_kinds()
 
     def _call(self, action: Action, base: dict[str, Any], run: _Run) -> tuple[StepRecord, StopReason | None, float]:
-        """Guard one call and, unless blocked, send it to the env; returns (step, stop reason, tool seconds)."""
+        """Cho một lời gọi qua chuỗi guard và, nếu không bị chặn, gửi tới env.
+
+        Args:
+            action: hành động loại `call` đã parse.
+            base: các trường chung của `StepRecord` (chỉ số bước, token, thời gian LLM, văn bản thô).
+            run: trạng thái vòng lặp của mẫu.
+
+        Returns:
+            Bộ ba (bản ghi bước, lý do dừng hoặc None, số giây tool chạy).
+        """
         ctx = GuardContext(env=run.env, allowed=run.allowed, tool_kind=self._tool_kind, calls_so_far=tuple(run.calls))
         decision, warns = self.guards.check(action, ctx)
         warn_codes = tuple(w.code for w in warns if w.code is not None)
         run.errors.extend(warn_codes)
         if decision.verdict is GuardVerdict.BLOCK:
+            # Bị chặn: lời gọi không tới env, mô hình nhận thông báo lỗi để sửa ở bước sau.
             if decision.code is not None:
                 run.errors.append(decision.code)
             run.conv.append_user(BLOCK_PREFIX + (decision.message or ""))
@@ -99,15 +136,18 @@ class Agent:
             step = StepRecord(**base, action=action, guard=decision.verdict, warnings=warn_codes, error=decision.code)
             return step, stop, 0.0
         if decision.verdict is GuardVerdict.STOP:
+            # STOP kết thúc mẫu như `done`; lời gọi này không được gửi.
             return StepRecord(**base, action=action, guard=decision.verdict, warnings=warn_codes), StopReason.DONE, 0.0
         name, arguments = action.name or "", action.arguments or {}
         t0 = run.clock()
         result = run.env.call(name, arguments)
         spent = run.clock() - t0
         run.calls.append(action)
+        # Kết quả bị cắt theo `max_result_chars` để hội thoại không phình quá ngữ cảnh.
         run.conv.append_user(RESULT_PREFIX + truncate_result(result, self.cfg.max_result_chars))
         verdict = GuardVerdict.WARN if warns else GuardVerdict.PASS
         step = StepRecord(**base, action=action, guard=verdict, warnings=warn_codes, result=result, tool_s=spent)
+        # Sau khi hỏi lại người dùng thì mẫu kết thúc: câu trả lời nằm ở lượt sau, ngoài mẫu này.
         return step, (StopReason.ASKED if name == ASK_TOOL else None), spent
 
     def run(
@@ -118,7 +158,22 @@ class Agent:
         clock: Clock = time.monotonic,
         train_mode: bool = False,
     ) -> SampleResult:
-        """Run the loop for one sample and return its result."""
+        """Chạy vòng lặp cho một mẫu và trả về kết quả.
+
+        Args:
+            sample: mẫu cần xử lý.
+            env: môi trường tool của mẫu; ghi lại các lời gọi và trạng thái.
+            clock: đồng hồ đơn điệu, thay được trong test.
+            train_mode: True khi chạy trên dữ liệu huấn luyện; các app held-out bị loại khỏi tập tool.
+
+        Returns:
+            `SampleResult` gồm lý do dừng, lỗi (không trùng), các bước, lời gọi tool, hash trạng thái,
+            thời gian và số token.
+
+        Raises:
+            HeldOutLeak: khi `train_mode` và lịch sử của mẫu gọi tới app held-out (ném từ `PromptBuilder`).
+        """
+        # Budget tạo trước ASR nên thời gian chuyển giọng nói cũng tính vào hạn chót.
         budget = Budget(self.cfg, self.llm_cfg, clock)
         transcript = self.transcriber.transcribe(sample)
         conv, shrink_level = self.prompts.start(sample, transcript, train_mode=train_mode)
@@ -145,7 +200,7 @@ class Agent:
             completion_total += gen.completion_tokens
             max_prompt = max(max_prompt, gen.prompt_tokens)
             if gen.timed_out:
-                # Deadline reached mid-step: the partial text is not an action. Calls already made stay.
+                # Hết hạn giữa bước: văn bản dở dang không phải một hành động. Các lời gọi đã thực hiện vẫn giữ.
                 steps.append(
                     StepRecord(
                         i=len(steps),
@@ -160,7 +215,8 @@ class Agent:
                 self.observer.on_step(steps[-1])
                 stop = StopReason.TIMEOUT
                 break
-            conv.reconcile(gen.prompt_tokens)  # logs prompt_tokens_mismatch on a difference
+            conv.reconcile(gen.prompt_tokens)  # ghi log prompt_tokens_mismatch khi hai số đếm khác nhau
+            # Nối nguyên văn đầu ra (kể cả khi hỏng) để hội thoại khớp đúng những gì mô hình đã sinh.
             conv.append_assistant(gen.text, gen.completion_tokens)
             base: dict[str, Any] = {
                 "i": len(steps),
@@ -188,6 +244,7 @@ class Agent:
         sample_result = SampleResult(
             id=sample.id,
             stop_reason=stop,
+            # Bỏ mã lỗi trùng nhưng giữ thứ tự xuất hiện đầu tiên.
             errors=tuple(dict.fromkeys(errors)),
             transcript=transcript,
             steps=tuple(steps),

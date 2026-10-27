@@ -1,1 +1,1 @@
-"""Tests for lifemate.train."""
+"""Các test cho lifemate.train."""

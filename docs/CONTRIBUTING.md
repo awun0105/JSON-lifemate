@@ -6,7 +6,7 @@ Read `docs/SPEC.md` for what to build; this file is how to write it. SPEC wins o
 
 - Python 3.11, `uv`. `make check` (ruff + `mypy --strict` on `lifemate/`) and `make test` must pass before a task is done.
 - Tests run offline on CPU. Tests that need the data package use the `data` marker and skip when `data/train+public_test/` is absent; tests that need a HF tokenizer use the `tokenizer` marker and skip with a reason.
-- `vllm`, `torch`, `transformers` are imported only inside the class that needs them (optional extras), with a comment naming the extra. Everything else imports at the top of the file.
+- `vllm`, `torch`, `transformers`, `faster_whisper`, `swift` (ms-swift) are imported only inside the class or function that needs them (optional extras), with a comment naming the extra. Everything else imports at the top of the file.
 
 ## Style
 
@@ -32,5 +32,5 @@ Read `docs/SPEC.md` for what to build; this file is how to write it. SPEC wins o
 `lifemate/` is split by role: `core` (types, config, paths; imports nothing else), `agent` (the loop; imports
 `core` only), `backends` and `io` (models, files; import `core`), `run` (wiring, CLI, report; imports all),
 `eval` and `train` (scripts and fine-tune; import `core`, `io`, `run`). No upward imports. Fixed inputs live in
-`configs/` (prompts, splits, env profiles), operational glue in `ops/`, generated things in `artifacts/`,
+`configs/` (prompts, env profiles, git-ignored splits rebuilt by `make splits`), operational glue in `ops/`, generated things in `artifacts/`,
 competition data in `data/`.

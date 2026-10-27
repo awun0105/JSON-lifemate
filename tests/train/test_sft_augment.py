@@ -1,4 +1,8 @@
-"""Train-only augmentation of the SFT data (sft_data.Augment), adapted from the team lead's builder."""
+"""Kiểm tra phần tăng cường dữ liệu SFT chỉ dùng khi train (sft_data.Augment), chuyển thể từ bộ dựng của trưởng nhóm.
+
+Phần lớn test dựng `Sample` giả bằng `_sample` và dùng `FakeChatTokenizer` (mượn từ test_sft_data) nên không cần
+tokenizer thật. Riêng `test_augment_on_real_data` cần dữ liệu cuộc thi (marker `data`) và tự bỏ qua nếu thiếu.
+"""
 
 from __future__ import annotations
 
@@ -25,30 +29,36 @@ CFG = REPO_ROOT / "configs" / "train" / "llm_v1.toml"
 
 
 def _sample(sid: str, calls: list[dict[str, Any]], text: str = "", apps: tuple[str, ...] = ("a",)) -> Sample:
+    """Dựng `Sample` giả có danh sách app cài sẵn và nhãn tool_calls cho trước."""
     ctx = {"installed_apps": {app: {"tools": [f"{app}.x"]} for app in apps}}
     return Sample(sid, "train", f"{sid}.wav", text, ctx, (), {"tool_calls": calls, "tool_results": []})
 
 
+# Lời gọi hỏi thêm thông tin và một lời gọi tool thường, dùng để dựng nhãn giả.
 ASK = {"name": "sys.ask_missing_info", "arguments": {}}
 CALL = {"name": "a.x", "arguments": {"k": 1}}
 
 
 def test_category() -> None:
+    """Phân loại: không lời gọi là out_of_scope, kết thúc bằng hỏi thêm là ask_missing_info, còn lại là execute."""
     assert sft_data.category(_sample("1", [])) == "out_of_scope"
     assert sft_data.category(_sample("2", [CALL, ASK])) == "ask_missing_info"
     assert sft_data.category(_sample("3", [CALL])) == "execute"
 
 
 def test_hard_copies_only_for_hard_rows_and_average_to_factor() -> None:
+    """Chỉ dòng khó mới được nhân bản; số bản sao trung bình khớp hệ số và tất định."""
     assert sft_data.hard_copies(_sample("e", [CALL]), 2.0, 0) == 0
     assert sft_data.hard_copies(_sample("o", []), 1.0, 0) == 0
     assert sft_data.hard_copies(_sample("o", []), 3.0, 0) == 2
     extra = [sft_data.hard_copies(_sample(f"s{i}", []), 1.5, 0) for i in range(2000)]
+    # Hệ số 1.5 nghĩa là trung bình 0.5 bản sao thêm; kết quả phải tất định theo id.
     assert set(extra) == {0, 1} and 0.45 < sum(extra) / len(extra) < 0.55
     assert extra == [sft_data.hard_copies(_sample(f"s{i}", []), 1.5, 0) for i in range(2000)]
 
 
 def test_dedup_keeps_at_most_k_per_cluster_in_order() -> None:
+    """Khử trùng lặp giữ tối đa k mẫu mỗi cụm theo thứ tự gốc; k=0 tắt khử trùng lặp."""
     same = "bật đèn phòng khách lên giúp anh nhé"
     samples = [_sample(f"t{i}", [CALL], same) for i in range(4)] + [_sample("u", [CALL], "xem thời tiết ngày mai")]
     kept = sft_data.dedup_clusters(samples, 2)
@@ -57,6 +67,7 @@ def test_dedup_keeps_at_most_k_per_cluster_in_order() -> None:
 
 
 def test_distractors_skip_installed_held_out_and_out_of_scope() -> None:
+    """App gây nhiễu không trùng app đã cài hay app held-out, không sửa mẫu gốc và bỏ qua mẫu out_of_scope."""
     catalog = {"apps": [{"id": a, "tools": [{"name": f"{a}.x", "kind": "read"}]} for a in "abcde"]}
     index = CatalogIndex(catalog)
     sample = _sample("s", [CALL])
@@ -64,12 +75,13 @@ def test_distractors_skip_installed_held_out_and_out_of_scope() -> None:
     assert len(picked) == 2 and not {"a", "b"} & set(picked)
     assert set(out.context["installed_apps"]) == {"a", *picked}
     assert out.context["installed_apps"][picked[0]] == {"tools": [f"{picked[0]}.x"]}
-    assert sample.context["installed_apps"].keys() == {"a"}  # the original is not mutated
-    assert sft_data.with_distractors(sample, index, frozenset({"b"}), 2, 0)[1] == picked  # stable
+    assert sample.context["installed_apps"].keys() == {"a"}  # mẫu gốc không bị sửa
+    assert sft_data.with_distractors(sample, index, frozenset({"b"}), 2, 0)[1] == picked  # ổn định giữa các lần gọi
     assert sft_data.with_distractors(_sample("o", []), index, frozenset(), 2, 0) == (_sample("o", []), [])
 
 
 def test_failed_call_is_not_trained() -> None:
+    """Lượt gọi sai đánh dấu loss=False bị che khỏi nhãn, còn lời gọi sửa lại vẫn được học."""
     tok = FakeChatTokenizer()
     bad, good = '{"name":"x.y","arguments":{}}', '{"name":"x.y","arguments":{"k":1}}'
     messages = [
@@ -83,12 +95,12 @@ def test_failed_call_is_not_trained() -> None:
     trained = tok.decode([i for i, lab in zip(ids, labels, strict=True) if lab != IGNORE_INDEX])
     assert good in trained and bad not in trained
     plain = [{"role": m["role"], "content": m["content"]} for m in messages]
-    assert ids == build_labels(tok, plain, {"enable_thinking": False})[0]  # `loss` does not change the tokens
+    assert ids == build_labels(tok, plain, {"enable_thinking": False})[0]  # cờ `loss` không đổi chuỗi token
 
 
 @pytest.mark.data
 def test_augment_on_real_data() -> None:
-    """Error recovery uses the real guard text and is off for eval files; distractors never add held-out apps."""
+    """Hồi phục lỗi dùng đúng văn bản guard thật và tắt với file eval; app gây nhiễu không bao giờ là app held-out."""
     if not DATA_ROOT.is_dir():
         pytest.skip(f"data package missing: {DATA_ROOT}")
     cfg = load_llm_train_config(CFG)
@@ -101,6 +113,7 @@ def test_augment_on_real_data() -> None:
     aug = sft_data.Augment(error_recovery_ratio=1.0, oversample_hard=2.0, distractor_apps=2)
 
     def build(train_mode: bool) -> sft_data.BuildResult:
+        """Dựng các dòng SFT từ mẫu thật, bật hoặc tắt chế độ train."""
         return sft_data.build_rows(
             samples,
             sft_data.make_builder(run_cfg, REPO_ROOT, index, counter),
@@ -119,11 +132,13 @@ def test_augment_on_real_data() -> None:
     assert recovered
     for row in recovered:
         msgs = row["messages"]
+        # Lượt gọi sai (loss=False) phải theo sau bởi thông báo chặn và một lời gọi đúng cùng tên tool.
         k = next(i for i, m in enumerate(msgs) if m.get("loss") is False)
         assert msgs[k + 1]["role"] == "user" and msgs[k + 1]["content"].startswith(BLOCK_PREFIX)
         assert json.loads(msgs[k]["content"])["name"] == json.loads(msgs[k + 2]["content"])["name"]
     originals = [r for r in rows if "copy" not in r]
     copies = [r for r in rows if "copy" in r]
+    # Với oversample_hard=2.0, mỗi dòng khó (không phải execute) có đúng một bản sao.
     assert len(copies) == sum(r["category"] != "execute" for r in originals)
     for row in rows:
         for app in held_out:

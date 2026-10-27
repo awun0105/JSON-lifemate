@@ -1,4 +1,11 @@
-"""ASR fine-tune pairs (wav, verbatim audio_text) for the final turn and every user turn in history (SPEC 6.4.1)."""
+"""Tạo cặp fine-tune ASR (wav, audio_text nguyên văn) cho lượt cuối và mọi lượt user trong lịch sử (SPEC 6.4.1).
+
+Nội dung: `sample_pairs`, `build_pairs`, CLI `run`/`main`.
+
+Cách xây dựng: đọc file id → chặn id thuộc val_seen/val_unseen (trừ khi có `--allow-eval`, chỉ dành cho file đo)
+→ nạp mẫu theo đúng thứ tự file id → mỗi mẫu cho các dòng `u1, u2, …` rồi `final` → ghi jsonl và `<out>.meta.json`
+(sha256, argv, phiên bản code). Đường dẫn audio giữ tương đối với thư mục split, không sao chép file.
+"""
 
 from __future__ import annotations
 
@@ -25,7 +32,10 @@ FINAL_TURN = "final"
 
 
 def sample_pairs(sample: Sample, split_tag: str) -> list[dict[str, Any]]:
-    """Rows `{id, turn, audio, text, split}`: history user turns `u1, u2, …` then the final turn (ASR order, 6.1)."""
+    """Các dòng `{id, turn, audio, text, split}`: lượt user lịch sử `u1, u2, …` rồi lượt cuối (thứ tự ASR, 6.1).
+
+    Thiếu audio hoặc audio_text ở bất kỳ lượt nào đều báo ValueError.
+    """
     rows: list[dict[str, Any]] = []
     k = 0
     for turn in sample.history:
@@ -46,12 +56,12 @@ def sample_pairs(sample: Sample, split_tag: str) -> list[dict[str, Any]]:
 
 
 def build_pairs(samples: Sequence[Sample], split_tag: str) -> list[dict[str, Any]]:
-    """Pairs of every sample in order; audio paths stay relative to the split folder (not copied)."""
+    """Cặp của mọi mẫu theo thứ tự; đường dẫn audio giữ tương đối với thư mục split (không sao chép)."""
     return [row for s in samples for row in sample_pairs(s, split_tag)]
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    """CLI arguments."""
+    """Tham số dòng lệnh."""
     ap = argparse.ArgumentParser(prog="python -m lifemate.train.asr_data", description="Build ASR pairs (6.4.1).")
     ap.add_argument("--env", default="local", help="env profile name or path")
     ap.add_argument("--ids", required=True, type=Path, help="file with one sample id per line")
@@ -64,14 +74,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def run(args: argparse.Namespace, repo_root: Path = REPO_ROOT, argv: Sequence[str] | None = None) -> dict[str, Any]:
-    """Build one ASR pair file plus `<out>.meta.json`; returns the meta dict."""
+    """Tạo một file cặp ASR kèm `<out>.meta.json`; trả về dict meta."""
     profile = load_profile(args.env, repo_root).with_overrides(root=args.root)
     root = abs_path(profile.data_root, repo_root)
     ids_path = abs_path(args.ids, repo_root)
     ids = read_ids(ids_path)
+    # Chống rò rỉ: id đánh giá chỉ được dùng khi cố ý tạo file đo.
     leaked = sorted(set(ids) & eval_ids(repo_root))
     if leaked and not args.allow_eval:
         raise SystemExit(f"refusing: {len(leaked)} ids are in val_seen/val_unseen (e.g. {leaked[:3]}); --allow-eval")
+    # load_split không giữ thứ tự, nên sắp lại theo thứ tự trong file id để đầu ra ổn định.
     order = {sid: i for i, sid in enumerate(ids)}
     samples = sorted(load_split(root, args.split, ids), key=lambda s: order[s.id])
     rows = build_pairs(samples, args.tag or ids_path.stem)
@@ -95,7 +107,7 @@ def run(args: argparse.Namespace, repo_root: Path = REPO_ROOT, argv: Sequence[st
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Entry point."""
+    """Điểm vào CLI."""
     meta = run(parse_args(argv), argv=argv)
     print(f"rows={meta['n_rows']} samples={meta['n_samples']}")
     return 0

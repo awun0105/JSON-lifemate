@@ -1,4 +1,9 @@
-"""SFT data rules (SPEC 6.2.1, 6.2.7 item 1-2), loss masking (6.2.2) and pipeline helpers (6.2.3, 6.2.6)."""
+"""Kiểm tra quy tắc dữ liệu SFT (SPEC 6.2.1, 6.2.7 mục 1-2), che loss (6.2.2) và tiện ích pipeline (6.2.3, 6.2.6).
+
+Nhóm đầu dùng fixture `built` dựng dòng SFT từ 20 mẫu train thật cộng mẫu rò rỉ LEAK_ID, nên cần dữ liệu cuộc thi
+(marker `data`, tự bỏ qua nếu thiếu). Nhóm che loss dùng `FakeChatTokenizer` thay tokenizer thật. Nhóm pipeline chạy
+trên `tmp_path` với runner giả, không cần GPU.
+"""
 
 from __future__ import annotations
 
@@ -20,19 +25,22 @@ from lifemate.io.data import load_split, read_ids
 from lifemate.io.zaic import EnvRegistry, ZaicLoader, load_catalog
 from lifemate.train import llm_pipeline, sft_data
 from lifemate.train.common import read_held_out
-from lifemate.train.sft import IGNORE_INDEX, build_labels, load_llm_train_config, pad_batch
+from lifemate.train.sft import IGNORE_INDEX, build_labels, load_llm_train_config
+
+# from lifemate.train.sft import pad_batch  # tiện ích của trình train Unsloth, đã tắt cùng trình train đó
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DATA_ROOT = REPO_ROOT / "data" / "train+public_test"
-LEAK_ID = "train_0655"  # history calls a held-out app (SPEC 4.5)
+LEAK_ID = "train_0655"  # lịch sử hội thoại gọi một app held-out (SPEC 4.5)
 CFG = REPO_ROOT / "configs" / "train" / "llm_v1.toml"
 
 
-# ---------------------------------------------------------------- real data
+# ---------------------------------------------------------------- dữ liệu thật
 
 
 @pytest.fixture(scope="module")
 def built() -> dict[str, Any]:
+    """Dựng dòng SFT (chế độ train) từ 20 mẫu đầu của split train cộng LEAK_ID; dùng chung cho cả module."""
     if not DATA_ROOT.is_dir():
         pytest.skip(f"data package missing: {DATA_ROOT}")
     cfg = load_llm_train_config(CFG)
@@ -56,6 +64,7 @@ def built() -> dict[str, Any]:
 
 @pytest.mark.data
 def test_prompt_matches_runtime_bytes(built: dict[str, Any]) -> None:
+    """Hai tin nhắn đầu của dòng SFT trùng từng byte với prompt mà agent dựng lúc chạy thật."""
     rows = built["result"].rows
     assert len(rows) == 20
     for row in rows:
@@ -67,6 +76,7 @@ def test_prompt_matches_runtime_bytes(built: dict[str, Any]) -> None:
 
 @pytest.mark.data
 def test_turn_structure(built: dict[str, Any]) -> None:
+    """Lượt assistant là JSON chuẩn tắc, lượt user mở đầu bằng RESULT_PREFIX; lượt cuối khớp loại mẫu."""
     for row in built["result"].rows:
         sample: Sample = built["samples"][row["id"]]
         calls = (sample.label or {}).get("tool_calls") or []
@@ -87,6 +97,7 @@ def test_turn_structure(built: dict[str, Any]) -> None:
 
 @pytest.mark.data
 def test_no_held_out_app_and_leaks_dropped(built: dict[str, Any]) -> None:
+    """Không dòng nào nhắc app held-out; mẫu có lịch sử gọi app held-out bị loại với lý do held_out_leak."""
     held_out = read_held_out(REPO_ROOT)
     for row in built["result"].rows:
         for m in row["messages"]:
@@ -104,7 +115,7 @@ def test_no_held_out_app_and_leaks_dropped(built: dict[str, Any]) -> None:
 
 @pytest.mark.data
 def test_replay_of_rows_matches_gold_state(built: dict[str, Any]) -> None:
-    """SPEC 6.2.7 item 2: the row's call JSONs reproduce the gold final state."""
+    """SPEC 6.2.7 mục 2: phát lại các JSON lời gọi trong dòng cho ra đúng trạng thái cuối của nhãn gold."""
     rows = built["result"].rows
     ids = [r["id"] for r in rows]
     from_rows = ZaicLoader(DATA_ROOT, "train", EnvRegistry())
@@ -128,6 +139,7 @@ def test_replay_of_rows_matches_gold_state(built: dict[str, Any]) -> None:
 
 @pytest.mark.data
 def test_cli_writes_files_and_refuses_eval_ids(tmp_path: Path) -> None:
+    """CLI ghi file dữ liệu, danh sách loại và meta; từ chối id eval trừ khi có --allow-eval."""
     if not DATA_ROOT.is_dir():
         pytest.skip("data package missing")
     ids = tmp_path / "ids.txt"
@@ -142,34 +154,39 @@ def test_cli_writes_files_and_refuses_eval_ids(tmp_path: Path) -> None:
     ids.write_text(val[0] + "\n", encoding="utf-8")
     with pytest.raises(SystemExit, match="refusing"):
         sft_data.run(sft_data.parse_args(argv), REPO_ROOT, argv=argv)
+    # Với --allow-eval, file eval được dựng nhưng tắt chế độ train (không tăng cường).
     meta = sft_data.run(sft_data.parse_args([*argv, "--allow-eval"]), REPO_ROOT, argv=argv)
     assert meta["train_mode"] is False and meta["n_rows"] == 1
 
 
 def test_asr_transcript_source_needs_cache(tmp_path: Path) -> None:
+    """Nguồn transcript `asr` báo lỗi khi thiếu file cache."""
     with pytest.raises(FileNotFoundError):
         sft_data._transcriber("asr", tmp_path / "missing.json", 0.3, 0)
 
 
-# ---------------------------------------------------------------- loss masking with a fake tokenizer
+# ---------------------------------------------------------------- che loss với tokenizer giả
 
 
 class FakeChatTokenizer:
-    """ChatML-like template, one token per character, `<|im_start|>`=1 and `<|im_end|>`=2."""
+    """Tokenizer giả theo kiểu ChatML: mỗi ký tự một token, `<|im_start|>`=1 và `<|im_end|>`=2."""
 
     START, END = 1, 2
     chat_template = "chatml {% if enable_thinking %}{% endif %}"
 
     def _encode(self, text: str) -> list[int]:
+        """Mã hóa mỗi ký tự thành một token (lệch 10 để tránh id đặc biệt)."""
         return [ord(ch) + 10 for ch in text]
 
     def decode(self, ids: list[int]) -> str:
+        """Giải mã id về chuỗi, hiện token đặc biệt dưới dạng tên."""
         names = {self.START: "<|im_start|>", self.END: "<|im_end|>"}
         return "".join(names[i] if i in names else chr(i - 10) for i in ids)
 
     def apply_chat_template(
         self, conversation: list[dict[str, str]], *, tokenize: bool, add_generation_prompt: bool, **kw: Any
     ) -> list[int]:
+        """Dựng chuỗi token theo khuôn ChatML; chỉ chấp nhận tokenize=True và enable_thinking=False."""
         assert tokenize and kw == {"enable_thinking": False}
         ids: list[int] = []
         for m in conversation:
@@ -180,6 +197,7 @@ class FakeChatTokenizer:
 
 
 def test_build_labels_masks_everything_but_assistant_turns() -> None:
+    """build_labels giữ nguyên token của template nhưng che mọi phần trừ lượt assistant."""
     tok = FakeChatTokenizer()
     call = '{"action":"call","arguments":{},"name":"x.y"}'
     messages = [
@@ -195,23 +213,26 @@ def test_build_labels_masks_everything_but_assistant_turns() -> None:
     assert len(ids) == len(labels)
     assert ids == tok.apply_chat_template(messages, tokenize=True, add_generation_prompt=False, enable_thinking=False)
     trained = tok.decode([t for t, lab in zip(ids, labels, strict=True) if lab != IGNORE_INDEX])
+    # Chỉ nội dung assistant cùng token kết thúc lượt được học.
     assert trained == f"{call}<|im_end|>\n{DONE_TEXT}<|im_end|>\n"
     for t, lab in zip(ids, labels, strict=True):
         assert lab in (IGNORE_INDEX, t)
     assert "sys" not in trained and "KẾT QUẢ" not in trained
 
 
-def test_pad_batch() -> None:
-    b = pad_batch([{"input_ids": [5, 6, 7], "labels": [-100, 6, 7]}, {"input_ids": [5], "labels": [5]}], 0)
-    assert b["input_ids"] == [[5, 6, 7], [5, 0, 0]]
-    assert b["labels"][1] == [5, IGNORE_INDEX, IGNORE_INDEX]
-    assert b["attention_mask"] == [[1, 1, 1], [1, 0, 0]]
+# Tiện ích của trình train Unsloth, tắt cùng `sft.pad_batch` (việc train nay chạy trên ms-swift).
+# def test_pad_batch() -> None:
+#     b = pad_batch([{"input_ids": [5, 6, 7], "labels": [-100, 6, 7]}, {"input_ids": [5], "labels": [5]}], 0)
+#     assert b["input_ids"] == [[5, 6, 7], [5, 0, 0]]
+#     assert b["labels"][1] == [5, IGNORE_INDEX, IGNORE_INDEX]
+#     assert b["attention_mask"] == [[1, 1, 1], [1, 0, 0]]
 
 
-# ---------------------------------------------------------------- pipeline helpers (no GPU)
+# ---------------------------------------------------------------- tiện ích pipeline (không cần GPU)
 
 
 def test_choose_prefers_unseen_then_seen() -> None:
+    """Chọn checkpoint theo điểm val_unseen trước, hòa thì xét val_seen."""
     cands = [
         {"path": "a", "val_unseen": 80.0, "val_seen": 90.0},
         {"path": "b", "val_unseen": 82.0, "val_seen": 70.0},
@@ -221,18 +242,21 @@ def test_choose_prefers_unseen_then_seen() -> None:
 
 
 def test_dump_toml_round_trip(repo_root: Path) -> None:
+    """dump_toml ghi ra TOML đọc lại được đúng dữ liệu gốc."""
     with open(repo_root / "configs" / "v0.toml", "rb") as f:
         raw = tomllib.load(f)
     assert tomllib.loads(llm_pipeline.dump_toml(raw)) == raw
 
 
 def _ctx(tmp_path: Path) -> llm_pipeline.PipelineContext:
+    """Dựng PipelineContext thử nghiệm trong `tmp_path` với cấu hình llm_v1."""
     cfg = load_llm_train_config(CFG)
     (tmp_path / "artifacts" / "models").mkdir(parents=True)
     return llm_pipeline.PipelineContext(REPO_ROOT, CFG, cfg, "local", "ft-x-sft1-r01", tmp_path / "work", 30)
 
 
 def test_default_name_and_registry(tmp_path: Path) -> None:
+    """Tên mô hình mặc định tăng số lượt chạy theo registry; registry có dòng tiêu đề đúng."""
     cfg = load_llm_train_config(CFG)
     reg = tmp_path / "registry.csv"
     name1 = "ft-qwen34binstruct2507-sft1-r01"
@@ -243,6 +267,7 @@ def test_default_name_and_registry(tmp_path: Path) -> None:
 
 
 def test_eval_choose_register_stages_with_fake_runner(tmp_path: Path) -> None:
+    """Stage eval, choose, register với runner giả: chọn checkpoint tốt hơn trên val_unseen, ghi đủ file và registry."""
     ctx = _ctx(tmp_path)
     ctx = llm_pipeline.PipelineContext(tmp_path, CFG, ctx.cfg, "local", ctx.name, tmp_path / "work", 30)
     (tmp_path / "configs").mkdir()
@@ -251,6 +276,7 @@ def test_eval_choose_register_stages_with_fake_runner(tmp_path: Path) -> None:
     calls: list[list[str]] = []
 
     def fake_runner(cmd: Any, cwd: Path) -> int:
+        """Runner giả: ghi summary.json với điểm định sẵn theo tên mô hình và split."""
         cmd = list(cmd)
         calls.append(cmd)
         run_dir = Path(cmd[cmd.index("--out") + 1])
@@ -266,6 +292,7 @@ def test_eval_choose_register_stages_with_fake_runner(tmp_path: Path) -> None:
             {"path": "ck/2", "step": 200, "loss": 0.6, "merged": str(tmp_path / "m2")},
         ]
     }
+    # 2 checkpoint x 2 split = 4 lần chạy eval, mỗi lần giới hạn 30 mẫu.
     llm_pipeline.stage_eval(ctx, state, runner=fake_runner)
     assert len(calls) == 4 and all("--limit" in c and "30" in c for c in calls)
     llm_pipeline.stage_choose(ctx, state)
@@ -278,10 +305,12 @@ def test_eval_choose_register_stages_with_fake_runner(tmp_path: Path) -> None:
 
 
 def test_run_pipeline_resumes_from_stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """run_pipeline dừng được ở một stage và chạy tiếp từ stage sau mà không lặp lại."""
     ctx = _ctx(tmp_path)
     seen: list[str] = []
     for name in llm_pipeline.STAGES:
         monkeypatch.setitem(llm_pipeline.STAGE_FUNCS, name, lambda c, s, n=name: seen.append(n))
+    # Chạy tới train, sau đó tiếp từ select: gộp lại phải đủ mọi stage, mỗi stage một lần.
     llm_pipeline.run_pipeline(ctx, to_stage="train")
     state = llm_pipeline.run_pipeline(ctx, from_stage="select")
     assert seen == list(llm_pipeline.STAGES)
@@ -289,5 +318,6 @@ def test_run_pipeline_resumes_from_stage(tmp_path: Path, monkeypatch: pytest.Mon
 
 
 def test_parse_args_defaults() -> None:
+    """Giá trị mặc định của CLI pipeline: limit=30 và bắt đầu từ stage data."""
     ns = llm_pipeline.parse_args(["--config", "x.toml"])
     assert isinstance(ns, argparse.Namespace) and ns.limit == 30 and ns.from_stage == "data"

@@ -5,4 +5,4 @@ Danh sách thư viện cho môi trường không dùng `uv` (notebook Kaggle, Co
 | File | Nội dung |
 |---|---|
 | `notebook.txt` | Thư viện chính kèm nhóm `tokenizer`, phiên bản ghim, sinh tự động từ `uv.lock` bằng `ops/scripts/export_notebook_requirements.py`. Không gồm torch và vLLM (vLLM cài riêng khi có GPU). Không sửa tay. |
-| `train.txt` | Thư viện cho fine-tune (unsloth, trl, peft, datasets, bitsandbytes, soundfile, jiwer). Không ghim phiên bản vì chúng đi theo torch có sẵn trên máy. |
+| `train.txt` | Thư viện cho fine-tune: ms-swift ghim 4.6.0 (tham số dòng lệnh được dựng theo đúng bản này), trl, peft, datasets, bitsandbytes, soundfile, jiwer. Unsloth đã comment lại, chỉ cần khi chọn `tuner_backend = "unsloth"`. |
