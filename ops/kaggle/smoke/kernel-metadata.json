@@ -1,0 +1,16 @@
+{
+  "id": "quanlam/lifemate-smoke",
+  "title": "lifemate-smoke",
+  "code_file": "lifemate_smoke.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": ["quanlam/zac2026-lifemate"],
+  "kernel_sources": [],
+  "competition_sources": [],
+  "model_sources": [],
+  "machine_shape": "NvidiaTeslaT4"
+}

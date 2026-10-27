@@ -305,7 +305,7 @@ Tổng 4,79B < 6B, LLM 4,02B < 5B. Ứng viên A/B (chưa dùng khi nộp): LLM 
 | Việc | Cách làm | Vì sao |
 |---|---|---|
 | Phương pháp | Full fine-tune, không LoRA. Giai đoạn 1: đóng băng encoder, train decoder. Giai đoạn 2 (nếu WER còn cao): mở encoder với lr nhỏ hơn 10 lần | 0,77B vừa T4 với fp16 + gradient checkpointing. Decoder quyết định cách viết số, tên riêng, từ tiếng Anh, là thứ ta cần chỉnh để khớp `audio_text`; encoder đã học 844 giờ tiếng Việt, mở sớm với 3547 cặp dễ làm hỏng |
-| Dữ liệu | 3547 cặp (wav, `audio_text`) từ lượt cuối và mọi lượt user trong history của `configs/splits/train.txt`; chia theo id mẫu | Đích là `audio_text` nguyên văn để ASR nghe ra đúng văn phong mà LLM được train |
+| Dữ liệu | 3547 cặp (wav, `audio_text`) từ lượt cuối và mọi lượt user trong history của `configs/splits/train.txt`; chia theo id mẫu | `audio_text` là nhãn duy nhất có. ASR sau fine-tune đổi cách viết số, nên phải train lại LLM v2 trên chữ ASR mới |
 | Tăng dữ liệu | SpecAugment; TTS chỉ cho loại lỗi mà bảng đo chỉ ra (tên người, địa danh, số tiền, từ tiếng Anh), câu lấy từ `audio_text` train rồi thay thực thể | Dữ liệu ít, SpecAugment chống overfit. TTS được phép lúc phát triển, cấm lúc thi |
 | Siêu tham số ban đầu | lr 1e-5, 3 epoch, batch 8 × grad_accum 2, greedy decode, seed 0 | lr nhỏ vì full fine-tune trên model đã tốt; 3 epoch trên 3547 cặp là khoảng 660 bước |
 | Chọn checkpoint | Theo tỉ lệ nghe sai thực thể trên `val_unseen`, rồi WER; checkpoint tốt nhất chạy agent thật | Lỗi thực thể là lỗi làm sai tham số tool, ảnh hưởng điểm trực tiếp; WER chung không phản ánh |
@@ -366,6 +366,8 @@ Tổng 4,79B < 6B, LLM 4,02B < 5B. Ứng viên A/B (chưa dùng khi nộp): LLM 
 | 27/10/2026 | Thêm 10 mẫu gold `[]` gắn tay vào `val_unseen`; thêm `configs/splits/smoke.txt` | `val_unseen` trước đó không có mẫu ngoài phạm vi nào |
 | 27/10/2026 | Chưa chọn LLM và ASR; code không gắn với model nào, chọn theo điều kiện ở `SPEC.md` mục 6.0 | Để chọn sau khi có hạ tầng đo mà không phải sửa code |
 | 27/10/2026 | Không làm Normalizer ở v0; LLM tự đổi số theo quy tắc trong system prompt | LLM và ASR đều nhắm tới `audio_text` nguyên văn; chuẩn hóa trước LLM làm lệch phân bố đã train |
+| 27/10/2026 (sau đo Kaggle) | Giữ nguyên chữ ASR nghe ra, không chuẩn hóa; LLM nộp bài học trên chữ ASR (v2) | `audio_text` viết số bằng chữ số, PhoWhisper viết bằng chữ; BTC không chấm chữ ASR. Sửa giả định "ASR nhắm tới `audio_text` nguyên văn" ở dòng trên |
+| 27/10/2026 | ASR chạy bfloat16/float16 trên GPU (`asr.dtype = "auto"`) | Mặc định float32 tốn khoảng 3 GB, hết bộ nhớ cạnh vLLM trên T4; WER float32 với auto đo bằng kernel Kaggle |
 | 27/10/2026 | Python 3.11 + `uv`, ruff + mypy strict, pre-commit; lấy quy ước kỹ thuật từ `ai-kit`, không lấy layer ứng dụng | Kit là app cloud FastAPI + LangGraph, không khớp với agent offline |
 
 ## 8. Nhật ký thí nghiệm
@@ -489,8 +491,9 @@ ngữ nhỏ biến biểu diễn đó thành chữ. Lỗi ASR vì thế có hai 
 - **Lỗi viết** (decoder): nghe đúng nhưng viết "15" thay vì "mười lăm", thêm dấu câu, viết hoa, từ tiếng Anh sai
   chính tả. Đây là quy ước, 3547 cặp dạy được.
 
-Từ chân lý 1: đích của ASR là chữ ở **đúng dạng LLM đã được train**, tức `audio_text` nguyên văn. ASR tự đổi số
-thành chữ số kiểu của nó là LLM nhận một phân phối chữ khác lúc học. Vậy "giai đoạn 1 chỉ train decoder" là hệ
+Từ chân lý 1: chữ ASR phải ở **đúng dạng LLM đã được train**. Cập nhật 27/10/2026: PhoWhisper viết số bằng chữ còn
+`audio_text` viết bằng chữ số, và BTC không chấm chữ ASR, nên LLM nộp bài học trên chính chữ ASR (v2). Fine-tune
+ASR về `audio_text` thì đổi luôn cách viết, nên phải train lại LLM v2 bằng ASR mới. Vậy "giai đoạn 1 chỉ train decoder" là hệ
 quả trực tiếp: lỗi cần sửa ở decoder, dữ liệu không đủ chạm encoder. Giai đoạn 2 mở encoder với lr nhỏ hơn 10
 lần (discriminative learning rate) chỉ khi WER vẫn cao sau giai đoạn 1, để ΔW của encoder ở trong lân cận nghiệm
 đã tốt.

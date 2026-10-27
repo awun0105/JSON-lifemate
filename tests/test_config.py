@@ -81,6 +81,7 @@ def test_vllm_empty_model_raises(tmp_path: Path, repo_root: Path) -> None:
     [
         ('engine = "hf_seq2seq"', 'engine = "nemo"', r"asr\.engine"),
         ('model = "vinai/PhoWhisper-medium"', 'model = ""', r"asr\.model"),
+        ('dtype = "auto"                         # auto: bfloat16', 'dtype = "int8"  # auto: bfloat16', r"asr\.dtype"),
     ],
 )
 def test_asr_engine_and_model_validated(tmp_path: Path, repo_root: Path, old: str, new: str, key: str) -> None:

@@ -27,6 +27,7 @@ engine = "hf_seq2seq"
 model = "/app/models/asr"              # snapshot of [asr].model from configs/v0.toml (or the fine-tune)
 revision = ""
 device = "cuda"
+dtype = "auto"
 batch_size = 8
 generate_kwargs = { language = "vi", task = "transcribe" }
 sample_rate = 16000

@@ -63,25 +63,46 @@ def read_wav(path: Path, expected_rate: int) -> Any:
     return data
 
 
+def resolve_asr_dtype(cfg_dtype: str, on_gpu: bool, compute_capability: tuple[int, int] | None) -> str:
+    """Torch dtype name for the ASR model: auto -> bfloat16 on sm80+, float16 on older GPUs, float32 on CPU.
+
+    Without this the transformers pipeline loads float32: about 3 GB for PhoWhisper-medium, which does not
+    fit next to vLLM on a 15 GB T4 and wastes memory and time on the A30.
+    """
+    if cfg_dtype != "auto":
+        if cfg_dtype != "float32" and not on_gpu:
+            raise ValueError(f"asr.dtype = {cfg_dtype!r} needs a GPU; use 'auto' or 'float32' on CPU")
+        if cfg_dtype == "bfloat16" and compute_capability is not None and compute_capability < (8, 0):
+            cc = compute_capability
+            raise ValueError(f"asr.dtype = 'bfloat16' needs compute capability >= 8.0, got {cc[0]}.{cc[1]}")
+        return cfg_dtype
+    if not on_gpu:
+        return "float32"
+    return "bfloat16" if compute_capability is not None and compute_capability >= (8, 0) else "float16"
+
+
 class HFSeq2SeqASR:
     """transformers ASR pipeline, greedy decoding, no chunking (needs extras `tokenizer` and `gpu`)."""
 
     def __init__(self, cfg: ASRConfig) -> None:
+        import torch
         from transformers import pipeline
 
         self._cfg = cfg
         device: int | str
         if cfg.device == "auto":
-            import torch
-
             device = 0 if torch.cuda.is_available() else "cpu"
         else:
             device = 0 if cfg.device == "cuda" else "cpu"
+        on_gpu = device == 0
+        cc = tuple(torch.cuda.get_device_capability(0)) if on_gpu else None
+        self.dtype = resolve_asr_dtype(cfg.dtype, on_gpu, cc)
         self._pipe = pipeline(
             "automatic-speech-recognition",
             model=cfg.model,
             revision=cfg.revision or None,
             device=device,
+            dtype=getattr(torch, self.dtype),
         )
         self._generate_kwargs = {**cfg.generate_kwargs, "num_beams": 1, "do_sample": False}
 

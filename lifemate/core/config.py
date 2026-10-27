@@ -52,13 +52,15 @@ class ASRConfig:
     revision: str
     engine: str = "hf_seq2seq"  # how `model` is loaded when backend = "asr"; see lifemate.backends.asr.ASR_ENGINES
     device: str = "auto"
+    dtype: str = "auto"  # auto: bfloat16 on sm80+ GPU, float16 on older GPU, float32 on CPU
     batch_size: int = 8
     generate_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
     sample_rate: int = 16000
 
 
 ASR_ENGINE_NAMES = frozenset({"hf_seq2seq", "chunkformer", "viegem"})
-_ASR_OPTIONAL = frozenset({"engine", "device", "batch_size", "generate_kwargs", "sample_rate"})
+ASR_DTYPES = frozenset({"auto", "float32", "float16", "bfloat16"})
+_ASR_OPTIONAL = frozenset({"engine", "device", "dtype", "batch_size", "generate_kwargs", "sample_rate"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +147,9 @@ def load_config(path: Path) -> Config:
     _check(llm.dtype in {"auto", "float16", "bfloat16"}, f"llm.dtype: {llm.dtype!r} not in auto|float16|bfloat16")
     _check(asr.backend in {"gold", "asr"}, f"asr.backend: {asr.backend!r} not in gold|asr")
     _check(asr.engine in ASR_ENGINE_NAMES, f"asr.engine: {asr.engine!r} not in {'|'.join(sorted(ASR_ENGINE_NAMES))}")
+    _check(
+        asr.dtype in ASR_DTYPES, f"asr.dtype: {asr.dtype!r} not in {'|'.join(sorted(ASR_DTYPES))}"
+    )
     _check(not (asr.backend == "asr" and asr.model == ""), "asr.model: required when asr.backend = 'asr'")
     _check(asr.device in {"auto", "cpu", "cuda"}, f"asr.device: {asr.device!r} not in auto|cpu|cuda")
     _check(isinstance(asr.batch_size, int) and asr.batch_size >= 1, "asr.batch_size: must be an int >= 1")

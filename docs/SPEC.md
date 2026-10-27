@@ -713,6 +713,7 @@ guards = ["allowed_tool", "schema", "duplicate_write"]   # "after_ask" có sẵn
 [asr]
 backend = "gold"                       # "gold" | "asr" (sau v0)
 engine = "hf_seq2seq"                  # "hf_seq2seq" | "chunkformer" | "viegem": cách nạp model khi backend = "asr" (mục 6.1)
+dtype = "auto"                         # "auto" | "float32" | "float16" | "bfloat16"; auto: bf16 trên sm80+, fp16 trên GPU cũ, fp32 trên CPU
 model = "vinai/PhoWhisper-medium"      # bắt buộc khi backend = "asr" (mục 6.0)
 revision = ""
 ```
@@ -882,7 +883,8 @@ Mỗi test ghi rõ ba ý: **bảo vệ** điều gì, **bắt lỗi** khi nào, 
   3. Giải mã greedy (`temperature = 0`, `beam_size = 1`), cố định seed.
   4. Chỉ khi đo thấy ASR quá chậm mới tính đến việc bỏ bớt các lượt user cũ. Khi đó vẫn giữ `text` và `tool_calls` của các lượt assistant để giữ ngữ cảnh.
 - **Đo trước khi chọn model ASR:** chạy trên 3 mẫu có tổng audio dài nhất của train và public, ghi thời gian ASR và tổng thời gian mỗi mẫu. Trên GPU sm80+, tổng thời gian mỗi mẫu phải ≤ 25 s.
-- **Normalizer (A3): không làm ở v0 và chưa chắc làm sau đó (A2).** LLM được fine-tune trên `audio_text` nguyên văn (6.2.1) và ASR nhắm tới `audio_text` nguyên văn (6.4.1), nên đổi chữ ASR thành số trước khi đưa vào LLM sẽ lệch khỏi phân bố đã train. Quy tắc đổi số nằm trong system prompt và do LLM làm. Chỉ cân nhắc Normalizer nếu bảng lỗi cho thấy LLM đổi số sai nhiều, và khi đó phải áp dụng cùng một `normalize` cho transcript lúc dựng dữ liệu SFT (6.2.1) và lúc chạy.
+- **Normalizer (A3): không làm (quyết định 27/10/2026).** Đo trên Kaggle (30 mẫu smoke): `audio_text` của BTC viết số bằng chữ số ("8 giờ kém 15", "30 phần trăm", "126 triệu"), còn PhoWhisper viết bằng chữ ("tám giờ kém mười lăm", "ba mươi phần trăm"). BTC không chấm chữ ASR, chỉ chấm tool call và trạng thái cuối, nên **giữ nguyên chữ ASR nghe ra** và cho LLM học trên chính chữ đó (LLM v2, `transcript_source = "asr"`, mục 6.2.1). LLM tự đổi số theo quy tắc trong system prompt. Không đổi chữ ASR về dạng `audio_text` trước khi đưa vào LLM.
+- **`asr.dtype`** (mặc định `"auto"`): bfloat16 trên GPU sm80+ (A30), float16 trên GPU cũ hơn (T4), float32 trên CPU (`resolve_asr_dtype`). Không ghi dtype thì `transformers` nạp float32: khoảng 3 GB cho PhoWhisper-medium, hết bộ nhớ khi chạy chung vLLM trên T4 15 GB (đo 27/10/2026).
 - **Nghiệm thu:**
   - Báo cáo WER và CER trên `val_seen` và `val_unseen`, dùng `audio_text` làm đáp án.
   - Báo cáo điểm agent khi dùng ASR trừ điểm khi dùng `GoldTranscriber`, đây là phần mất do ASR.
@@ -906,7 +908,7 @@ uv run python -m lifemate.train.sft_data --config configs/train/llm_v1.toml --en
 **Quy tắc dựng một mẫu, phải giống hệt lúc chạy thật:**
 
 1. Dựng prompt bằng đúng `PromptBuilder` và `system_v0.md` của lúc chạy. Sau đó, **xóa 8 app bị rút** (`configs/splits/meta.json` → `held_out_apps`) khỏi `installed_apps` trước khi render tool docs (mục 4.5).
-2. Transcript lấy từ `audio_text` (mặc định, `transcript_source = "gold"`). Tùy chọn `"asr"`: dùng chữ do ASR nghe ra, để model quen với lỗi ASR. Chỉ dùng khi đã có ASR (mục 6.1).
+2. Transcript lấy từ `audio_text` (mặc định, `transcript_source = "gold"`, dùng cho LLM v1). Tùy chọn `"asr"`: dùng chữ do ASR nghe ra. **Bản LLM dùng để nộp phải học trên `"asr"`** (LLM v2), vì lúc chấm LLM chỉ thấy chữ ASR, và chữ ASR khác `audio_text` cả ở lỗi nghe lẫn cách viết số (mục 6.1). Đổi ASR (model, dtype hay fine-tune) thì phải dựng lại dữ liệu và train lại LLM v2.
 3. Với mỗi call `i` trong `label.tool_calls`:
    - Thêm lượt assistant với nội dung `canonical_json({"action":"call","name":...,"arguments":...})`.
    - Thêm lượt user `KẾT QUẢ: ...`. Kết quả này lấy bằng cách **phát lại call qua `zaic_tools`**, không chép từ `label.tool_results`, để khớp từng byte với lúc chạy thật. Sau đó cắt theo `max_result_chars` giống hệt mục 4.10. Nếu kết quả phát lại khác `label.tool_results[i]` thì ghi cảnh báo kèm id.
@@ -1037,7 +1039,7 @@ Chỉ đánh giá bằng agent thật trên 2 checkpoint, để hạn chế vi�
 - Cặp `(file wav, audio_text)` gồm lượt cuối và **mọi lượt user trong history**.
 - Số cặp theo cách chia hiện tại (đo 27/10/2026): train **3547**, val_seen 624, val_unseen 865.
 - Chia theo **id mẫu**, đúng như `configs/splits/`. Mọi file audio của một mẫu thuộc `val_*` không bao giờ được dùng để train.
-- **Đích của ASR là `audio_text` nguyên văn**, giữ nguyên cách BTC viết số, tiền, giờ và từ tiếng Anh. Lý do: LLM được fine-tune trên `audio_text` (mục 6.2.1), nên ASR nghe ra giống văn phong đó thì LLM ít bị lệch nhất.
+- **Đích khi fine-tune ASR là `audio_text`**, vì đó là nhãn duy nhất có. Hệ quả: ASR sau fine-tune sẽ viết số theo kiểu BTC, khác ASR gốc. Vì LLM học trên chữ ASR (mục 6.1, 6.2.1), **sau mỗi lần fine-tune ASR phải dựng lại dữ liệu SFT bằng ASR mới và train lại LLM v2**. Đo bằng điểm agent, không chỉ WER, vì WER phạt cả khác biệt cách viết số mà BTC không chấm.
 - Dữ liệu ghi ra `data/asr/vN.jsonl` (`{"id","turn","audio","text","split"}`) kèm file meta giống mục 6.2.1. Audio không chép, chỉ ghi đường dẫn tương đối trong split.
 
 #### 6.4.2. Đo lường (`lifemate/eval/eval_asr.py`)
