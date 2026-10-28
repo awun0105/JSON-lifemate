@@ -121,15 +121,95 @@ NvidiaTeslaT4`, hoặc trên máy có GPU: `python -m lifemate.eval.asr_tune --e
 
 ## 5. Kết quả
 
-Chưa có.
+Chạy một phiên T4 trên Kaggle (kernel `asr_tune` v3), khoảng 4 giờ. Tập chỉnh gồm 300 mẫu train với 1 024 câu và
+123 tên riêng. val_seen có 916 câu, val_unseen có 527 câu. Các mô hình đều chạy hết, không lần đo nào lỗi. Log có
+một cảnh báo hết bộ nhớ GPU ở lựa chọn beam 5 của PhoWhisper, nhưng lần đo đó vẫn hoàn tất.
+
+### 5.1. Đường dò trên tập chỉnh
+
+Bỏ sót là tỉ lệ tên riêng bị chép sai. Rỗng là số câu ra chuỗi rỗng sau bộ lọc. Bịa là số câu bộ lọc phải cắt.
+Lựa chọn được giữ in đậm.
+
+| Mô hình | Bước | Lựa chọn | Bỏ sót | Rỗng | WER | WER bỏ số | Bịa | p95 (s) |
+|---|---|---|---|---|---|---|---|---|
+| large-v3 | decode | **greedy** | 41,5% | 10 | 30,8% | 28,9% | 17 | 8,32 |
+| | | beam5 | 42,3% | 31 | 30,8% | 28,7% | 39 | 7,65 |
+| | prompt | **none** | 41,5% | 10 | 30,8% | 28,9% | 17 | 8,32 |
+| | | lead | 49,6% | 22 | 48,6% | 42,6% | 22 | 7,19 |
+| | | short | 43,9% | 15 | 34,7% | 32,4% | 14 | 6,76 |
+| | | hotwords | 59,3% | 4 | 48,7% | 44,6% | 5 | 6,75 |
+| | antirepeat | **off** | 41,5% | 10 | 30,8% | 28,9% | 17 | 8,32 |
+| | | on | 42,3% | 9 | 31,6% | 29,7% | 13 | 6,69 |
+| | engine | none | 41,5% | 10 | 30,8% | 28,9% | 17 | 8,32 |
+| | | vad | 41,5% | 8 | 30,8% | 28,8% | 8 | 6,81 |
+| | | **temp_fallback** | 40,7% | 11 | 30,8% | 28,8% | 18 | 6,72 |
+| PhoWhisper | decode | **greedy** | 48,0% | 0 | 28,1% | 28,8% | 0 | 3,18 |
+| | | beam5 | 48,0% | 0 | 27,6% | 28,3% | 0 | 9,21 |
+| | prompt | none | 48,0% | 0 | 28,1% | 28,8% | 0 | 3,18 |
+| | | lead | 47,2% | 0 | 28,0% | 28,6% | 0 | 3,23 |
+| | | **short** | 46,3% | 0 | 28,1% | 28,8% | 0 | 3,09 |
+| | antirepeat | **off** | 46,3% | 0 | 28,1% | 28,8% | 0 | 3,09 |
+| | | on | 46,3% | 0 | 29,6% | 30,3% | 0 | 3,25 |
+| ChunkFormer CTC | (chỉ một cấu hình) | greedy | 39,0% | 0 | 21,0% | 20,5% | 0 | 2,94 |
+| ChunkFormer RNNT | (chỉ một cấu hình) | greedy | 37,4% | 0 | 20,3% | 19,5% | 0 | 2,71 |
+| Parakeet | (chỉ một cấu hình) | greedy | 63,4% | 70 | 36,5% | 36,8% | 0 | 0,86 |
+
+Mọi cấu hình của large-v3 đều vượt ngưỡng p95 6 s. Vì vậy hàng của large-v3 chỉ được so với nhau theo cách xếp hạng
+mềm ở mục 4.
+
+### 5.2. Cấu hình thắng của mỗi mô hình
+
+| Mô hình | Cấu hình thắng |
+|---|---|
+| large-v3 | greedy, không câu mồi, không chống lặp, temperature fallback `[0.0, 0.2, …, 1.0]` |
+| PhoWhisper | greedy, câu mồi ngắn `"Nhắn Zalo cho Lan. Chuyển sang kênh VTV3."`, không chống lặp |
+| ChunkFormer CTC, ChunkFormer RNNT, Parakeet | greedy, tham số mặc định |
+
+### 5.3. Đo trên tập kiểm tra
+
+| Mô hình | Tập | Bỏ sót | Rỗng | WER | WER bỏ số | Bịa | p95 (s) | Zalo | VTV |
+|---|---|---|---|---|---|---|---|---|---|
+| large-v3 | val_seen | 31,2% | 4 | 30,6% | 28,9% | 12 | 8,19 | 1/19 | 9/13 |
+| | val_unseen | 57,4% | 3 | 30,2% | 27,9% | 5 | 7,93 | 0/6 | 1/1 |
+| PhoWhisper | val_seen | 38,5% | 0 | 27,9% | 28,6% | 0 | 3,04 | 16/19 | 5/13 |
+| | val_unseen | 48,1% | 0 | 27,9% | 28,9% | 0 | 3,01 | 1/6 | 1/1 |
+| ChunkFormer CTC | val_seen | **23,9%** | 0 | 21,3% | 21,0% | 0 | 2,68 | 5/19 | 10/13 |
+| | val_unseen | 55,6% | 0 | 21,0% | 20,9% | 0 | 2,30 | 0/6 | 1/1 |
+| ChunkFormer RNNT | val_seen | 32,1% | 0 | **20,0%** | **19,7%** | 0 | 2,53 | **17/19** | 10/13 |
+| | val_unseen | **48,1%** | 0 | **19,8%** | **19,8%** | 0 | 2,49 | **5/6** | 1/1 |
+| Parakeet | val_seen | 54,1% | 37 | 35,3% | 35,7% | 0 | 0,87 | 5/19 | 1/13 |
+| | val_unseen | 79,6% | 51 | 38,2% | 38,7% | 0 | 0,74 | 0/6 | 1/1 |
 
 ## 6. Phân tích và đánh giá
 
-Chưa có.
+- **ChunkFormer RNNT tốt nhất xét tổng thể.** Mô hình có WER thấp nhất trên cả ba tập, khoảng 20%. Trên val_unseen,
+  mô hình bỏ sót ít nhất (48,1%, bằng PhoWhisper) và chép đúng "Zalo" nhiều nhất (17/19 và 5/6). Mô hình không ra câu
+  rỗng hay câu bịa nào, và p95 chỉ 2,5 s, bằng chưa tới một nửa ngưỡng. Giấy phép CC-BY-4.0.
+- **ChunkFormer CTC bỏ sót ít nhất trên val_seen (23,9%), nhưng kém trên val_unseen (55,6%).** Mô hình chép sai tên
+  ứng dụng gần như mọi lần (Zalo 5/19 và 0/6). Khoảng cách giữa hai tập cho thấy thứ hạng trên val_seen phụ thuộc vào
+  vài loại tên riêng hay gặp. Ngoài ra, giấy phép phi thương mại cần BTC duyệt.
+- **large-v3 (cấu hình hiện tại) vượt ngưỡng thời gian ở mọi cấu hình.** p95 khoảng 8 s, lớn hơn ngưỡng 6 s. WER
+  khoảng 30%, cao hơn ChunkFormer 10 điểm, và vẫn còn câu bịa dù đã bật bộ lọc. Gần như không bao giờ chép đúng "Zalo"
+  (1/19). Câu mồi và hotwords lại làm kết quả kém hơn, đúng như sweep v2.
+- **PhoWhisper không bịa và chạy nhanh hơn large-v3 (p95 khoảng 3 s).** Câu mồi ngắn giúp chép đúng "Zalo" (16/19),
+  nhưng bỏ sót vẫn cao (38–48%) vì PhoWhisper sai nhiều ở tên riêng khác. Beam 5 gần như không cải thiện mà làm
+  thời gian tăng gấp ba.
+- **Parakeet nhanh nhất nhưng kém nhất.** p95 dưới 1 s, nhưng 37–51 câu ra rỗng và bỏ sót 54–80%. Nhiều khả năng mô
+  hình không hợp với giọng nói và kiểu câu của dữ liệu này. Mô hình chỉ thử một cấu hình, vì không có KenLM (mục 3).
+- **Độ tin cậy.** Số tên riêng trên val_unseen nhỏ (Zalo chỉ 6 câu, VTV 1 câu), nên chênh lệch một vài câu ở đó chưa
+  đủ để kết luận. Trên cả ba tập, ChunkFormer RNNT có WER ổn định (19,5–20,3%) và luôn ở nhóm đầu về bỏ sót. Kết luận
+  chọn mô hình dựa chủ yếu vào sự ổn định này.
 
 ## 7. Kết luận
 
-Chưa có.
+1. Chọn **ChunkFormer RNNT large** (`khanhld/chunkformer-rnnt-large-vie`, giải mã greedy, tham số mặc định) làm
+   ứng viên ASR chính. So với large-v3: WER giảm từ khoảng 30% xuống 20%, không còn câu bịa hay câu rỗng, p95 giảm
+   từ 8 s xuống 2,5 s, và giấy phép cho phép dùng.
+2. Giữ **PhoWhisper large + câu mồi ngắn** làm ứng viên dự phòng: không bịa, p95 3 s, chép tên ứng dụng tốt.
+3. Chưa đổi `configs/v0.toml`. ASR chỉ là bước rút gọn danh sách. Việc chọn cuối cùng phải dựa trên điểm thi của cả
+   hệ thống trên GPU từ 24 GB (Colab Pro), với ChunkFormer RNNT và large-v3 hiện tại, có thể thêm PhoWhisper.
+4. Bỏ Parakeet. ChunkFormer CTC chỉ xét lại nếu BTC cho dùng giấy phép phi thương mại và điểm thi cho thấy lợi thế
+   trên val_seen là có thật.
 
 ## Giới hạn đã biết
 
