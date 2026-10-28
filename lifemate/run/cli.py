@@ -46,6 +46,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--resume", action="store_true", help="continue a run folder whose trace.jsonl exists")
     ap.add_argument("--limit", type=int, help="run only the first N ids (install check)")
     ap.add_argument("--train-mode", action="store_true", help="strip held-out apps from prompts (SFT prompt checks)")
+    ap.add_argument(
+        "--transcripts",
+        choices=("config", "gold", "asr"),
+        default="config",
+        help="override asr.backend: gold transcripts or real ASR (default: keep the config value)",
+    )
     return ap.parse_args(argv)
 
 
@@ -56,6 +62,9 @@ def run(args: argparse.Namespace, repo_root: Path = REPO_ROOT) -> RunSummary:
     mặc định là dấu thời gian UTC. Điểm chỉ được tính khi mọi mẫu đều có nhãn.
     """
     config = load_config(_abs(str(args.config), repo_root))
+    # `--transcripts asr` chạy ASR thật trên cùng một config, khỏi phải chép config chỉ để đổi asr.backend.
+    if args.transcripts != "config":
+        config = dataclasses.replace(config, asr=dataclasses.replace(config.asr, backend=args.transcripts))
     raw_profile = load_profile(args.env, repo_root).with_overrides(root=args.root)
     profile: EnvProfile = dataclasses.replace(
         raw_profile,

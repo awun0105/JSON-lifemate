@@ -41,6 +41,7 @@ import json
 import random
 from pathlib import Path
 
+from lifemate.core.config import load_profile
 from lifemate.core.paths import REPO_ROOT as REPO
 from lifemate.core.textsim import cluster_near_duplicates
 
@@ -165,7 +166,8 @@ def smoke_sample(val_seen: list[dict], n: int, seed: int) -> list[str]:
 def main() -> None:
     """Điểm vào dòng lệnh: tạo các split, các fold, smoke.txt (tùy chọn) và meta.json, rồi in thống kê."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="folder holding the split folders")
+    ap.add_argument("--root", type=Path, help="folder holding the split folders (default: local data folder)")
+    ap.add_argument("--env", help="take the data folder from env profile configs/env/<name>.toml (colab, kaggle, ...)")
     ap.add_argument("--out", type=Path, default=REPO / "configs" / "splits", help="output folder")
     ap.add_argument(
         "--held-out", nargs="+", default=DEFAULT_HELD_OUT, metavar="APP", help="apps reserved for val_unseen"
@@ -181,6 +183,9 @@ def main() -> None:
         help="also write smoke.txt: N val_seen ids stratified by (answer type, has history); 0 = skip",
     )
     args = ap.parse_args()
+    # Thứ tự ưu tiên: --root, rồi data_root của profile --env, rồi thư mục dữ liệu cục bộ mặc định.
+    if args.root is None:
+        args.root = Path(load_profile(args.env, REPO).data_root).expanduser() if args.env else DEFAULT_ROOT
 
     with open(args.root / "train" / "train.jsonl", encoding="utf-8") as f:
         items = [json.loads(line) for line in f if line.strip()]

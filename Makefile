@@ -40,7 +40,11 @@ splits:          ## Sinh lại configs/splits/ (train, val_seen, val_unseen, smo
 	uv run python -m lifemate.eval.make_splits --smoke 30
 
 run:             ## Chạy agent: make run ENV=local SPLIT=train IDS=configs/splits/smoke.txt
-	uv run python -m lifemate.run.cli --config $(CONFIG) --env $(ENV) --split $(SPLIT) --ids $(IDS) --name $(NAME)
+	uv run python -m lifemate.run.cli --config $(CONFIG) --env $(ENV) --split $(SPLIT) --ids $(IDS) --name $(NAME) $(EXTRA)
+
+eval:            ## Baseline ASR trên val_seen + val_unseen: make eval ENV=colab TAG=base
+	$(MAKE) run IDS=configs/splits/val_seen.txt NAME=$(or $(TAG),eval)_val_seen_asr EXTRA="--transcripts asr"
+	$(MAKE) run IDS=configs/splits/val_unseen.txt NAME=$(or $(TAG),eval)_val_unseen_asr EXTRA="--transcripts asr"
 
 report:          ## Bảng các lượt chạy agent: make report [INDEX=artifacts/runs/index.csv]
 	uv run python -m lifemate.run.report runs $(or $(INDEX),artifacts/runs/index.csv)

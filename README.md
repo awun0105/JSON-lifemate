@@ -72,6 +72,8 @@ make run IDS=configs/splits/smoke.txt
 
 `make run` nhận các biến: `CONFIG` (mặc định `configs/v0.toml`), `ENV` (profile máy, mặc định `local`), `SPLIT` (mặc định `train`), `IDS` (file danh sách id), `NAME` (tên lần chạy).
 
+`configs/v0.toml` dùng transcript gold. Để chạy ASR thật trên cùng config, thêm cờ `--transcripts asr` vào CLI, hoặc dùng `make eval ENV=<colab|kaggle|runpod|rented> TAG=<tên>`: lệnh này chạy val_seen và val_unseen với ASR. Cần GPU từ 24 GB (L4, A30, A100); T4 15 GB không đủ cho vLLM cùng whisper-large-v3. Thiếu danh sách split thì chạy `python -m lifemate.eval.make_splits --env <profile> --smoke 30`.
+
 ### 1.4. Xem kết quả
 
 Mỗi lần chạy tạo một thư mục `artifacts/runs/<tên>/`:

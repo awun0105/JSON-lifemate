@@ -74,3 +74,23 @@ def test_no_hardcoded_paths(repo_root: Path) -> None:
         text = path.read_text(encoding="utf-8")
         for needle in ("/kaggle", "/content", "/home", "train+public_test"):
             assert needle not in text, f"{path}: {needle}"
+
+
+@pytest.mark.parametrize(("flag", "want"), [("config", "gold"), ("asr", "asr"), ("gold", "gold")])
+def test_transcripts_flag_overrides_asr_backend(
+    repo_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flag: str, want: str
+) -> None:
+    """Bảo vệ: `--transcripts` đổi asr.backend của config (v0 để gold), mặc định giữ nguyên giá trị trong config."""
+    seen: list[str] = []
+
+    def stop(config: object, *a: object, **k: object) -> None:
+        """Ghi lại asr.backend mà factory nhận được rồi dừng, không dựng model."""
+        seen.append(config.asr.backend)  # type: ignore[attr-defined]
+        raise SystemExit(0)
+
+    monkeypatch.setattr(cli, "load_split", lambda *a, **k: [])
+    monkeypatch.setattr(cli.factory, "build", stop)
+    argv = ["--config", str(fake_config(repo_root, tmp_path)), "--root", str(tmp_path), "--transcripts", flag]
+    with pytest.raises(SystemExit):
+        cli.run(cli.parse_args(argv), repo_root=repo_root)
+    assert seen == [want]

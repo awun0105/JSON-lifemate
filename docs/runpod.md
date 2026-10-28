@@ -42,7 +42,7 @@ Then `unzip` so that `/workspace/zac2026/train+public_test/train/...` exists.
 cd /workspace/lifemate
 make splits                                            # split id lists are git-ignored; setup already ran this
 make run ENV=runpod IDS=configs/splits/val_seen.txt            # agent, gold transcripts
-make run ENV=runpod IDS=configs/splits/val_seen.txt CONFIG=configs/asr.toml   # when an ASR config exists
+make eval ENV=runpod TAG=base                                     # baseline: real ASR on val_seen + val_unseen
 make train-deps                                        # ms-swift 4.6.0, trl, peft for fine-tuning
 uv run python -m lifemate.train.llm_pipeline --config configs/train/llm_v1.toml --env runpod
 uv run python -m lifemate.run.report train /workspace/zac2026/runs/train/<name> --png loss.png
