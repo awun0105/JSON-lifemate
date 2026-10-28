@@ -28,7 +28,8 @@ dtype = "auto"                         # auto: bfloat16 trên sm80+ (A30), float
 batch_size = 8                         # số file wav mỗi lần gọi transcribe_batch (faster_whisper vẫn giải mã từng file)
 # Giải mã: beam 5, nhiệt độ 0 (tất định), VAD bỏ khoảng lặng, không nối ngữ cảnh lượt trước (gốc từ team lead).
 # Bỏ initial_prompt, repetition_penalty, no_repeat_ngram_size: sweep val_seen (asr_sweep_v1) cho WER 44.0% -> 29.7%,
-# câu rỗng 190 -> 24, bỏ sót thực thể 52% -> 31%. initial_prompt làm Whisper lặp lại prompt và bị sanitizer xóa.
+# câu rỗng 190 -> 24, bỏ sót thực thể 52% -> 31%. Câu mồi làm Whisper bịa phụ đề YouTube trên audio bình thường
+# (160/185 câu rỗng là "subscribe"/"đăng ký kênh" bị sanitizer xóa); đổi lại, không mồi thì Zalo, VTV, HTV hay sai.
 generate_kwargs = { language = "vi", task = "transcribe", temperature = 0.0, beam_size = 5, best_of = 5, vad_filter = true, vad_parameters = { min_silence_duration_ms = 500 }, condition_on_previous_text = false }
 sample_rate = 16000                    # WAV 16 kHz mono 16-bit (data README 2.1)
 sanitize = true                        # lọc ảo giác kiểu phụ đề YouTube và vòng lặp (lifemate/backends/asr_sanitizer.py)

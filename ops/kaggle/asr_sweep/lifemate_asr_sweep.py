@@ -14,7 +14,7 @@ RUN = {
     "RUN_GOLD": "0",
     "RUN_ASR": "0",
     "RUN_ASR_EVAL": "0",
-    "ASR_SWEEP": "lead,norep,norep_raw,norep_noprompt,norep_novad,phowhisper",
+    "ASR_SWEEP": "norep_noprompt,hotwords,short_prompt,short_prompt2",
     "ASR_EVAL_IDS": "configs/splits/val_seen.txt",
 }
 os.environ.update(RUN)

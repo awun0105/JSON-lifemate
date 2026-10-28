@@ -181,6 +181,12 @@ ASR_VARIANTS = {
         "drop": ["vad_parameters"],
         "gk": {"vad_filter": False, "initial_prompt": LEAD_PROMPT},
     },
+    # Sweep v2 (28/10): giữ chính tả tên riêng (Zalo, VTV, HTV) mà không kéo Whisper vào phụ đề YouTube.
+    "hotwords": {"gk": {"hotwords": "Zalo VTV1 VTV3 HTV7 voucher deadline"}},  # danh sách từ, không phải câu
+    "short_prompt": {"gk": {"initial_prompt": "Nhắn Zalo cho Lan. Chuyển sang kênh VTV3."}},  # câu mồi giống lời nói
+    "short_prompt2": {
+        "gk": {"initial_prompt": "Nhắn Zalo cho mẹ. Mở kênh VTV1, VTV3, HTV7. Dùng voucher trước deadline."}
+    },
     "phowhisper": {
         "set": {
             "engine": "hf_seq2seq",

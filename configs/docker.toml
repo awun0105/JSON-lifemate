@@ -29,7 +29,8 @@ device = "cuda"
 dtype = "auto"
 batch_size = 8
 # Bỏ initial_prompt, repetition_penalty, no_repeat_ngram_size: sweep val_seen (asr_sweep_v1) cho WER 44.0% -> 29.7%,
-# câu rỗng 190 -> 24, bỏ sót thực thể 52% -> 31%. initial_prompt làm Whisper lặp lại prompt và bị sanitizer xóa.
+# câu rỗng 190 -> 24, bỏ sót thực thể 52% -> 31%. Câu mồi làm Whisper bịa phụ đề YouTube trên audio bình thường
+# (160/185 câu rỗng là "subscribe"/"đăng ký kênh" bị sanitizer xóa); đổi lại, không mồi thì Zalo, VTV, HTV hay sai.
 generate_kwargs = { language = "vi", task = "transcribe", temperature = 0.0, beam_size = 5, best_of = 5, vad_filter = true, vad_parameters = { min_silence_duration_ms = 500 }, condition_on_previous_text = false }
 sample_rate = 16000
 sanitize = true
