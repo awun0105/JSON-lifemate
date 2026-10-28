@@ -82,6 +82,10 @@ def test_prompt_matches_runtime_bytes(built: dict[str, Any]) -> None:
 @pytest.mark.data
 def test_turn_structure(built: dict[str, Any]) -> None:
     """Lượt assistant là JSON chuẩn tắc, lượt user mở đầu bằng `RESULT_PREFIX`, và lượt cuối khớp loại mẫu."""
+    from lifemate.agent import agent
+
+    # Tiền tố dùng chung một hằng với agent, nên dữ liệu train không thể lệch với hội thoại lúc chạy.
+    assert sft_data.RESULT_PREFIX is agent.RESULT_PREFIX
     for row in built["result"].rows:
         sample: Sample = built["samples"][row["id"]]
         calls = (sample.label or {}).get("tool_calls") or []

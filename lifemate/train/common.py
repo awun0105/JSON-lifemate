@@ -42,6 +42,7 @@ import structlog
 from lifemate.core.config import ConfigError
 from lifemate.core.envinfo import EnvInfo
 from lifemate.core.jsonutil import canonical_json
+from lifemate.core.paths import repo_path
 
 log = structlog.get_logger(__name__)
 
@@ -386,9 +387,8 @@ def write_json_atomic(path: Path, obj: Any) -> None:
 
 
 def abs_path(path: str | Path, repo_root: Path) -> Path:
-    """Mở rộng `~` và tính đường dẫn tương đối từ thư mục gốc repo (cùng quy tắc với `lifemate.run.cli`)."""
-    p = Path(path).expanduser()
-    return p if p.is_absolute() else repo_root / p
+    """Mở rộng `~` và tính đường dẫn tương đối từ thư mục gốc repo (dùng `lifemate.core.paths.repo_path`)."""
+    return repo_path(path, repo_root)
 
 
 def build_section(cls: type[_T], section: str, raw: Any) -> _T:

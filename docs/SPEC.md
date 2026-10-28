@@ -584,7 +584,7 @@ class Budget:   # Budget(cfg: AgentConfig, llm_cfg: LLMConfig, clock)
 ```
 
 - Không dự đoán thời gian bước tới. Agent gọi `llm.generate(..., time_left_s=budget.remaining)`. `VLLMBackend` khi có `time_left_s` thì đưa request vào engine (`llm_engine.add_request`) và chạy từng `step()`; tới hạn thì `abort_request` và trả `Generation(timed_out=True, text="")`. Agent ghi bước đó (`action=None`) rồi dừng với `TIMEOUT`; các call đã gọi vào env vẫn có trong `get_tool_calls()` nên vẫn được nộp và chấm.
-- Engine thiếu API `add_request`/`step`/`abort_request` thì `VLLMBackend` ghi log lỗi `vllm_abortable_generate_unsupported` và quay về `LLM.chat` (không ngắt được). Phải thấy log này bằng 0 trên máy chấm cùng loại trước khi nộp.
+- Engine thiếu API `add_request`/`step`/`abort_request` thì `VLLMBackend` ghi log lỗi `vllm_abortable_generate_unsupported` và quay về `LLM.chat` (không ngắt được). Phải thấy log này bằng 0 trên máy chấm cùng loại trước khi nộp. Chỉ quay về khi đường step/abort hỏng ngay lần đầu (lúc warmup); đã chạy được rồi mà sau đó lỗi thì lỗi được ném ra và mẫu thành `exception`. Request đã thêm vào engine luôn bị huỷ khi có lỗi giữa chừng.
 - `deadline_s = 29`: luật BTC là 30 giây mỗi mẫu, quá giờ thì mẫu 0 điểm. 1 giây còn lại cho việc sau khi ngắt (lấy call và hash từ env, ghi trace, thường dưới 0,1 s) và cho chênh lệch giữa đồng hồ của agent với đồng hồ BTC (BTC có thể tính cả lúc mở env). Chỉnh sau khi đo trên A30.
 - Thời gian ASR được tính vào `elapsed` vì `Budget` bắt đầu tính trước khi gọi ASR.
 - Warm-up gọi cùng đường engine có ngắt (giới hạn 300 s) để biên dịch đúng đường mà mẫu thật chạy.
@@ -621,13 +621,15 @@ uv run python -m lifemate.run.cli --config configs/v0.toml --env kaggle --root /
 
 - `trace.jsonl`: mở ở chế độ append, `flush()` và `os.fsync()` sau mỗi mẫu. Phiên Kaggle bị ngắt thì chỉ mất tối đa mẫu đang chạy.
 - `submission.jsonl` và `summary.json`: ghi ra file `*.tmp` rồi `os.replace` (ghi nguyên tử). Không bao giờ để lại file nộp ghi dở.
-- `--resume`: đọc `trace.jsonl`, bỏ qua dòng cuối nếu dòng đó hỏng (bị ngắt giữa chừng), bỏ qua các id đã có. `submission.jsonl` được dựng lại từ `trace.jsonl` ở `finalize()`.
+- `--resume`: đọc `trace.jsonl`, bỏ qua dòng cuối nếu dòng đó hỏng (bị ngắt giữa chừng), bỏ qua các id đã có. `submission.jsonl` được dựng lại từ `trace.jsonl` ở `finalize()`. Config mới phải khớp `config.json` cũ ở `config`, `prompt_sha256`, `split`, `train_mode`, nếu không thì báo lỗi; `dtype` và thông tin máy không được so, để container nộp bài chạy tiếp được trên GPU khác. `config.json` giữ bản ghi gốc; mỗi lần chạy tiếp nối `started_at`, `warmup_s`, `env_info`, `dtype` vào danh sách `resumes`.
 - Thư mục `--out` đã có `trace.jsonl` mà không truyền `--resume` thì báo lỗi và thoát, không ghi đè.
+- Hai lỗi trên (trùng thư mục, lệch config khi chạy tiếp) được kiểm tra **trước** khi nạp LLM và ASR.
+- Mã thoát của CLI: 1 khi `score.py` lỗi hoặc không đọc được điểm (split có nhãn), còn lại là 0. `check_submission` báo lỗi thì CLI in `FAILED (check)` ra stderr nhưng vẫn thoát 0, vì container nộp bài chạy chính CLI này và file nộp đã ghi xong.
 - `--ids` không truyền thì chạy mọi mẫu của split. `--limit` lấy N id đầu tiên, dùng để chạy thử.
 - Split có nhãn (train) thì cuối lần chạy tự gọi `lifemate/eval/score.py submission.jsonl --ids <run>/ids.txt --match both --details details.jsonl` và ghi kết quả ra `score.txt`. `ids.txt` là danh sách id thực sự đã chạy (sau `--limit`), để các id chưa chạy không bị chấm 0. `summary.json.score` = `{total, by_mode: {strict, canon}, by_category}`.
 - Thêm một dòng vào `artifacts/runs/index.csv`: `run, date, git_commit, model, prompt_hash, split, ids_file, n, score, p95_seconds`.
 - Split **không có nhãn** (public, private): `finalize()` chạy `check_submission` (B3) thay cho chấm điểm, ghi kết quả ra `check.txt`:
-  1. Mọi id của split có mặt đúng một lần, JSON hợp lệ.
+  1. Mọi id của split có mặt đúng một lần, JSON hợp lệ, mỗi phần tử của `tool_calls` có dạng `{"name": str, "arguments": object}`; dòng sai dạng được báo là dòng không hợp lệ chứ không làm checker crash.
   2. `python -m zaic_tools --split <split> --root <root> --validate submission.jsonl` không báo lỗi (subprocess, cwd là thư mục split).
   3. Phân bố: tỉ lệ `[]`, tỉ lệ có `sys.ask_missing_info`, số call trung bình, so với train (7%, 14%, 2,3). Lệch quá 2 lần thì in cảnh báo, không chặn.
   4. Phát lại các call qua `zaic_tools` và đếm `ok: false`; khác 0 thì in cảnh báo kèm id.
@@ -1071,7 +1073,7 @@ Chỉ đánh giá bằng agent thật trên 2 checkpoint, để hạn chế vi�
 
 | Chỉ số | Cách tính | Vì sao |
 |---|---|---|
-| WER, CER | Trên chữ đã chuẩn hóa: chữ thường, NFC, bỏ dấu câu | Chỉ số chung |
+| WER, CER | Trên chữ đã chuẩn hóa: chữ thường, NFC, bỏ token không biết (`⁇`, `<unk>`) và dấu câu. Câu chỉ có token không biết vì vậy là câu rỗng | Chỉ số chung |
 | **Tỉ lệ nghe sai thực thể** | Lấy các giá trị tham số chuỗi và số trong `label.tool_calls` mà **có xuất hiện** trong `audio_text`, ví dụ tên người, địa điểm, số tiền. Đếm tỉ lệ không xuất hiện trong chữ ASR, sau khi bỏ dấu và chữ hoa (dùng cùng cách chuẩn hóa `_fold` của `zaic_tools`) | Đây là lỗi làm sai tham số tool, ảnh hưởng điểm trực tiếp |
 | Điểm agent mất do ASR | Điểm khi dùng `GoldTranscriber` trừ điểm khi dùng ASR, cùng LLM và prompt | Quyết định có cần fine-tune hay không |
 | Thời gian | p50, p95, max thời gian ASR mỗi mẫu | Giới hạn 30 giây |

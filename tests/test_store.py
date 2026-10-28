@@ -112,3 +112,33 @@ def test_append_index(tmp_path: Path) -> None:
     append_index(path, {"run": "r2", "n": 4})
     lines = path.read_text(encoding="utf-8").splitlines()
     assert lines[0].startswith("run,date,git_commit") and len(lines) == 3
+
+
+def test_resume_rejects_different_config_keeps_original(tmp_path: Path) -> None:
+    """Resume với config khác bị từ chối; config khớp thì `config.json` giữ bản gốc, nối lần chạy tiếp vào `resumes`."""
+    first = {"config": {"llm": {"model": "a"}, "agent": {"guards": ("g1",)}}, "prompt_sha256": "p", "split": "train"}
+    first |= {"train_mode": False, "started_at": "t0", "warmup_s": {"llm_s": 1.0}}
+    store = RunStore(tmp_path, resume=False)
+    store.write_config(store.resumed_config(first))
+    store.append(result("a"))
+
+    store = RunStore(tmp_path, resume=True)
+    # Tuple trong bản ghi mới so khớp được với list đã nằm trong JSON.
+    same = {**first, "started_at": "t1", "warmup_s": {"llm_s": 2.0}}
+    store.check_resume(same)
+    with pytest.raises(ValueError, match="prompt_sha256"):
+        store.check_resume({**same, "prompt_sha256": "q"})
+    with pytest.raises(ValueError, match="config"):
+        store.check_resume({**same, "config": {"llm": {"model": "b"}, "agent": {"guards": ["g1"]}}})
+
+    store.write_config(store.resumed_config(same))
+    saved = json.loads(store.config_path.read_text(encoding="utf-8"))
+    assert saved["started_at"] == "t0" and saved["warmup_s"] == {"llm_s": 1.0}
+    assert saved["resumes"] == [{"started_at": "t1", "warmup_s": {"llm_s": 2.0}}]
+
+
+def test_resume_without_trace_is_new_run(tmp_path: Path) -> None:
+    """`--resume` trên thư mục chưa có trace (như container nộp bài lần đầu) là run mới: không so, ghi nguyên bản."""
+    store = RunStore(tmp_path, resume=True)
+    store.check_resume({"config": {}, "split": "x"})
+    assert store.resumed_config({"split": "x"}) == {"split": "x"}

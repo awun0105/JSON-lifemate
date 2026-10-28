@@ -115,6 +115,16 @@ def _held_out(repo_root: Path) -> frozenset[str]:
     return frozenset(json.loads(meta.read_text(encoding="utf-8")).get("held_out_apps", []))
 
 
+def _template(config: Config, repo_root: Path) -> str:
+    """Đọc file template system prompt khai báo ở `[agent].system_prompt` (đường dẫn tính từ gốc repo)."""
+    return (repo_root / config.agent.system_prompt).read_text(encoding="utf-8")
+
+
+def prompt_sha256(config: Config, repo_root: Path) -> str:
+    """Trả về SHA-256 của file template system prompt; tính được trước khi nạp model, để CLI kiểm tra `--resume`."""
+    return hashlib.sha256(_template(config, repo_root).encode("utf-8")).hexdigest()
+
+
 def build(
     config: Config,
     profile: EnvProfile,
@@ -154,8 +164,7 @@ def build(
     dtype = resolve_dtype(config.llm.dtype, env_info)
     index = CatalogIndex(load_catalog(root, split))
     counter = _counter(config)
-    template_path = repo_root / config.agent.system_prompt
-    template = template_path.read_text(encoding="utf-8")
+    template = _template(config, repo_root)
     prompts = PromptBuilder(
         template,
         index,
@@ -180,5 +189,5 @@ def build(
         llm=llm,
         transcriber=transcriber,
         dtype=dtype,
-        prompt_sha256=hashlib.sha256(template.encode("utf-8")).hexdigest(),
+        prompt_sha256=prompt_sha256(config, repo_root),
     )

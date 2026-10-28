@@ -21,6 +21,7 @@ Lưu ý:
 
 from __future__ import annotations
 
+import contextlib
 import importlib.metadata
 import os
 import time
@@ -203,6 +204,8 @@ class VLLMBackend:
         self.warmup_seconds: float | None = None
         self._use_template_kwargs = True
         self._abortable = True  # đặt False (và ghi log) khi engine thiếu API step/abort
+        # True sau lần đầu đường step/abort chạy trọn vẹn: từ đó lỗi trên đường này là bug thật, không phải thiếu API.
+        self._abortable_verified = False
         self._next_request = 0
         if cfg.batch_invariant:
             if compute_capability is not None and compute_capability < _MIN_BATCH_INVARIANT_CC:
@@ -262,7 +265,8 @@ class VLLMBackend:
 
         Khi có `time_left_s`, request chạy từng bước trên engine và bị huỷ khi hết giờ (`timed_out=True`), nên một mẫu
         không bao giờ chạy quá hạn giờ. Khi không có `time_left_s` hoặc engine thiếu API step/abort, hàm dùng
-        `LLM.chat`.
+        `LLM.chat`. Việc thiếu API chỉ được kết luận khi đường step/abort hỏng ngay lần đầu (thường là lúc warmup); đã
+        chạy được rồi mà sau đó lỗi thì lỗi được ném ra, để không lặng lẽ mất hạn giờ cho cả phần còn lại của run.
 
         Tham số:
             messages: các tin nhắn của prompt.
@@ -272,14 +276,26 @@ class VLLMBackend:
 
         Trả về:
             `Generation` kèm số token prompt, số token sinh ra và thời gian.
+
+        Lỗi:
+            AttributeError, TypeError: khi đường step/abort đã từng chạy được nhưng lần này lỗi.
         """
         params = self._sampling_params(schema)
+        # Thời gian của lần thử step/abort thất bại, được cộng vào `seconds` của lần gọi `LLM.chat` thay thế.
+        failed_s = 0.0
         if time_left_s is not None and self._abortable:
+            t_try = time.perf_counter()
             try:
-                return self._generate_until(messages, params, time_left_s)
+                gen = self._generate_until(messages, params, time_left_s)
             except (AttributeError, TypeError) as exc:  # API engine khác với điều mã này giả định
+                if self._abortable_verified:
+                    raise
                 _log.error("vllm_abortable_generate_unsupported", error=str(exc))
                 self._abortable = False
+                failed_s = time.perf_counter() - t_try
+            else:
+                self._abortable_verified = True
+                return gen
         t0 = time.perf_counter()
         if self._use_template_kwargs:
             try:
@@ -298,7 +314,7 @@ class VLLMBackend:
                 outputs = self.engine.chat(messages, sampling_params=params, use_tqdm=False)
         else:
             outputs = self.engine.chat(messages, sampling_params=params, use_tqdm=False)
-        seconds = time.perf_counter() - t0
+        seconds = time.perf_counter() - t0 + failed_s
         out = outputs[0]
         completion = out.outputs[0]
         return Generation(
@@ -331,7 +347,8 @@ class VLLMBackend:
             `Generation`; `timed_out=True` khi request bị huỷ.
 
         Lỗi:
-            AttributeError, TypeError: khi engine không có API step/abort như mong đợi; `generate` bắt hai lỗi này.
+            AttributeError, TypeError: khi engine không có API step/abort như mong đợi; `generate` quyết định có quay về
+            `LLM.chat` hay không. Mọi lỗi xảy ra sau khi đã thêm request đều huỷ request đó trước khi ném ra.
         """
         engine = self.engine.llm_engine
         t0 = time.perf_counter()
@@ -343,17 +360,23 @@ class VLLMBackend:
         final: Any = None
         latest: Any = None
         timed_out = False
-        while engine.has_unfinished_requests():
-            if time.perf_counter() >= deadline:
+        try:
+            while engine.has_unfinished_requests():
+                if time.perf_counter() >= deadline:
+                    engine.abort_request([rid])
+                    timed_out = True
+                    break
+                # Một bước có thể trả đầu ra của nhiều request; chỉ giữ đầu ra của request `rid`.
+                for out in engine.step():
+                    if out.request_id == rid:
+                        latest = out
+                        if out.finished:
+                            final = out
+        except BaseException:
+            # Thoát giữa chừng (lỗi engine, Ctrl-C): huỷ request, kẻo nó còn trong engine và chạy tiếp ở lần gọi sau.
+            with contextlib.suppress(Exception):
                 engine.abort_request([rid])
-                timed_out = True
-                break
-            # Một bước có thể trả đầu ra của nhiều request; chỉ giữ đầu ra của request `rid`.
-            for out in engine.step():
-                if out.request_id == rid:
-                    latest = out
-                    if out.finished:
-                        final = out
+            raise
         seconds = time.perf_counter() - t0
         out = final or latest
         completion = out.outputs[0] if out is not None and out.outputs else None

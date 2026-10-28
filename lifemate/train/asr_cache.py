@@ -38,7 +38,7 @@ from typing import Any
 import structlog
 
 from lifemate.core.config import load_config, load_profile
-from lifemate.core.paths import REPO_ROOT
+from lifemate.core.paths import REPO_ROOT, repo_path
 from lifemate.core.types import Sample, Transcriber, Transcript
 from lifemate.io.data import load_split, read_ids
 
@@ -131,8 +131,7 @@ def main(argv: Sequence[str] | None = None, repo_root: Path = REPO_ROOT) -> int:
     args = parse_args(argv)
     cfg = load_config(args.config if args.config.is_absolute() else repo_root / args.config)
     profile = load_profile(args.env, repo_root).with_overrides(root=args.root)
-    root = Path(profile.data_root)
-    root = root if root.is_absolute() else repo_root / root
+    root = repo_path(profile.data_root, repo_root)
     ids: list[str] = []
     # Gộp nhiều file id, giữ thứ tự xuất hiện và bỏ id trùng.
     for path in args.ids:

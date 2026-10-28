@@ -41,7 +41,8 @@ from typing import Any
 
 import structlog
 
-from lifemate.agent.agent import BLOCK_PREFIX
+# Tiền tố lấy thẳng từ agent: dữ liệu SFT phải giống từng byte với hội thoại lúc chạy thật.
+from lifemate.agent.agent import BLOCK_PREFIX, RESULT_PREFIX
 from lifemate.agent.prompt import HeldOutLeak, PromptBuilder, truncate_result
 from lifemate.agent.protocol import DONE_TEXT, call_text
 from lifemate.agent.tooldocs import ASK_TOOL, CatalogIndex
@@ -62,7 +63,6 @@ from lifemate.train.sft import LLMTrainConfig, load_llm_train_config
 
 log = structlog.get_logger(__name__)
 
-RESULT_PREFIX = "KẾT QUẢ: "
 EVAL_ID_FILES = ("configs/splits/val_seen.txt", "configs/splits/val_unseen.txt")
 
 

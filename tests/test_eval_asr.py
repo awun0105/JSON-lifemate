@@ -155,7 +155,7 @@ class _Fixed:
 
 
 def test_unk_only_counted_and_bad_ids() -> None:
-    """Câu chỉ gồm `⁇` được đếm vào `n_unk` (và `n_empty`); `bad_ids` lấy đúng mẫu có câu hỏng."""
+    """Câu chỉ gồm `⁇` hoặc `<unk>` được đếm vào `n_unk` (và `n_empty`); `bad_ids` lấy đúng mẫu có câu hỏng."""
     from lifemate.eval.asr_bad_ids import bad_ids
     from lifemate.eval.eval_asr import is_unk_only
 
@@ -164,6 +164,10 @@ def test_unk_only_counted_and_bad_ids() -> None:
     samples = [_sample("a", "bật đèn", []), _sample("b", "tắt đèn", [])]
     rep = evaluate(samples, _Fixed({"a": "⁇", "b": "tắt đèn"}))
     assert (rep.n_unk, rep.n_empty) == (1, 1)
+    # `<unk>` cũng là câu rỗng: không thành từ "unk" khi chuẩn hoá, nên vẫn nằm trong `n_empty`.
+    rep = evaluate(samples, _Fixed({"a": "<unk> <unk>", "b": "tắt đèn"}))
+    assert (rep.n_unk, rep.n_empty, rep.wer) == (1, 1, 0.5)
+    assert normalize_text("bật <UNK> đèn ⁇") == "bật đèn"
     rows = [
         {"id": "a", "ref": "x", "hyp": "⁇"},
         {"id": "a", "ref": "y", "hyp": "⁇"},

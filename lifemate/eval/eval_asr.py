@@ -20,8 +20,8 @@ Cách hoạt động:
   Độ đúng của số được đo riêng qua thực thể.
 - `n_hallucinated`: số câu mà chữ ASR trước khi lọc (`Transcript.raw`) khớp một mẫu phụ đề bịa.
 - `terms`: với mỗi tên riêng trong `TERMS`, cặp [số câu đáp án có tên đó, số câu ASR cũng viết ra tên đó].
-- `n_unk`: số câu mà chữ ASR chỉ gồm ký hiệu token không biết (`⁇`). Đây là lỗi của model hoặc engine (ví dụ đầu ra
-  NaN), không phải lỗi nghe, nên được đếm riêng dù cũng nằm trong `n_empty`.
+- `n_unk`: số câu mà chữ ASR chỉ gồm ký hiệu token không biết (`⁇` hoặc `<unk>`). Đây là lỗi của model hoặc
+  engine (ví dụ đầu ra NaN), không phải lỗi nghe, nên được đếm riêng dù cũng nằm trong `n_empty`.
 - `--set mục.khoá=giá_trị`: ghi đè config từ dòng lệnh (ví dụ `--set asr.dtype=float32`), dùng để chẩn đoán.
 """
 
@@ -37,7 +37,7 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
-from lifemate.core.paths import REPO_ROOT
+from lifemate.core.paths import REPO_ROOT, repo_path
 from lifemate.core.types import Sample, Transcriber, Transcript
 
 _PUNCT = re.compile(r"[^\w\s]|_")
@@ -45,6 +45,8 @@ _PUNCT = re.compile(r"[^\w\s]|_")
 # Chữ ASR chỉ gồm ký hiệu token không biết: `⁇` (cách SentencePiece in token `<unk>`) hoặc chính `<unk>`. Dấu hiệu
 # model hoặc engine hỏng (ví dụ đầu ra NaN khiến argmax rơi vào token số 0), không phải lỗi nghe.
 _UNK_ONLY = re.compile(r"^(?:\s*(?:⁇|<unk>))+\s*$")
+# Từng token không biết trong văn bản; `normalize_text` xoá chúng để `<unk>` không thành từ "unk".
+_UNK_TOKEN = re.compile(r"⁇|<unk>")
 
 
 def is_unk_only(text: str) -> bool:
@@ -121,8 +123,10 @@ def _folded_tokens(s: str) -> str:
 
 
 def normalize_text(s: str) -> str:
-    """Chuẩn hoá văn bản để tính WER/CER: chữ thường, NFC, bỏ dấu câu, gộp khoảng trắng."""
+    """Chuẩn hoá văn bản để tính WER/CER: chữ thường, NFC, bỏ token không biết và dấu câu, gộp khoảng trắng."""
     t = unicodedata.normalize("NFC", s.lower())
+    # `⁇` vốn bị bỏ cùng dấu câu, còn `<unk>` sẽ thành từ "unk"; xoá cả hai để câu chỉ có token lạ được tính là rỗng.
+    t = _UNK_TOKEN.sub(" ", t)
     return " ".join(_PUNCT.sub(" ", t).split())
 
 
@@ -434,7 +438,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     repo_root = REPO_ROOT
     cfg = load_config(args.config, args.set)
     profile = load_profile(args.env, repo_root).with_overrides(root=args.root)
-    root = Path(profile.data_root)
+    root = repo_path(profile.data_root, repo_root)
     ids = None
     if args.ids is not None:
         ids = [x.strip() for x in args.ids.read_text(encoding="utf-8").splitlines() if x.strip()]

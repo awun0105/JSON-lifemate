@@ -98,3 +98,37 @@ def test_transcripts_flag_overrides_asr_backend(
     with pytest.raises(SystemExit):
         cli.run(cli.parse_args(argv), repo_root=repo_root)
     assert seen == [want]
+
+
+@pytest.mark.parametrize(("failed", "code"), [(None, 0), ("check", 0), ("score", 1)])
+def test_main_exit_code(
+    failed: str | None, code: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Chấm điểm lỗi thì thoát 1; `check_submission` lỗi chỉ in cảnh báo, vẫn thoát 0 để container nộp không hỏng."""
+    from lifemate.run.runner import RunSummary
+
+    result = RunSummary(tmp_path, tmp_path / "submission.jsonl", {}, None, tmp_path / "check.txt", failed)
+    monkeypatch.setattr(cli, "parse_args", lambda argv: None)
+    monkeypatch.setattr(cli, "run", lambda args: result)
+    assert cli.main([]) == code
+    assert ("FAILED" in capsys.readouterr().err) == (failed is not None)
+
+
+@pytest.mark.data
+def test_existing_run_fails_before_model_load(
+    repo_root: Path, data_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Thư mục run đã có trace mà quên `--resume`, hoặc resume bằng config khác, thì báo lỗi trước khi nạp model."""
+    argv = ["--config", str(fake_config(repo_root, tmp_path)), "--env", "local", "--split", "train"]
+    argv += ["--ids", "configs/splits/smoke.txt", "--limit", "1", "--root", str(data_root)]
+    argv += ["--out", str(tmp_path / "run")]
+    assert cli.main(argv) == 0
+
+    def no_build(*args: object, **kwargs: object) -> None:
+        raise AssertionError("factory.build must not run")
+
+    monkeypatch.setattr(cli.factory, "build", no_build)
+    with pytest.raises(FileExistsError):
+        cli.main(argv)
+    with pytest.raises(ValueError, match="config"):
+        cli.main([*argv, "--resume", "--transcripts", "asr"])

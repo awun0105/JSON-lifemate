@@ -11,6 +11,8 @@ Cách hoạt động:
 - `trace.jsonl` là nguồn dữ liệu gốc duy nhất. Mỗi mẫu xong được nối thêm một dòng, có flush và fsync, nên lần
   chạy bị ngắt vẫn giữ được các mẫu đã xong. `submission.jsonl` và `summary.json` luôn được dựng lại từ trace.
 - Chạy tiếp (`resume`) bỏ qua các id đã có trong trace; dòng cuối bị cắt dở do ghi gián đoạn được loại bỏ.
+- Khi chạy tiếp, config mới phải khớp config cũ ở các trường `RESUME_KEYS` (`check_resume`), và `config.json` giữ
+  bản ghi gốc, chỉ nối thêm thông tin của lần chạy tiếp vào `resumes` (`resumed_config`).
 - Các file còn lại được ghi qua file `.tmp` rồi `os.replace`, nên không ai đọc phải file đang ghi dở.
 
 Lưu ý:
@@ -38,6 +40,11 @@ MAX_ERROR_IDS = 10
 # Ngưỡng (giây) để đếm mẫu chậm: 30 giây là giới hạn của cuộc thi, 25 giây là mức cảnh báo.
 OVER_S = (30.0, 25.0)
 OVER_TOKENS = 14_000
+# Các trường của bản ghi config quyết định kết quả từng mẫu; chạy tiếp mà khác ở đây thì trace bị trộn hai cấu hình.
+# Không so `dtype` đã chọn hay thông tin máy: lần chạy tiếp trên GPU khác vẫn hợp lệ, nhất là khi container nộp bài.
+RESUME_KEYS = ("config", "prompt_sha256", "split", "train_mode")
+# Thông tin riêng của từng lần chạy tiếp, nối vào `config.json["resumes"]`.
+_RESUME_INFO_KEYS = ("started_at", "warmup_s", "env_info", "dtype")
 SHRINK_LEVELS = 4
 INDEX_FIELDS = ("run", "date", "git_commit", "model", "prompt_hash", "split", "ids_file", "n", "score", "p95_seconds")
 
@@ -236,6 +243,47 @@ class RunStore:
     def write_config(self, config: Mapping[str, Any]) -> None:
         """Ghi `config.json` theo cách nguyên tử."""
         atomic_write_text(self.config_path, json.dumps(config, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+
+    def _old_config(self) -> dict[str, Any] | None:
+        """Đọc `config.json` của run đang chạy tiếp; `None` khi chưa có trace hoặc chưa có config (run mới)."""
+        if not (self.trace_path.exists() and self.config_path.exists()):
+            return None
+        return dict(json.loads(self.config_path.read_text(encoding="utf-8")))
+
+    def check_resume(self, record: Mapping[str, Any]) -> None:
+        """Báo lỗi khi chạy tiếp một run bằng cấu hình khác với cấu hình đã sinh ra trace.
+
+        Chỉ so các trường trong `RESUME_KEYS` mà config cũ có, để run tạo bởi phiên bản cũ vẫn chạy tiếp được.
+
+        Tham số:
+            record: bản ghi config của lần chạy này (cùng dạng với `config.json`).
+
+        Lỗi:
+            ValueError: khi một trường trong `RESUME_KEYS` khác với config cũ.
+        """
+        old = self._old_config()
+        if old is None:
+            return
+        # Đi qua JSON để tuple và list (hoặc kiểu số) được so như nhau, giống cách chúng nằm trong `config.json`.
+        new = json.loads(json.dumps({k: record.get(k) for k in RESUME_KEYS}, ensure_ascii=False))
+        diff = sorted(k for k in RESUME_KEYS if k in old and old[k] != new[k])
+        if diff:
+            raise ValueError(
+                f"{self.run_dir}: --resume with a different {', '.join(diff)} than the run's config.json; "
+                "use another --name/--out for a new configuration"
+            )
+
+    def resumed_config(self, record: Mapping[str, Any]) -> dict[str, Any]:
+        """Trả về bản ghi cần ghi vào `config.json`.
+
+        Run mới thì là chính `record`. Chạy tiếp thì giữ bản ghi gốc (cấu hình đã sinh ra trace, thời điểm bắt đầu) và
+        nối thông tin của lần này (`_RESUME_INFO_KEYS`) vào danh sách `resumes`.
+        """
+        old = self._old_config()
+        if old is None:
+            return dict(record)
+        info = {k: record[k] for k in _RESUME_INFO_KEYS if k in record}
+        return {**old, "resumes": [*old.get("resumes", []), info]}
 
     def write_ids(self, ids: Sequence[str]) -> Path:
         """Ghi các id của lần chạy này vào `ids.txt`, mỗi dòng một id, và trả về đường dẫn file."""
