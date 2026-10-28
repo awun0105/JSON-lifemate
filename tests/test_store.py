@@ -142,3 +142,19 @@ def test_resume_without_trace_is_new_run(tmp_path: Path) -> None:
     store = RunStore(tmp_path, resume=True)
     store.check_resume({"config": {}, "split": "x"})
     assert store.resumed_config({"split": "x"}) == {"split": "x"}
+
+
+def test_submission_has_placeholder_for_every_missing_id(tmp_path: Path) -> None:
+    """File nộp luôn đủ một dòng cho mỗi id của split: id chưa có trong trace được dòng giữ chỗ `[]` và hash rỗng."""
+    store = RunStore(tmp_path, resume=False)
+    assert store.write_submission(["a", "b"]) == 2
+    rows = [json.loads(ln) for ln in store.submission_path.read_text(encoding="utf-8").splitlines()]
+    assert rows == [{"id": i, "tool_calls": [], "state_hash": ""} for i in ("a", "b")]
+    store.append(result("b"))
+    assert store.write_submission(["a", "b"]) == 1
+    sub = store.finalize(["a", "b"])
+    rows = [json.loads(ln) for ln in sub.read_text(encoding="utf-8").splitlines()]
+    assert [r["id"] for r in rows] == ["a", "b"]
+    assert rows[0]["tool_calls"] == [] and rows[1]["state_hash"] == "h-b"
+    # Summary chỉ tính mẫu đã chạy thật.
+    assert store.read_summary()["n"] == 1

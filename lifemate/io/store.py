@@ -10,6 +10,7 @@ Nội dung chính:
 Cách hoạt động:
 - `trace.jsonl` là nguồn dữ liệu gốc duy nhất. Mỗi mẫu xong được nối thêm một dòng, có flush và fsync, nên lần
   chạy bị ngắt vẫn giữ được các mẫu đã xong. `submission.jsonl` và `summary.json` luôn được dựng lại từ trace.
+- `submission.jsonl` luôn đủ một dòng cho mỗi id của split: id chưa chạy có dòng giữ chỗ (`write_submission`).
 - Chạy tiếp (`resume`) bỏ qua các id đã có trong trace; dòng cuối bị cắt dở do ghi gián đoạn được loại bỏ.
 - Khi chạy tiếp, config mới phải khớp config cũ ở các trường `RESUME_KEYS` (`check_resume`), và `config.json` giữ
   bản ghi gốc, chỉ nối thêm thông tin của lần chạy tiếp vào `resumes` (`resumed_config`).
@@ -291,17 +292,20 @@ class RunStore:
         atomic_write_text(path, "".join(i + "\n" for i in ids))
         return path
 
-    def finalize(self, split_ids: Sequence[str]) -> Path:
-        """Dựng lại `submission.jsonl` từ trace theo thứ tự của split, rồi ghi `summary.json`.
+    def write_submission(self, split_ids: Sequence[str], *, final: bool = False) -> int:
+        """Dựng lại `submission.jsonl` từ trace theo thứ tự của split, luôn đủ một dòng cho mỗi id.
 
-        Id trong `split_ids` chưa có trong trace bị bỏ khỏi submission và được ghi log lỗi. Summary chỉ tính các id
-        thuộc `split_ids`, kể cả khi trace còn bản ghi của id khác.
+        Id chưa có trong trace được ghi dòng giữ chỗ `{"tool_calls": [], "state_hash": ""}`: BTC chấm bằng cách phát
+        lại `tool_calls` nên dòng này được điểm như một mẫu lỗi (0 điểm, hoặc đúng nếu đáp án là `[]`), còn thiếu dòng
+        thì cả file có thể bị từ chối. `Runner` gọi hàm này sau mỗi mẫu, nên tiến trình chết lúc nào thì file nộp cũng
+        đã có các mẫu xong tới lúc đó.
 
         Tham số:
             split_ids: các id của split, theo thứ tự cần ghi.
+            final: `True` ở lần ghi cuối: id còn thiếu được ghi log lỗi (giữa chừng thì thiếu là chuyện bình thường).
 
         Trả về:
-            Đường dẫn file submission.
+            Số id phải ghi dòng giữ chỗ.
         """
         by_id = {str(r["id"]): r for r in self.records()}
         lines: list[str] = []
@@ -310,13 +314,30 @@ class RunStore:
             r = by_id.get(sid)
             if r is None:
                 missing.append(sid)
-                continue
-            row = {"id": sid, "tool_calls": r.get("tool_calls") or [], "state_hash": r.get("state_hash") or ""}
+                row = {"id": sid, "tool_calls": [], "state_hash": ""}
+            else:
+                row = {"id": sid, "tool_calls": r.get("tool_calls") or [], "state_hash": r.get("state_hash") or ""}
             lines.append(json.dumps(row, ensure_ascii=False) + "\n")
-        if missing:
-            log.error("submission_missing_ids", n=len(missing), first=missing[:5])
+        if missing and final:
+            log.error("submission_placeholder_ids", n=len(missing), first=missing[:5])
         atomic_write_text(self.submission_path, "".join(lines))
+        return len(missing)
+
+    def finalize(self, split_ids: Sequence[str]) -> Path:
+        """Ghi `submission.jsonl` lần cuối (xem `write_submission`), rồi ghi `summary.json`.
+
+        Summary chỉ tính các id thuộc `split_ids` đã có trong trace, kể cả khi trace còn bản ghi của id khác.
+
+        Tham số:
+            split_ids: các id của split, theo thứ tự cần ghi.
+
+        Trả về:
+            Đường dẫn file submission.
+        """
+        self.write_submission(split_ids, final=True)
         wanted = set(split_ids)
+        # Mỗi id một bản ghi (bản sau cùng), kể cả khi trace có dòng trùng id.
+        by_id = {str(r["id"]): r for r in self.records()}
         self.write_summary(summarize(r for sid, r in by_id.items() if sid in wanted))
         return self.submission_path
 

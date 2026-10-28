@@ -8,17 +8,18 @@ Nội dung chính:
 
 Cách hoạt động:
 1. Khởi động LLM và transcriber, ghi config của run.
-2. Chạy mỗi mẫu một lần theo thứ tự id, ghi kết quả qua `RunStore`. Khi chạy tiếp (resume), mẫu đã có trong
-   trace được bỏ qua.
-3. Dựng file nộp bài từ trace.
+2. Ghi `submission.jsonl` toàn dòng giữ chỗ, rồi chạy mỗi mẫu một lần theo thứ tự id, ghi kết quả qua `RunStore`
+   và ghi lại `submission.jsonl` sau mỗi mẫu. Khi chạy tiếp (resume), mẫu đã có trong trace được bỏ qua.
+3. Dựng file nộp bài lần cuối từ trace.
 4. Split có nhãn thì chấm điểm bằng `lifemate.eval.score` trong tiến trình con và đọc dòng `Final score`; split
    không nhãn thì chạy `check_submission`.
 5. Ghi một dòng vào `index.csv`.
 
 Lưu ý:
 - `Runner` không chứa logic agent.
-- `run_one` là nơi duy nhất trong lifemate bắt mọi `Exception`. Lỗi của một mẫu thành kết quả `exception` (kèm
-  traceback, các lời gọi tool đã gửi và hash trạng thái), không làm dừng cả run.
+- `run_one` bắt mọi `Exception` của một mẫu: lỗi thành kết quả `exception` (kèm traceback, các lời gọi tool đã gửi
+  và hash trạng thái), không làm dừng cả run. Bước 4 và 5 cũng bắt mọi `Exception`, vì file nộp đã ghi xong và
+  container nộp bài không được chết vì một bước phụ. Ngoài ba chỗ đó lifemate không bắt-tất-cả.
 """
 
 from __future__ import annotations
@@ -218,6 +219,10 @@ class Runner:
             `RunSummary` của run.
         """
         record = dict(config_record)
+        split_ids = [s.id for s in samples]
+        # File nộp có mặt ngay từ đầu (toàn dòng giữ chỗ) và được ghi lại sau mỗi mẫu: tiến trình chết lúc nạp model hay
+        # giữa chừng (hết bộ nhớ, bị kill vì quá giờ) thì BTC vẫn có file đủ dòng với các mẫu đã xong.
+        self.store.write_submission(split_ids)
         record["warmup_s"] = self.warmup()
         # Chạy tiếp thì giữ config gốc của run, chỉ nối thêm thông tin lần này (CLI đã kiểm tra hai config khớp nhau).
         self.store.write_config(self.store.resumed_config(record))
@@ -232,38 +237,47 @@ class Runner:
                 continue
             result = self.run_one(sample)
             self.store.append(result)
+            self.store.write_submission(split_ids)
             log.info("sample_done", sample_id=sample.id, stop_reason=result.stop_reason.value)
 
-        split_ids = [s.id for s in samples]
         submission = self.store.finalize(split_ids)
         summary = self.store.read_summary()
         score: dict[str, Any] | None = None
-        report: Path | None
+        report: Path | None = None
         failed: str | None = None
-        if split_has_labels:
-            report, score, scored = self._score(submission, self.store.write_ids(split_ids))
-            summary["score"] = score
-            self.store.write_summary(summary)
-            failed = None if scored else "score"
-        else:
-            report, checked = self._check(submission)
-            failed = None if checked else "check"
+        # Từ đây file nộp đã xong. Chấm điểm, kiểm tra hay ghi index lỗi thì chỉ ghi log và báo trong `failed`, không
+        # ném ra ngoài: container nộp bài thoát khác 0 sau khi đã có file là một cách chết thừa.
+        try:
+            if split_has_labels:
+                report, score, scored = self._score(submission, self.store.write_ids(split_ids))
+                summary["score"] = score
+                self.store.write_summary(summary)
+                failed = None if scored else "score"
+            else:
+                report, checked = self._check(submission)
+                failed = None if checked else "check"
+        except Exception:  # file nộp đã ghi xong; các bước sau không được làm hỏng run
+            failed = "score" if split_has_labels else "check"
+            log.error("post_run_failed", step=failed, traceback=traceback.format_exc())
         if self.index_csv is not None:
-            append_index(
-                self.index_csv,
-                {
-                    "run": self.store.run_dir.name,
-                    "date": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
-                    "git_commit": record.get("env_info", {}).get("code_version", ""),
-                    "model": record.get("config", {}).get("llm", {}).get("model", ""),
-                    "prompt_hash": record.get("prompt_sha256", ""),
-                    "split": self.loader.split,
-                    "ids_file": str(ids_file) if ids_file is not None else "",
-                    "n": summary["n"],
-                    "score": "" if score is None else score["total"],
-                    "p95_seconds": summary["seconds"]["p95"],
-                },
-            )
+            try:
+                append_index(
+                    self.index_csv,
+                    {
+                        "run": self.store.run_dir.name,
+                        "date": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
+                        "git_commit": record.get("env_info", {}).get("code_version", ""),
+                        "model": record.get("config", {}).get("llm", {}).get("model", ""),
+                        "prompt_hash": record.get("prompt_sha256", ""),
+                        "split": self.loader.split,
+                        "ids_file": str(ids_file) if ids_file is not None else "",
+                        "n": summary["n"],
+                        "score": "" if score is None else score["total"],
+                        "p95_seconds": summary["seconds"]["p95"],
+                    },
+                )
+            except Exception:  # bảng tổng hợp chỉ để tiện tra cứu, không phải kết quả
+                log.error("index_append_failed", path=str(self.index_csv), traceback=traceback.format_exc())
         return RunSummary(self.store.run_dir, submission, summary, score, report, failed)
 
     def _score(self, submission: Path, ids_path: Path) -> tuple[Path, dict[str, Any] | None, bool]:

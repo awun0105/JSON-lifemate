@@ -621,10 +621,11 @@ uv run python -m lifemate.run.cli --config configs/v0.toml --env kaggle --root /
 
 - `trace.jsonl`: mở ở chế độ append, `flush()` và `os.fsync()` sau mỗi mẫu. Phiên Kaggle bị ngắt thì chỉ mất tối đa mẫu đang chạy.
 - `submission.jsonl` và `summary.json`: ghi ra file `*.tmp` rồi `os.replace` (ghi nguyên tử). Không bao giờ để lại file nộp ghi dở.
+- `submission.jsonl` được ghi ngay đầu run (trước khi nạp model) và ghi lại sau mỗi mẫu, luôn đủ một dòng cho mỗi id của split: id chưa chạy có dòng giữ chỗ `{"tool_calls": [], "state_hash": ""}`. BTC chấm bằng cách phát lại `tool_calls` và `--validate` không đọc `state_hash`, nên dòng giữ chỗ được điểm như mẫu lỗi (0, hoặc đúng khi đáp án là `[]`); tiến trình chết lúc nào (hết bộ nhớ, bị kill vì quá giờ) thì BTC vẫn có file đủ dòng với các mẫu đã xong (D39).
 - `--resume`: đọc `trace.jsonl`, bỏ qua dòng cuối nếu dòng đó hỏng (bị ngắt giữa chừng), bỏ qua các id đã có. `submission.jsonl` được dựng lại từ `trace.jsonl` ở `finalize()`. Config mới phải khớp `config.json` cũ ở `config`, `prompt_sha256`, `split`, `train_mode`, nếu không thì báo lỗi; `dtype` và thông tin máy không được so, để container nộp bài chạy tiếp được trên GPU khác. `config.json` giữ bản ghi gốc; mỗi lần chạy tiếp nối `started_at`, `warmup_s`, `env_info`, `dtype` vào danh sách `resumes`.
 - Thư mục `--out` đã có `trace.jsonl` mà không truyền `--resume` thì báo lỗi và thoát, không ghi đè.
 - Hai lỗi trên (trùng thư mục, lệch config khi chạy tiếp) được kiểm tra **trước** khi nạp LLM và ASR.
-- Mã thoát của CLI: 1 khi `score.py` lỗi hoặc không đọc được điểm (split có nhãn), còn lại là 0. `check_submission` báo lỗi thì CLI in `FAILED (check)` ra stderr nhưng vẫn thoát 0, vì container nộp bài chạy chính CLI này và file nộp đã ghi xong.
+- Mã thoát của CLI: 1 khi `score.py` lỗi hoặc không đọc được điểm (split có nhãn), còn lại là 0. `check_submission` báo lỗi thì CLI in `FAILED (check)` ra stderr nhưng vẫn thoát 0, vì container nộp bài chạy chính CLI này và file nộp đã ghi xong. Mọi exception ở các bước sau `finalize()` (chấm, kiểm tra, ghi `index.csv`) chỉ được ghi log và báo qua `failed`, không làm CLI thoát khác 0.
 - `--ids` không truyền thì chạy mọi mẫu của split. `--limit` lấy N id đầu tiên, dùng để chạy thử.
 - Split có nhãn (train) thì cuối lần chạy tự gọi `lifemate/eval/score.py submission.jsonl --ids <run>/ids.txt --match both --details details.jsonl` và ghi kết quả ra `score.txt`. `ids.txt` là danh sách id thực sự đã chạy (sau `--limit`), để các id chưa chạy không bị chấm 0. `summary.json.score` = `{total, by_mode: {strict, canon}, by_category}`.
 - Thêm một dòng vào `artifacts/runs/index.csv`: `run, date, git_commit, model, prompt_hash, split, ids_file, n, score, p95_seconds`.
@@ -1043,7 +1044,7 @@ Chỉ đánh giá bằng agent thật trên 2 checkpoint, để hạn chế vi�
 - BTC mount thư mục test vào `/data`, với cùng cấu trúc như `public_test`. Nhưng `ToolEnv` cần dạng `<root>/<split>/...`. Vì vậy entrypoint phải:
   1. Tìm `/data/*_tools_catalog.json` để biết tên split.
   2. Tạo thư mục `/tmp/zaic_root/<split>` là symlink trỏ tới `/data`.
-  3. Chạy `python -m lifemate.run.cli --config configs/docker.toml --env docker --split <split> --out result/` (`LIFEMATE_CONFIG` đổi được config). `RunStore` ghi `submission.jsonl` cùng `trace.jsonl`, `summary.json`, `config.json`, `check.txt` vào `result/`; BTC chỉ lấy `submission.jsonl`.
+  3. Chạy `python -m lifemate.run.cli --config configs/docker.toml --env docker --split <split> --out result/` (`LIFEMATE_CONFIG` đổi config, `RESULT_DIR` đổi thư mục kết quả). **Không** truyền `--resume`: mỗi lần BTC chạy là một lần chạy mới, độc lập (thể lệ: lệch kết quả thì chạy 5 lần lấy trung bình). `result/trace.jsonl` còn từ lần trước thì entrypoint đổi tên thành `trace.<thời điểm>.bak`, để không chạy tiếp trên kết quả cũ và không chết vì config cũ lệch config mới (D39). `RunStore` ghi `submission.jsonl` cùng `trace.jsonl`, `summary.json`, `config.json`, `check.txt` vào `result/`; BTC chỉ lấy `submission.jsonl`.
   4. `zaic.py` so sánh đường dẫn sau `Path.resolve()` nên symlink không làm hỏng kiểm tra (B5).
 - Trọng số model nằm sẵn trong image. Đặt `HF_HUB_OFFLINE=1` và `TRANSFORMERS_OFFLINE=1`.
 - **Nghiệm thu:**

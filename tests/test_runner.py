@@ -169,3 +169,78 @@ def test_env_read_error_inside_handler_does_not_stop_run(tmp_path: Path) -> None
     assert trace["s1"]["stop_reason"] == StopReason.EXCEPTION.value
     assert "asr exploded" in trace["s1"]["traceback"] and "env also broken" in trace["s1"]["traceback"]
     assert trace["s1"]["tool_calls"] == [] and trace["s1"]["state_hash"] == ""
+
+
+class SubmissionWatcher(GoldTranscriber):
+    """Transcriber đọc `submission.jsonl` lúc đang xử lý mẫu `at`, để kiểm tra file nộp được ghi sau mỗi mẫu."""
+
+    def __init__(self, path: Path, at: str) -> None:
+        self.path = path
+        self.at = at
+        self.seen: list[dict[str, object]] = []
+
+    def transcribe(self, sample: Sample) -> Transcript:
+        """Ở mẫu `at`, chép các dòng của file nộp hiện có rồi mới trả transcript."""
+        if sample.id == self.at:
+            self.seen = [json.loads(ln) for ln in self.path.read_text(encoding="utf-8").splitlines()]
+        return super().transcribe(sample)
+
+
+def test_submission_written_after_every_sample(tmp_path: Path) -> None:
+    """Lúc chạy s2, file nộp đã có đủ 3 dòng: s1 thật, s2 và s3 là dòng giữ chỗ (`[]`, hash rỗng)."""
+    samples = [sample(f"s{i}", GOLD) for i in (1, 2, 3)]
+    agent = make_agent(FakeLLM(samples))
+    store = RunStore(tmp_path / "run", resume=False)
+    watcher = SubmissionWatcher(store.submission_path, "s2")
+    agent.transcriber = watcher
+    runner = Runner(agent, FakeLoader(), store, repo_root=tmp_path)
+    runner._check = lambda sub: (sub, True)  # type: ignore[method-assign]
+    runner.run(samples, ids_file=None, split_has_labels=False, config_record={})
+    assert [r["id"] for r in watcher.seen] == ["s1", "s2", "s3"]
+    assert watcher.seen[0]["tool_calls"] and watcher.seen[0]["state_hash"]
+    assert watcher.seen[1:] == [{"id": i, "tool_calls": [], "state_hash": ""} for i in ("s2", "s3")]
+
+
+class KilledTranscriber(GoldTranscriber):
+    """Transcriber giả lập tiến trình bị kill ở mẫu `at` (ném `KeyboardInterrupt`, không phải `Exception`)."""
+
+    def __init__(self, at: str) -> None:
+        self.at = at
+
+    def transcribe(self, sample: Sample) -> Transcript:
+        """Ném `KeyboardInterrupt` với mẫu `at`."""
+        if sample.id == self.at:
+            raise KeyboardInterrupt
+        return super().transcribe(sample)
+
+
+def test_killed_mid_run_leaves_complete_submission(tmp_path: Path) -> None:
+    """Chết giữa chừng ở s3: file nộp vẫn đủ 3 dòng, s1 và s2 là kết quả thật, s3 là dòng giữ chỗ."""
+    samples = [sample(f"s{i}", GOLD) for i in (1, 2, 3)]
+    agent = make_agent(FakeLLM(samples))
+    agent.transcriber = KilledTranscriber("s3")
+    store = RunStore(tmp_path / "run", resume=False)
+    runner = Runner(agent, FakeLoader(), store, repo_root=tmp_path)
+    with pytest.raises(KeyboardInterrupt):
+        runner.run(samples, ids_file=None, split_has_labels=False, config_record={})
+    rows = [json.loads(ln) for ln in store.submission_path.read_text(encoding="utf-8").splitlines()]
+    assert [r["id"] for r in rows] == ["s1", "s2", "s3"]
+    assert all(r["tool_calls"] for r in rows[:2]) and rows[2] == {"id": "s3", "tool_calls": [], "state_hash": ""}
+
+
+def test_post_run_errors_do_not_raise(tmp_path: Path) -> None:
+    """`check_submission` hay `append_index` ném lỗi sau khi file nộp đã ghi: run vẫn trả về, chỉ báo `failed`."""
+    samples = [sample("s1", GOLD)]
+    agent = make_agent(FakeLLM(samples))
+    store = RunStore(tmp_path / "run", resume=False)
+    # `index.csv` trỏ vào một file thường làm thư mục cha, nên `append_index` sẽ lỗi.
+    (tmp_path / "blocker").write_text("x", encoding="utf-8")
+    runner = Runner(agent, FakeLoader(), store, repo_root=tmp_path, index_csv=tmp_path / "blocker" / "index.csv")
+
+    def boom(sub: Path) -> tuple[Path, bool]:
+        raise RuntimeError("zaic_tools missing")
+
+    runner._check = boom  # type: ignore[method-assign]
+    out = runner.run(samples, ids_file=None, split_has_labels=False, config_record={})
+    assert out.failed == "check" and out.report is None
+    assert store.submission_path.exists()
