@@ -4,8 +4,21 @@ Ngày: 28/10/2026. Trạng thái: **xong** (kernel Kaggle `quanlam/lifemate-asr-
 
 Báo cáo trả lời câu hỏi: trong năm mô hình nhận dạng giọng nói tiếng Việt, mô hình nào, với cấu hình nào, chép lời
 người dùng tốt nhất cho bài thi LifeMate. Phần 0 giải thích bối cảnh và thuật ngữ cho người đọc chưa theo dõi dự án.
-Kết quả thô (lời chép từng câu, config, chỉ số) nằm trong `artifacts/runs/kaggle/asr/10-28_tune_v3/`, không có trên git.
-Các ví dụ trong báo cáo được trích nguyên văn từ các file đó.
+
+**Kết quả thô.** Nằm trong `artifacts/runs/kaggle/asr/10-28_tune_v3/` (không có trên git), mỗi mô hình một thư mục
+con: `large-v3/`, `phowhisper/`, `chunkformer/`, `chunkformer-rnnt/`, `parakeet/`.
+
+| File (trong `<mô hình>/`) | Chứa gì | Dùng ở mục |
+|---|---|---|
+| `summary.json` | Toàn bộ kết quả của mô hình: `path` (lựa chọn giữ lại ở từng bước), `best_generate_kwargs` (cấu hình thắng), `runs` (chỉ số mọi lần đo trên tập chỉnh), `report` (chỉ số cấu hình thắng trên val_seen và val_unseen) | 6.1, 6.2, 6.3 |
+| `<mô hình>__<bước>_<lựa chọn>.toml` | Config đầy đủ của một lần đo trên tập chỉnh, ví dụ `large-v3__prompt_lead.toml` | 4 |
+| `<mô hình>__<bước>_<lựa chọn>.json` | Chỉ số của lần đo đó: WER, WER bỏ số, CER, bỏ sót tên riêng (kèm danh sách tên bị sót từng mẫu), câu rỗng, câu bịa, số lần đúng từng tên app, thời gian p50/p95/max | 6.1 |
+| `<mô hình>__<bước>_<lựa chọn>.hyps.jsonl` | Chữ chép từng câu, mỗi dòng một câu: `id` (mẫu), `turn` (số lượt hoặc `final`), `ref` (đáp án của BTC), `hyp` (chữ sau bộ lọc), `raw` (chữ trước bộ lọc) | 6.4 |
+| `<mô hình>__report_val_seen.{toml,json,hyps.jsonl}`, `<mô hình>__report_val_unseen.{…}` | Ba loại file trên cho cấu hình thắng, đo trên hai tập kiểm tra | 6.3, 6.4 |
+
+Ngoài ra, `lifemate-asr-tune.log` ở thư mục gốc là log đầy đủ của kernel (cài đặt, từng lần đo, cảnh báo). Các ví dụ ở
+mục 6.4 được trích nguyên văn từ các file `hyps.jsonl`. Cách xếp thư mục của mọi lần chạy xem
+`artifacts/runs/README.md`.
 
 ## 0. Bối cảnh và thuật ngữ
 
