@@ -138,3 +138,37 @@ def test_evaluate_nonum_wer_hallucination_and_terms() -> None:
     assert rep.wer_nonum == 4 / 8
     assert rep.terms == {"zalo": [2, 1]}
     assert hyps[1]["raw"] == "Hãy subscribe cho kênh lalaschool"
+
+
+class _Fixed:
+    """Transcriber giả trả chữ cố định cho lượt cuối của từng mẫu."""
+
+    def __init__(self, texts: dict[str, str]) -> None:
+        self._texts = texts
+
+    def warmup(self) -> None:
+        """Không cần làm gì."""
+
+    def transcribe(self, sample: Sample) -> Transcript:
+        """Trả chữ đã định cho mẫu `sample.id`."""
+        return Transcript(final=self._texts[sample.id], history=(), seconds=0.1, raw=(self._texts[sample.id],))
+
+
+def test_unk_only_counted_and_bad_ids() -> None:
+    """Câu chỉ gồm `⁇` được đếm vào `n_unk` (và `n_empty`); `bad_ids` lấy đúng mẫu có câu hỏng."""
+    from lifemate.eval.asr_bad_ids import bad_ids
+    from lifemate.eval.eval_asr import is_unk_only
+
+    assert is_unk_only("⁇") and is_unk_only(" ⁇ ⁇ ") and is_unk_only("<unk>")
+    assert not is_unk_only("") and not is_unk_only("bật đèn ⁇")
+    samples = [_sample("a", "bật đèn", []), _sample("b", "tắt đèn", [])]
+    rep = evaluate(samples, _Fixed({"a": "⁇", "b": "tắt đèn"}))
+    assert (rep.n_unk, rep.n_empty) == (1, 1)
+    rows = [
+        {"id": "a", "ref": "x", "hyp": "⁇"},
+        {"id": "a", "ref": "y", "hyp": "⁇"},
+        {"id": "b", "ref": "z", "hyp": ""},
+        {"id": "c", "ref": "w", "hyp": "w"},
+    ]
+    assert bad_ids(rows) == ["a"]
+    assert bad_ids(rows, "empty") == ["a", "b"]

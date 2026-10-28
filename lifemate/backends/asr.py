@@ -29,9 +29,13 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, ClassVar, Protocol
 
+import structlog
+
 from lifemate.backends.asr_sanitizer import sanitize
 from lifemate.core.config import ASRConfig
 from lifemate.core.types import Sample, Transcript
+
+log = structlog.get_logger(__name__)
 
 
 class GoldTranscriber:
@@ -400,6 +404,10 @@ class NemoCTCASR:
         dev = self._device
         with torch.no_grad(), torch.autocast("cuda", dtype=getattr(torch, self.dtype), enabled=self._autocast):
             log_probs, enc_len, _ = self._model.forward(input_signal=x.to(dev), input_signal_length=lens.to(dev))
+        # Đếm câu có đầu ra NaN/inf (dấu hiệu tràn số khi chạy float16) để thấy được trong log.
+        nonfinite = int((~torch.isfinite(log_probs.float())).flatten(1).any(dim=1).sum())
+        if nonfinite:
+            log.warning("asr_nonfinite_output", engine="nemo_ctc", dtype=self.dtype, rows=nonfinite, batch=len(audios))
         out = self._model.decoding.ctc_decoder_predictions_tensor(log_probs.float(), decoder_lengths=enc_len)
         if isinstance(out, tuple):  # một số phiên bản NeMo trả về cặp (best, all)
             out = out[0]

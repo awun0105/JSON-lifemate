@@ -20,6 +20,9 @@ Cách hoạt động:
   Độ đúng của số được đo riêng qua thực thể.
 - `n_hallucinated`: số câu mà chữ ASR trước khi lọc (`Transcript.raw`) khớp một mẫu phụ đề bịa.
 - `terms`: với mỗi tên riêng trong `TERMS`, cặp [số câu đáp án có tên đó, số câu ASR cũng viết ra tên đó].
+- `n_unk`: số câu mà chữ ASR chỉ gồm ký hiệu token không biết (`⁇`). Đây là lỗi của model hoặc engine (ví dụ đầu ra
+  NaN), không phải lỗi nghe, nên được đếm riêng dù cũng nằm trong `n_empty`.
+- `--set mục.khoá=giá_trị`: ghi đè config từ dòng lệnh (ví dụ `--set asr.dtype=float32`), dùng để chẩn đoán.
 """
 
 from __future__ import annotations
@@ -38,6 +41,16 @@ from lifemate.core.paths import REPO_ROOT
 from lifemate.core.types import Sample, Transcriber, Transcript
 
 _PUNCT = re.compile(r"[^\w\s]|_")
+
+# Chữ ASR chỉ gồm ký hiệu token không biết: `⁇` (cách SentencePiece in token `<unk>`) hoặc chính `<unk>`. Dấu hiệu
+# model hoặc engine hỏng (ví dụ đầu ra NaN khiến argmax rơi vào token số 0), không phải lỗi nghe.
+_UNK_ONLY = re.compile(r"^(?:\s*(?:⁇|<unk>))+\s*$")
+
+
+def is_unk_only(text: str) -> bool:
+    """`True` khi `text` khác rỗng và chỉ gồm ký hiệu token không biết (`⁇` hoặc `<unk>`)."""
+    return bool(_UNK_ONLY.match(text))
+
 
 # Từ đọc số tiếng Việt; bị bỏ cùng chữ số khi tính `wer_nonum`. Một số từ như "một", "năm", "ba" còn có nghĩa
 # khác, nhưng bị bỏ ở cả hai phía nên không thiên vị model nào.
@@ -267,6 +280,7 @@ class AsrReport:
         wer_nonum: WER sau khi bỏ mọi số.
         n_hallucinated: số câu mà chữ trước khi lọc khớp mẫu phụ đề bịa.
         terms: tên riêng tới [số câu đáp án có tên đó, số câu ASR viết đúng].
+        n_unk: số câu mà chữ ASR chỉ gồm token không biết (cũng được đếm trong `n_empty`).
     """
 
     n_samples: int
@@ -284,6 +298,7 @@ class AsrReport:
     wer_nonum: float = 0.0
     n_hallucinated: int = 0  # câu mà chữ trước khi lọc khớp mẫu phụ đề bịa (chỉ đếm khi transcript có `raw`)
     terms: dict[str, list[int]] = field(default_factory=dict)  # tên -> [số câu đáp án có tên, số câu ASR viết đúng]
+    n_unk: int = 0  # câu mà chữ ASR chỉ gồm token không biết (`⁇`): lỗi model/engine, cũng nằm trong n_empty
 
     def to_dict(self) -> dict[str, Any]:
         """Chuyển thành dict để ghi JSON; phần chi tiết thực thể chỉ gồm các mẫu có thực thể bị bỏ sót."""
@@ -298,7 +313,7 @@ class AsrReport:
     def to_text(self) -> str:
         """Trả về bản tóm tắt ngắn, dễ đọc."""
         return (
-            f"samples={self.n_samples} utterances={self.n_utterances} empty={self.n_empty}\n"
+            f"samples={self.n_samples} utterances={self.n_utterances} empty={self.n_empty} unk_only={self.n_unk}\n"
             f"WER={self.wer:.4f} WER_nonum={self.wer_nonum:.4f} CER={self.cer:.4f} hallucinated={self.n_hallucinated}\n"
             f"entity_miss_rate={self.entity_miss_rate:.4f} ({self.entity_missed}/{self.entity_total})\n"
             f"seconds p50={self.p50_s:.3f} p95={self.p95_s:.3f} max={self.max_s:.3f}"
@@ -326,7 +341,7 @@ def evaluate(
 
     transcriber.warmup()
     transcripts = [transcriber.transcribe(s) for s in samples]
-    w_err = w_n = c_err = c_n = n_utt = n_empty = nn_err = nn_n = n_hall = 0
+    w_err = w_n = c_err = c_n = n_utt = n_empty = nn_err = nn_n = n_hall = n_unk = 0
     terms = {name: [0, 0] for name in TERMS}
     for s, t in zip(samples, transcripts, strict=True):
         # Ghép (tham chiếu, giả thuyết, chữ trước khi lọc) cho mọi câu có cả hai phía. `raw` theo thứ tự file: các lượt
@@ -352,6 +367,7 @@ def evaluate(
                 hyps.append(row)
             r, h = normalize_text(ref), normalize_text(hyp)
             n_empty += int(bool(r) and not h)
+            n_unk += int(is_unk_only(hyp))
             w_err += _edit_distance(r.split(), h.split())
             w_n += len(r.split())
             rn, hn = strip_numbers(r), strip_numbers(h)
@@ -386,6 +402,7 @@ def evaluate(
         wer_nonum=_rate(nn_err, nn_n),
         n_hallucinated=n_hall,
         terms={k: v for k, v in terms.items() if v[0]},
+        n_unk=n_unk,
     )
 
 
@@ -406,16 +423,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--ids", type=Path, default=None)
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--hyps", type=Path, default=None, help="jsonl: mỗi câu một dòng {id, turn, ref, hyp, raw}")
+    ap.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        metavar="SECTION.KEY=VALUE",
+        help="ghi đè config, lặp được: --set asr.dtype=float32 --set asr.batch_size=1",
+    )
     args = ap.parse_args(argv)
     repo_root = REPO_ROOT
-    cfg = load_config(args.config)
+    cfg = load_config(args.config, args.set)
     profile = load_profile(args.env, repo_root).with_overrides(root=args.root)
     root = Path(profile.data_root)
     ids = None
     if args.ids is not None:
         ids = [x.strip() for x in args.ids.read_text(encoding="utf-8").splitlines() if x.strip()]
     samples = load_split(root, args.split, ids)
-    # Dựng transcriber giống hệt hai mục `gold` / `asr` trong `factory.TRANSCRIBERS` (registry nhận `Config, Path, str`).
+    # Dựng transcriber giống hệt hai mục `gold` / `asr` trong `factory.TRANSCRIBERS`
+    # (registry nhận `Config, Path, str`).
     transcriber: Transcriber
     if cfg.asr.backend == "gold":
         transcriber = GoldTranscriber()

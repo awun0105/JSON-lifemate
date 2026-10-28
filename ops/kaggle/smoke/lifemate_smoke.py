@@ -15,7 +15,8 @@ Cách hoạt động (theo thứ tự trong file):
 2. Sửa profile Kaggle (đường dẫn dữ liệu thật, nguồn HF token).
 3. Sinh config chạy agent trên chữ ASR từ `configs/v0.toml`.
 4. Cài thư viện, gỡ torchaudio, dựng lại danh sách split, chạy pytest.
-5. Đo chất lượng ASR (`RUN_ASR_EVAL`), chọn config ASR (`ASR_TUNE`), dựng cache ASR (`RUN_ASR_CACHE`).
+5. Đo chất lượng ASR (`RUN_ASR_EVAL`), chọn config ASR (`ASR_TUNE`), chẩn đoán ASR (`ASR_DIAG`), dựng cache ASR
+   (`RUN_ASR_CACHE`).
 6. Chạy agent (gold và/hoặc ASR), đếm các sự kiện deadline trong log.
 7. In báo cáo, xoá mã nguồn và cache để output chỉ còn kết quả.
 
@@ -28,6 +29,7 @@ Tham số (biến môi trường, đọc lúc chạy):
 - `ASR_TUNE`: danh sách model cho `lifemate.eval.asr_tune`, ví dụ "large-v3,phowhisper,parakeet"; để trống là bỏ
   qua.
 - `ASR_TUNE_PREFLIGHT`: N, chỉ chạy thử mọi lựa chọn trên N mẫu.
+- `ASR_DIAG`, `ASR_DIAG_FROM`, `ASR_DIAG_SETS`: chẩn đoán một model trên các mẫu hỏng của lần chạy trước (mục 5c).
 - `ASR_EVAL_IDS`: file id để đo ASR, mặc định `val_seen`.
 - `RUN_IDS`: file danh sách id, mặc định là 30 mẫu smoke.
 - `RUN_TAG`: hậu tố của tên lần chạy.
@@ -176,13 +178,24 @@ if flag("RUN_ASR_EVAL"):
 tune_models = [m.strip() for m in os.environ.get("ASR_TUNE", "").split(",") if m.strip()]
 # Khoá sắp xếp thứ tự đo: model không có trong `LATE` (giá trị 0) đo trước, NeMo đo cuối cùng.
 LATE = {"chunkformer": 1, "chunkformer-rnnt": 1, "parakeet": 2}
+# Thư viện riêng theo họ model (tiền tố tên trong `asr_tune.MODELS`); mỗi họ chỉ cài một lần.
+EXTRA_PIP = {
+    "chunkformer": '"chunkformer==1.2.2"',  # tự cài torchaudio hợp với torch đang có
+    "parakeet": '"nemo_toolkit[asr]==2.6.2"',
+}
 installed: set[str] = set()
+
+
+def install_for(model: str) -> None:
+    """Cài thư viện riêng của họ model `model` (nếu có và chưa cài); lỗi cài không dừng kịch bản."""
+    for family, pkg in EXTRA_PIP.items():
+        if model.startswith(family) and family not in installed:
+            installed.add(family)
+            sh(f"pip install -q {pkg}", check=False)
+
+
 for model in sorted(tune_models, key=lambda m: LATE.get(m, 0)):
-    if model.startswith("chunkformer") and "chunkformer" not in installed:
-        installed.add("chunkformer")
-        sh('pip install -q "chunkformer==1.2.2"', check=False)  # tự cài torchaudio hợp với torch đang có
-    if model == "parakeet":
-        sh('pip install -q "nemo_toolkit[asr]==2.6.2"', check=False)
+    install_for(model)
     # ASR_TUNE_PREFLIGHT=N: chỉ chạy thử mọi lựa chọn trên N mẫu (kernel CPU), không dò thật.
     pre = os.environ.get("ASR_TUNE_PREFLIGHT", "")
     extra = f" --preflight {pre}" if pre else ""
@@ -190,6 +203,31 @@ for model in sorted(tune_models, key=lambda m: LATE.get(m, 0)):
         f"python -m lifemate.eval.asr_tune --env kaggle --models {model} --out {WORK}/asr_tune/{model}{extra}",
         check=False,
     )
+
+# 5c. Chẩn đoán một model ASR (`ASR_DIAG`): lấy id các mẫu có câu hỏng (chỉ gồm `⁇`) từ file `hyps.jsonl` của một
+# lần chạy trước (`ASR_DIAG_FROM`, mẫu glob dưới /kaggle/input, gắn qua `kernel_sources`), rồi chạy lại các mẫu đó với
+# từng bộ ghi đè config trong `ASR_DIAG_SETS` (các bộ cách nhau bằng ";", các ghi đè trong một bộ cách nhau bằng ",").
+# Mỗi bộ cho một file `asr_diag/<model>/<i>.json`; log có cảnh báo `asr_nonfinite_output` nếu đầu ra có NaN/inf.
+diag_model = os.environ.get("ASR_DIAG", "")
+if diag_model:
+    install_for(diag_model)
+    out = WORK / "asr_diag" / diag_model
+    found = sorted(glob.glob(os.environ.get("ASR_DIAG_FROM", ""), recursive=True))
+    if not found:
+        sys.exit(f"ASR_DIAG_FROM matched nothing: {os.environ.get('ASR_DIAG_FROM')!r}")
+    sh(f"python -m lifemate.eval.asr_bad_ids {found[0]} --out {out}/bad_ids.txt --kind unk")
+    sh(f"python -m lifemate.eval.asr_tune --env kaggle --models {diag_model} --emit-config --out {out}")
+    for i, group in enumerate(g for g in os.environ.get("ASR_DIAG_SETS", "").split(";") if g.strip()):
+        sets = " ".join(f"--set {o.strip()}" for o in group.split(",") if o.strip())
+        print(f"\n## diag {i}: {group}", flush=True)
+        sh(
+            f"python -m lifemate.eval.eval_asr --config {out}/{diag_model}.toml --env kaggle --split train "
+            f"--ids {out}/bad_ids.txt {sets} --out {out}/{i}.json --hyps {out}/{i}.hyps.jsonl 2>&1 "
+            f"| tee {out}/{i}.log",
+            check=False,
+        )
+        log_text = (out / f"{i}.log").read_text(encoding="utf-8", errors="replace")
+        print(f"[diag {i}] asr_nonfinite_output: {log_text.count('asr_nonfinite_output')}", flush=True)
 
 # 5b. Cache ASR cho dữ liệu fine-tune (SPEC 6.2.1), mặc định tắt: chạy ASR một lần trên train, `val_seen` và
 # `val_unseen`, rồi lưu chữ vào output của kernel (riêng tư). Tải về bằng `kaggle kernels output` và đặt vào
@@ -235,6 +273,7 @@ for path in (
     + sorted(glob.glob(f"{WORK}/asr_eval/*.json"))
     + sorted(glob.glob(f"{WORK}/asr_tune/*/summary.json"))
     + sorted(glob.glob(f"{WORK}/asr_tune/*/preflight.json"))
+    + sorted(glob.glob(f"{WORK}/asr_diag/*/[0-9]*.json"))
 ):
     print(f"\n== {path}\n" + Path(path).read_text(encoding="utf-8"), flush=True)
 shutil.rmtree(CODE, ignore_errors=True)

@@ -323,9 +323,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--max-p95", type=float, default=6.0, help="giây; cấu hình có p95 lớn hơn xếp sau")
     ap.add_argument("--preflight", type=int, default=0, metavar="N", help="chỉ chạy thử mọi lựa chọn trên N mẫu")
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument(
+        "--emit-config",
+        action="store_true",
+        help="chỉ ghi config gốc (chưa dò) của từng model ra <out>/<model>.toml, để chạy eval_asr riêng",
+    )
     args = ap.parse_args(argv)
     with open(args.base, "rb") as f:
         base = tomllib.load(f)
+    if args.emit_config:
+        args.out.mkdir(parents=True, exist_ok=True)
+        for m in args.models:
+            path = args.out / f"{m}.toml"
+            path.write_text(dump_toml({**base, "asr": asr_section(m, BASE_GK)}), encoding="utf-8")
+            print(path)
+        return 0
     runner = make_runner(args.env, args.split)
     if args.preflight:
         rows = [r for m in args.models for r in preflight(m, base, args.tune_ids, args.preflight, args.out / m, runner)]

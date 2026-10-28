@@ -24,6 +24,7 @@ from __future__ import annotations
 import dataclasses
 import os
 import tomllib
+from collections.abc import Sequence
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, TypeVar
@@ -235,11 +236,40 @@ def _check(cond: bool, msg: str) -> None:
         raise ConfigError(msg)
 
 
-def load_config(path: Path) -> Config:
+def apply_overrides(raw: dict[str, Any], overrides: Sequence[str]) -> dict[str, Any]:
+    """Ghi đè khoá trong config thô theo dạng `mục.khoá=giá_trị`, ví dụ `asr.dtype="float32"` hoặc `asr.batch_size=1`.
+
+    Giá trị được đọc như một giá trị TOML (chuỗi cần dấu nháy); không đọc được thì coi là chuỗi trần, nên
+    `asr.dtype=float32` cũng được. Khoá phải đã có trong mục, để gõ sai tên khoá thì báo lỗi thay vì lặng lẽ thêm khoá.
+
+    Tham số:
+        raw: config thô đọc từ TOML; bị sửa tại chỗ.
+        overrides: các chuỗi `mục.khoá=giá_trị`.
+
+    Trả về:
+        Chính `raw` sau khi ghi đè.
+
+    Lỗi:
+        ConfigError: khi chuỗi sai dạng, hoặc mục hay khoá không có trong config.
+    """
+    for item in overrides:
+        dotted, sep, value = item.partition("=")
+        section, dot, key = dotted.strip().partition(".")
+        _check(bool(sep and dot and key), f"override {item!r}: expected section.key=value")
+        _check(section in raw and key in raw[section], f"override {item!r}: unknown key {section}.{key}")
+        try:
+            raw[section][key] = tomllib.loads(f"v = {value.strip()}")["v"]
+        except tomllib.TOMLDecodeError:
+            raw[section][key] = value.strip()
+    return raw
+
+
+def load_config(path: Path, overrides: Sequence[str] = ()) -> Config:
     """Đọc file TOML config chạy và kiểm tra khoá, kiểu, giá trị.
 
     Tham số:
         path: đường dẫn file TOML có đúng ba mục `[llm]`, `[agent]`, `[asr]`.
+        overrides: các ghi đè `mục.khoá=giá_trị` áp trước khi kiểm tra (xem `apply_overrides`).
 
     Trả về:
         `Config` đã kiểm tra.
@@ -250,6 +280,7 @@ def load_config(path: Path) -> Config:
     """
     with open(path, "rb") as f:
         raw = tomllib.load(f)
+    apply_overrides(raw, overrides)
     for key in raw:
         _check(key in {"llm", "agent", "asr"}, f"unknown key {key}")
     for key in ("llm", "agent", "asr"):

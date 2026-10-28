@@ -1,0 +1,20 @@
+{
+  "id": "quanlam/lifemate-asr-diag",
+  "title": "lifemate-asr-diag",
+  "code_file": "lifemate_asr_diag.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [
+    "quanlam/zac2026-lifemate"
+  ],
+  "kernel_sources": [
+    "quanlam/lifemate-asr-tune"
+  ],
+  "competition_sources": [],
+  "model_sources": [],
+  "machine_shape": "NvidiaTeslaT4"
+}

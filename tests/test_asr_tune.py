@@ -95,3 +95,14 @@ def test_preflight_runs_each_supported_option_once(tmp_path: Path, repo_root: Pa
     ]
     # greedy (dùng chung cho mọi lựa chọn "giữ nguyên"), beam5, lead, short, antirepeat on: 5 lần đo.
     assert len(seen_ids) == 5 and seen_ids[0] == "a\nb\n"
+
+
+def test_emit_config_writes_untuned_config_per_model(tmp_path: Path, repo_root: Path) -> None:
+    """`--emit-config` ghi config gốc (chưa dò) hợp lệ cho từng model, dùng được với `eval_asr --config`."""
+    from lifemate.core.config import load_config
+
+    args = ["--env", "local", "--models", "parakeet", "large-v3", "--emit-config", "--out", str(tmp_path)]
+    assert asr_tune.main(args) == 0
+    cfg = load_config(tmp_path / "parakeet.toml")
+    assert cfg.asr.engine == "nemo_ctc" and cfg.asr.generate_kwargs == asr_tune.BASE_GK
+    assert load_config(tmp_path / "large-v3.toml").asr.engine == "faster_whisper"

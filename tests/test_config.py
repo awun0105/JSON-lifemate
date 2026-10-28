@@ -115,3 +115,16 @@ def test_unknown_or_missing_key_raises(tmp_path: Path, repo_root: Path, old: str
     p.write_text(text.replace('backend = "vllm"', 'backend = "fake"'), encoding="utf-8")
     with pytest.raises(ConfigError, match=key):
         load_config(p)
+
+
+def test_overrides_apply_before_validation(repo_root: Path) -> None:
+    """`--set` ghi đè giá trị TOML (có hoặc không nháy), và vẫn qua bước kiểm tra; khoá gõ sai bị báo lỗi."""
+    v0 = repo_root / "configs" / "v0.toml"
+    cfg = load_config(v0, ["asr.dtype=float32", "asr.batch_size=1", 'asr.engine="hf_seq2seq"'])
+    assert (cfg.asr.dtype, cfg.asr.batch_size, cfg.asr.engine) == ("float32", 1, "hf_seq2seq")
+    with pytest.raises(ConfigError, match=r"unknown key asr\.bogus"):
+        load_config(v0, ["asr.bogus=1"])
+    with pytest.raises(ConfigError, match=r"section\.key=value"):
+        load_config(v0, ["asr_dtype"])
+    with pytest.raises(ConfigError, match=r"asr\.dtype"):
+        load_config(v0, ["asr.dtype=float8"])

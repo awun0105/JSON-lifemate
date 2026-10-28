@@ -357,6 +357,7 @@ def train(
 
     class _Callback(base_cb):  # type: ignore[misc]
         """Callback của Trainer: ghi log vào `metrics.jsonl` và lưu checkpoint theo nhịp `save_every_steps`."""
+
         trainer: Any = None
 
         def on_log(self, a: Any, state: Any, control: Any, logs: Any = None, **kw: Any) -> None:
