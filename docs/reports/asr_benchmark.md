@@ -24,9 +24,9 @@ mục 6.4 được trích nguyên văn từ các file `hyps.jsonl`. Cách xếp 
 
 - [0. Bối cảnh và thuật ngữ](#0-bối-cảnh-và-thuật-ngữ)
 - [1. Vấn đề](#1-vấn-đề)
-- [2. Dữ liệu](#2-dữ-liệu)
-  - [2.1. Dữ liệu gốc có cấu trúc thế nào](#21-dữ-liệu-gốc-có-cấu-trúc-thế-nào)
-  - [2.2. Chia tập và lý do](#22-chia-tập-và-lý-do)
+- [2. Dữ liệu dùng cho benchmark](#2-dữ-liệu-dùng-cho-benchmark)
+  - [2.1. Dữ liệu gốc của BTC (chung cho cả dự án)](#21-dữ-liệu-gốc-của-btc-chung-cho-cả-dự-án)
+  - [2.2. Ba tập của benchmark và lý do](#22-ba-tập-của-benchmark-và-lý-do)
   - [2.3. Thước đo](#23-thước-đo)
 - [3. Bộ cấu hình chung](#3-bộ-cấu-hình-chung)
 - [4. Mô hình và cấu hình riêng](#4-mô-hình-và-cấu-hình-riêng)
@@ -91,11 +91,19 @@ Các lần đo trước để lại ba vấn đề:
 
 Lần đo này: mỗi mô hình được chỉnh với cùng công sức, trên cùng dữ liệu, theo cùng thước đo.
 
-## 2. Dữ liệu
+## 2. Dữ liệu dùng cho benchmark
 
-### 2.1. Dữ liệu gốc có cấu trúc thế nào
+**Tóm tắt.** Benchmark chạy trên **752 mẫu (2 467 câu nói)**, chia thành ba tập. Tập `asr_tune` gồm 300 mẫu, dùng để
+chọn cấu hình. Hai tập `val_seen` (274 mẫu) và `val_unseen` (178 mẫu) dùng để đo kết quả cuối. Tất cả đều lấy từ tập
+train có nhãn của BTC (1 545 mẫu). 793 mẫu còn lại không dùng trong benchmark này. Không dùng tập public test vì tập
+đó không có đáp án.
 
-Tập train của BTC có 1 545 mẫu. Mỗi mẫu là một dòng trong `train.jsonl` kèm thư mục audio:
+Mục 2.1 mô tả dữ liệu gốc của BTC, chung cho cả dự án. Mục 2.2 mô tả cách lấy ra ba tập trên.
+
+### 2.1. Dữ liệu gốc của BTC (chung cho cả dự án)
+
+Tập train của BTC có 1 545 mẫu, nằm trong `data/train+public_test/train/` (không có trên git). Mỗi mẫu là một dòng
+trong `train.jsonl`, kèm thư mục audio:
 
 ```json
 {"id": "train_0007",
@@ -107,38 +115,51 @@ Tập train của BTC có 1 545 mẫu. Mỗi mẫu là một dòng trong `train.
 
 - `audio`: file ghi âm **yêu cầu cuối**, phần được chấm điểm.
 - `history`: các lượt hội thoại trước. Mỗi lượt người dùng có file audio riêng (`<id>_u1.wav`, `<id>_u2.wav`…) và chữ
-  đáp án `audio_text`.
-- `audio_text`: chữ đáp án do BTC ghi lại, dùng làm "đáp án" khi tính WER.
-- `label.tool_calls`: lời gọi tool đúng. Dùng để biết tên riêng nào phải nghe đúng (mục 2.3).
+  đáp án `audio_text` riêng.
+- `audio_text`: chữ đáp án do BTC ghi lại. Benchmark dùng trường này làm "đáp án" khi tính WER.
+- `label.tool_calls`: lời gọi tool đúng. Benchmark dùng trường này để biết tên riêng nào phải nghe đúng (mục 2.3).
 
-Một mẫu có thể chứa nhiều câu nói (lượt cuối và các lượt trong lịch sử). Vì vậy 300 mẫu tương ứng 1 024 câu.
+Benchmark chấm **mọi câu nói của người dùng** trong một mẫu: lượt cuối và từng lượt trong lịch sử. Lý do là LLM đọc chữ
+của mọi lượt. Vì vậy số câu lớn hơn số mẫu: 300 mẫu của `asr_tune` có 1 024 câu.
 
-### 2.2. Chia tập và lý do
+### 2.2. Ba tập của benchmark và lý do
 
-| Tập              | Số mẫu | Số câu | Số tên riêng | Lấy từ đâu                   | Dùng để                                 |
-| ---------------- | ------ | ------ | ------------ | ---------------------------- | --------------------------------------- |
-| `asr_tune.txt`   | 300    | 1 024  | 123          | Rút từ tập train (1 093 mẫu) | Dò cấu hình (chọn lựa chọn ở từng bước) |
-| `val_seen.txt`   | 274    | 916    | 109          | Fold 0                       | Đo cấu hình thắng, app quen             |
-| `val_unseen.txt` | 178    | 527    | 54           | Mẫu dùng 6 app bị giữ lại    | Đo cấu hình thắng, app lạ               |
+| Tập | Thuộc | Số mẫu | Số câu | Số tên riêng | Có lịch sử | Thực hiện / hỏi lại / ngoài phạm vi | Dùng để |
+|---|---|---|---|---|---|---|---|
+| `asr_tune.txt` | **Tạo riêng** cho benchmark ASR, rút từ `train` | 300 | 1 024 | 123 | 194 | 231 / 46 / 23 | Dò cấu hình: chọn lựa chọn thắng ở từng bước |
+| `val_seen.txt` | Tập kiểm tra **chung** của dự án | 274 | 916 | 109 | 183 | 213 / 39 / 22 | Đo cấu hình thắng, với app đã có trong train |
+| `val_unseen.txt` | Tập kiểm tra **chung** của dự án | 178 | 527 | 54 | 129 | 162 / 11 / 5 | Đo cấu hình thắng, với 6 app không có trong train |
 
-Cách tạo (`lifemate/eval/make_splits.py`, seed cố định 42, chạy ở máy nào cũng ra giống nhau):
+Giải thích các cột:
+- **Số tên riêng:** số giá trị tham số trong đáp án được nói ra ở câu cuối (tên người, giờ, số tiền, tên kênh…), dùng
+  để tính tỉ lệ bỏ sót (mục 2.3).
+- **Có lịch sử:** số mẫu có hội thoại trước lượt cuối.
+- **Loại đáp án:** "thực hiện" là gọi tool để làm việc; "hỏi lại" là gọi `sys.ask_missing_info` khi thiếu thông tin;
+  "ngoài phạm vi" là không gọi tool nào.
+
+`val_seen` và `val_unseen` là hai tập chung mà mọi phần của dự án (LLM, fine-tune, ASR) đều đo trên đó. Benchmark chỉ
+dùng lại, không sửa. `asr_tune` là tập duy nhất tạo thêm, và không trùng mẫu nào với hai tập val.
+
+**Cách chia** (`lifemate/eval/make_splits.py`, seed cố định 42, chạy ở máy nào cũng ra giống nhau). Bước 1–3 tạo các
+tập chung của dự án, bước 4 tạo tập riêng cho benchmark:
 
 1. **Tách app lạ trước.** Mọi mẫu dùng một trong 6 app (medication, fitness, flights, bike_rental, library,
    subscriptions) vào `val_unseen`. Lý do: bộ thi riêng của BTC có app chưa từng thấy, nên cần một tập mô phỏng điều đó.
 2. **Gom cụm câu gần trùng.** Các mẫu có `audio_text` giống nhau từ 85% trở lên được gom thành một cụm và luôn nằm cùng
    một tập. Lý do: nếu hai câu gần giống nhau nằm ở hai tập, kết quả kiểm tra sẽ đẹp hơn thực tế.
-3. **Chia 5 fold phân tầng.** Phần còn lại chia thành 5 phần có cùng tỉ lệ số lời gọi tool và tỉ lệ câu phải hỏi lại.
-   Fold 0 là `val_seen`, fold 1–4 là `train`.
-4. **Rút `asr_tune.txt` từ train** (`--asr-tune 300`): lấy 300 mẫu, phân tầng theo loại đáp án (thực hiện, hỏi lại,
-   ngoài phạm vi) và có/không lịch sử.
+3. **Chia 5 fold phân tầng.** 1 367 mẫu còn lại chia thành 5 phần có cùng tỉ lệ số lời gọi tool và tỉ lệ câu phải hỏi
+   lại. Fold 0 là `val_seen` (274 mẫu), fold 1–4 là `train` (1 093 mẫu).
+4. **Rút `asr_tune.txt` từ `train`** (`make_splits --asr-tune 300`): lấy 300 trong 1 093 mẫu train, phân tầng theo loại
+   đáp án và có/không lịch sử, để tỉ lệ các loại câu giống tập train.
 
-Vì sao dò cấu hình trên một tập riêng lấy từ train:
+**Vì sao dò cấu hình trên một tập riêng lấy từ train:**
 - **Không "chấm lại trên chính đề đã luyện".** Nếu vừa chọn cấu hình vừa báo kết quả trên val_seen, cấu hình được chọn
   sẽ khớp riêng với val_seen và con số báo cáo sẽ đẹp hơn thực tế. Ở đây val_seen và val_unseen chỉ được đo đúng một
-  lần sau khi đã chọn xong.
+  lần, sau khi đã chọn xong.
 - **Không rò rỉ.** Các mô hình ASR không học trên tập train của dự án, nên lấy mẫu train để dò không làm lộ đáp án.
   Nếu sau này fine-tune ASR trên train thì phải loại 300 mẫu này ra.
-- **Các tập chính không đổi.** `train`, `val_seen`, `val_unseen` giữ nguyên từng byte, các kết quả cũ vẫn so được.
+- **Các tập chung không đổi.** `train`, `val_seen`, `val_unseen` giữ nguyên từng byte, các kết quả cũ vẫn so được.
+- **Vì sao 300 mẫu:** đủ nhiều tên riêng (123) để so các lựa chọn, mà vẫn chạy xong 5 mô hình trong một phiên GPU T4.
 
 ### 2.3. Thước đo
 
