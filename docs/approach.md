@@ -392,6 +392,7 @@ Mỗi lần chạy agent ghi một dòng. Điểm lấy từ `lifemate/eval/scor
 | 27/10/2026 | v0 pipeline check | Agent v0 + hạ tầng đo xong (`c720d5e`) | gold / FakeLLM (phát lại gold) | 100,00 | 100,00 | | Chỉ kiểm vòng lặp, guard, ghi file và bộ chấm; chưa có model thật |
 | 28/10/2026 | smoke T4 v7 | ASR large-v3 tham số lead | large-v3 / Qwen3-4B base | 40,17 (gold), 14,50 (ASR), smoke | | | ASR val_seen: WER 44,0%, 190/916 câu rỗng, bỏ sót thực thể 52% |
 | 28/10/2026 | ASR sweep v1 | 6 biến thể ASR trên val_seen (274 mẫu, 916 câu) | chỉ ASR | | | | Bỏ `initial_prompt` + tham số chống lặp: WER 29,7%, rỗng 24, bỏ sót 31%, p95 7,6 s. PhoWhisper: WER 27,9%, rỗng 0, bỏ sót 38,5%, p95 2,9 s. Chọn large-v3 không prompt; baseline sẽ quyết định cuối |
+| 28/10/2026 | base28 eval v2 (không hợp lệ) | Prompt v1, transcript ASR large-v3 float16 | large-v3 / Qwen3-4B base | 8,03 | 2,81 | | Hết bộ nhớ GPU T4 khi ASR chạy cạnh vLLM: 253/274 và 178/178 mẫu lỗi. Chạy lại với ASR `int8_float16` |
 
 ## 9. Phân tích nguyên lý gốc về fine-tune (27/10/2026)
 

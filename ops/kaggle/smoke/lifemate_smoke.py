@@ -119,6 +119,10 @@ edit(asr_cfg, r'^backend = "gold".*$', 'backend = "asr"')
 # whisper-large-v3 (CT2) chưa được đo ở đây. A30 (24 GB) giữ nguyên giá trị của v0.
 edit(asr_cfg, r"^max_model_len = .*$", "max_model_len = 8192")
 edit(asr_cfg, r"^gpu_memory_utilization = .*$", "gpu_memory_utilization = 0.72")
+# ASR_DTYPE (tùy chọn) đổi dtype của ASR trong config chạy agent. Bản eval 28/10 với large-v3 float16 bị
+# hết bộ nhớ GPU cạnh vLLM (253/274 mẫu lỗi); "int8_float16" của CTranslate2 cần khoảng một nửa bộ nhớ.
+if os.environ.get("ASR_DTYPE"):
+    edit(asr_cfg, r'^dtype = "auto"(\s+# auto: bfloat16.*)$', f'dtype = "{os.environ["ASR_DTYPE"]}"\\1')
 # Bản float32 để so chất lượng ASR với dtype auto; regex giữ lại phần chú thích "# auto: ..." của dòng.
 asr_fp32 = CODE / "configs/kaggle_asr_fp32.toml"
 shutil.copy(asr_cfg, asr_fp32)

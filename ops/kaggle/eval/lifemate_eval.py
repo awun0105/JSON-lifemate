@@ -24,6 +24,7 @@ RUN = {
     "RUN_GOLD": "0",
     "RUN_ASR": "1",
     "RUN_ASR_EVAL": "0",
+    "ASR_DTYPE": "int8_float16",
 }
 os.environ.update(RUN)
 # Thư mục tạm chứa bản clone dùng để lấy kịch bản smoke.
