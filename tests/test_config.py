@@ -128,3 +128,50 @@ def test_overrides_apply_before_validation(repo_root: Path) -> None:
         load_config(v0, ["asr_dtype"])
     with pytest.raises(ConfigError, match=r"asr\.dtype"):
         load_config(v0, ["asr.dtype=float8"])
+
+
+@pytest.mark.parametrize(
+    ("extra", "key"),
+    [
+        ("prompt_guard_ngram = 1", "prompt_guard_ngram"),
+        ("prompt_guard_ngram = 3", "needs asr.generate_kwargs.initial_prompt"),
+        ("prompt_guard_max_compression = 0", "prompt_guard_max_compression"),
+    ],
+)
+def test_prompt_guard_validated(tmp_path: Path, repo_root: Path, extra: str, key: str) -> None:
+    """Lớp bảo vệ câu mồi: cụm phải từ 2 từ, cần có câu mồi, ngưỡng nén phải dương."""
+    text = (
+        (repo_root / "configs" / "v0.toml").read_text(encoding="utf-8").replace('backend = "vllm"', 'backend = "fake"')
+    )
+    p = tmp_path / "c.toml"
+    p.write_text(text.replace("sample_rate = 16000", f"sample_rate = 16000\n{extra}", 1), encoding="utf-8")
+    with pytest.raises(ConfigError, match=key):
+        load_config(p)
+    ok = text.replace(
+        "condition_on_previous_text = false }", 'condition_on_previous_text = false, initial_prompt = "x" }'
+    )
+    p.write_text(ok.replace("sample_rate = 16000", "sample_rate = 16000\nprompt_guard_ngram = 3", 1), encoding="utf-8")
+    assert load_config(p).asr.prompt_guard_ngram == 3
+
+
+def test_initial_prompt_file_loaded(tmp_path: Path, repo_root: Path) -> None:
+    """`asr.initial_prompt_file` được đọc vào `generate_kwargs.initial_prompt`; file thiếu hoặc khai cả hai thì lỗi."""
+    text = (
+        (repo_root / "configs" / "v0.toml").read_text(encoding="utf-8").replace('backend = "vllm"', 'backend = "fake"')
+    )
+    p = tmp_path / "c.toml"
+    line = 'sample_rate = 16000\ninitial_prompt_file = "configs/asr_prompts/en_top10_v1.txt"'
+    p.write_text(text.replace("sample_rate = 16000", line, 1), encoding="utf-8")
+    gk = load_config(p).asr.generate_kwargs
+    assert (
+        gk["initial_prompt"] == (repo_root / "configs/asr_prompts/en_top10_v1.txt").read_text(encoding="utf-8").strip()
+    )
+    p.write_text(text.replace("sample_rate = 16000", 'sample_rate = 16000\ninitial_prompt_file = "nope.txt"', 1))
+    with pytest.raises(ConfigError, match="not found"):
+        load_config(p)
+    both = text.replace(
+        "condition_on_previous_text = false }", 'condition_on_previous_text = false, initial_prompt = "x" }'
+    )
+    p.write_text(both.replace("sample_rate = 16000", line, 1), encoding="utf-8")
+    with pytest.raises(ConfigError, match="not both"):
+        load_config(p)

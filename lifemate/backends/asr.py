@@ -4,6 +4,7 @@ Nội dung chính:
 - `GoldTranscriber`: trả lại `audio_text` gốc của tập train, dùng khi muốn tách lỗi ASR khỏi lỗi LLM.
 - `ASRTranscriber`: chạy ASR thật trên các file WAV của mẫu, mỗi mẫu gửi xuống backend theo batch.
 - `ASRBackend`: Protocol chung của các backend model.
+- `PromptedASRBackend`: backend có câu mồi và chép lại được không câu mồi (cho lớp bảo vệ câu mồi).
 - `FasterWhisperASR`, `HFSeq2SeqASR`, `ChunkFormerASR`, `NemoCTCASR`: bốn backend model ASR.
 - `ASR_ENGINES`, `make_backend`: chọn backend theo tên trong `[asr].engine`.
 - `read_wav`, `resolve_asr_dtype`, `hf_generate_kwargs`: hàm phụ đọc audio, chọn dtype, dịch tham số giải mã.
@@ -11,6 +12,7 @@ Nội dung chính:
 Cách hoạt động:
 - Từ mẫu, lập danh sách file WAV: các lượt user trong lịch sử trước, lượt cuối sau.
 - Backend trả về văn bản theo đúng thứ tự file.
+- Nếu `[asr].prompt_guard_ngram` bật, câu nào hỏng do câu mồi (`asr_guard.needs_retry`) được chép lại không câu mồi.
 - Nếu `[asr].sanitize` bật, văn bản được lọc ảo giác bằng `sanitize`.
 - Kết quả là `Transcript` gồm văn bản lượt cuối và lịch sử (`None` ở lượt assistant).
 
@@ -31,6 +33,7 @@ from typing import Any, ClassVar, Protocol
 
 import structlog
 
+from lifemate.backends.asr_guard import needs_retry
 from lifemate.backends.asr_sanitizer import sanitize
 from lifemate.core.config import ASRConfig
 from lifemate.core.types import Sample, Transcript
@@ -82,6 +85,14 @@ class ASRBackend(Protocol):
 
     def warmup(self) -> None:
         """Chạy model một lần trên 1 giây im lặng để khởi động."""
+        ...
+
+
+class PromptedASRBackend(ASRBackend, Protocol):
+    """Backend có câu mồi (Whisper) và chép lại được không câu mồi, cho lớp bảo vệ câu mồi."""
+
+    def transcribe_batch_unprompted(self, wav_paths: Sequence[Path]) -> list[str]:
+        """Như `transcribe_batch` nhưng bỏ câu mồi (`initial_prompt`, `hotwords`)."""
         ...
 
 
@@ -226,16 +237,22 @@ class HFSeq2SeqASR:
             ids = pipe.tokenizer.get_prompt_ids(self._prompt, return_tensors="pt")
             self._generate_kwargs["prompt_ids"] = ids.to(pipe.device)
 
-    def _run(self, items: list[dict[str, Any]]) -> list[str]:
-        """Chạy pipeline trên danh sách audio đầu vào và trả về văn bản đã bỏ khoảng trắng hai đầu."""
+    def _run(self, items: list[dict[str, Any]], prompted: bool = True) -> list[str]:
+        """Chạy pipeline trên danh sách audio đầu vào và trả về văn bản đã bỏ khoảng trắng hai đầu.
+
+        `prompted=False` bỏ câu mồi (`prompt_ids`), dùng cho lớp bảo vệ câu mồi.
+        """
         pipe: Any = self._pipe
-        out = pipe(items, batch_size=self._cfg.batch_size, generate_kwargs=self._generate_kwargs)
+        gk = (
+            self._generate_kwargs if prompted else {k: v for k, v in self._generate_kwargs.items() if k != "prompt_ids"}
+        )
+        out = pipe(items, batch_size=self._cfg.batch_size, generate_kwargs=gk)
         # Khi chỉ có một đầu vào, pipeline trả về dict thay vì list.
         if isinstance(out, dict):
             out = [out]
         texts = [str(o["text"]).strip() for o in out]
         # Pipeline có thể trả kèm câu mồi ở đầu văn bản; cắt bỏ để chỉ còn lời thật sự nghe được.
-        if self._prompt:
+        if self._prompt and prompted:
             texts = [t[len(self._prompt) :].strip() if t.startswith(self._prompt) else t for t in texts]
         return texts
 
@@ -243,6 +260,11 @@ class HFSeq2SeqASR:
         """Đọc mọi file WAV rồi chạy pipeline trên cả danh sách."""
         sr = self._cfg.sample_rate
         return self._run([{"raw": read_wav(p, sr), "sampling_rate": sr} for p in wav_paths])
+
+    def transcribe_batch_unprompted(self, wav_paths: Sequence[Path]) -> list[str]:
+        """Như `transcribe_batch` nhưng không câu mồi."""
+        sr = self._cfg.sample_rate
+        return self._run([{"raw": read_wav(p, sr), "sampling_rate": sr} for p in wav_paths], prompted=False)
 
     def warmup(self) -> None:
         """Chạy một lần trên 1 giây im lặng."""
@@ -485,17 +507,24 @@ class FasterWhisperASR:
             path = snapshot_download(cfg.model, revision=cfg.revision)
         self._model = WhisperModel(path, device="cuda" if on_gpu else "cpu", compute_type=self.dtype)
         self._kwargs = dict(cfg.generate_kwargs)
+        # Cùng tham số nhưng bỏ câu mồi, cho lớp bảo vệ câu mồi.
+        self._unprompted = {k: v for k, v in self._kwargs.items() if k not in ("initial_prompt", "hotwords")}
 
-    def _one(self, audio: Any) -> str:
+    def _one(self, audio: Any, prompted: bool = True) -> str:
         """Nhận dạng một câu nói và nối văn bản các đoạn (segment) bằng dấu cách."""
         # `segments` là generator: model chỉ thật sự giải mã khi generator được duyệt qua.
-        segments, _info = self._model.transcribe(audio, **self._kwargs)
+        segments, _info = self._model.transcribe(audio, **(self._kwargs if prompted else self._unprompted))
         return " ".join(s.text.strip() for s in segments).strip()
 
     def transcribe_batch(self, wav_paths: Sequence[Path]) -> list[str]:
         """Nhận dạng lần lượt từng file WAV theo thứ tự."""
         sr = self._cfg.sample_rate
         return [self._one(read_wav(p, sr)) for p in wav_paths]
+
+    def transcribe_batch_unprompted(self, wav_paths: Sequence[Path]) -> list[str]:
+        """Như `transcribe_batch` nhưng không câu mồi."""
+        sr = self._cfg.sample_rate
+        return [self._one(read_wav(p, sr), prompted=False) for p in wav_paths]
 
     def warmup(self) -> None:
         """Chạy một lần trên 1 giây im lặng."""
@@ -539,6 +568,10 @@ class ASRTranscriber:
 
     Thuộc tính:
         source: nguồn transcript ghi vào trace, luôn là `"asr"`.
+        n_prompt_retries: số câu đã chép lại không câu mồi do lớp bảo vệ câu mồi.
+
+    Lỗi:
+        ValueError: khi bật `prompt_guard_ngram` mà backend không chép lại được không câu mồi.
     """
 
     source = "asr"
@@ -548,6 +581,9 @@ class ASRTranscriber:
         self._base = Path(data_root) / split
         self._backend: ASRBackend = backend if backend is not None else make_backend(cfg)
         self._warmed = False
+        self.n_prompt_retries = 0
+        if cfg.prompt_guard_ngram and not hasattr(self._backend, "transcribe_batch_unprompted"):
+            raise ValueError(f"asr.prompt_guard_ngram: engine {cfg.engine!r} cannot transcribe without the prompt")
 
     def wav_paths(self, sample: Sample) -> list[Path]:
         """Liệt kê file WAV của các lượt user theo thứ tự lịch sử (`_u1`, `_u2`, ...) rồi tới yêu cầu cuối.
@@ -589,6 +625,8 @@ class ASRTranscriber:
             if len(got) != len(chunk):
                 raise ValueError(f"{sample.id}: ASR returned {len(got)} texts for {len(chunk)} files")
             texts.extend(got)
+        if self._cfg.prompt_guard_ngram:
+            texts = self._guard(sample.id, paths, texts)
         raw = tuple(texts)
         if self._cfg.sanitize:
             texts = [sanitize(t, is_history=i < len(texts) - 1) for i, t in enumerate(texts)]
@@ -596,6 +634,37 @@ class ASRTranscriber:
         it = iter(texts[:-1])
         history = tuple(next(it) if t.role == "user" else None for t in sample.history)
         return Transcript(final=texts[-1], history=history, seconds=time.perf_counter() - start, raw=raw)
+
+    def _guard(self, sample_id: str, paths: list[Path], texts: list[str]) -> list[str]:
+        """Chép lại không câu mồi các câu hỏng do câu mồi (`asr_guard.needs_retry`); trả văn bản đã thay."""
+        cfg = self._cfg
+        prompt = str(cfg.generate_kwargs.get("initial_prompt") or "")
+        bad = [
+            i
+            for i, t in enumerate(texts)
+            if needs_retry(
+                t,
+                sanitize(t, is_history=i < len(texts) - 1),
+                prompt,
+                cfg.prompt_guard_ngram,
+                cfg.prompt_guard_max_compression,
+            )
+        ]
+        if not bad:
+            return texts
+        backend: Any = self._backend  # đã kiểm tra `transcribe_batch_unprompted` ở `__init__`
+        out = list(texts)
+        size = max(1, cfg.batch_size)
+        for j in range(0, len(bad), size):
+            idx = bad[j : j + size]
+            got = backend.transcribe_batch_unprompted([paths[i] for i in idx])
+            if len(got) != len(idx):
+                raise ValueError(f"{sample_id}: ASR returned {len(got)} texts for {len(idx)} files")
+            for i, t in zip(idx, got, strict=True):
+                out[i] = t
+        self.n_prompt_retries += len(bad)
+        log.info("asr_prompt_retry", sample_id=sample_id, utterances=len(bad), total=len(texts))
+        return out
 
     def warmup(self) -> None:
         """Khởi động backend, chỉ một lần duy nhất."""

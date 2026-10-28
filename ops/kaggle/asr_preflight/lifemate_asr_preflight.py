@@ -16,11 +16,16 @@ import subprocess
 
 # Tham số truyền cho kịch bản smoke: chỉ chạy thử phần chọn config ASR, không chạy agent hay bước đo ASR riêng.
 RUN = {
-    "LIFEMATE_REF": "main",
+    "LIFEMATE_REF": "asr-benchmark-v2",  # nhánh của benchmark ASR lần 2; đổi lại "main" sau khi merge
     "RUN_GOLD": "0",
     "RUN_ASR": "0",
     "RUN_ASR_EVAL": "0",
-    "ASR_TUNE": "chunkformer,parakeet",  # lần 2: chỉ hai model đã đổi cách cài hoặc engine sau lần 1
+    "ASR_TUNE": "large-v3,phowhisper,chunkformer-rnnt",  # benchmark ASR lần 2 (câu chêm tiếng Anh)
+    # Benchmark lần 2 (câu chêm tiếng Anh, D40): chỉ dò bước câu mồi (13 tổ hợp câu mồi x lớp bảo vệ câu mồi), large-v3
+    # bật VAD từ đầu, hàm mục tiêu có từ tiếng Anh. Dò trên `asr_tune` đầy đủ, đo trên `val_seen`, `val_unseen` đầy đủ
+    # (mặc định); số của các tập `*_en_mixed` lấy bằng `rescore_asr` trên tập con. ChunkFormer RNNT không có lựa chọn
+    # câu mồi nên chỉ chạy một config: lần chạy kiểm chứng số chấm offline từ kết quả lần 1.
+    "ASR_TUNE_ARGS": "--stages prompt --start-option engine=vad --objective en_mixed",
     "ASR_TUNE_PREFLIGHT": "3",
 }
 os.environ.update(RUN)

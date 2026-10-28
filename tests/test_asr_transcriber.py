@@ -8,6 +8,7 @@ Lưu ý:
 - Không cần dữ liệu cuộc thi hay tokenizer.
 """
 
+import dataclasses
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -164,3 +165,11 @@ def test_faster_whisper_engine_and_sanitize(monkeypatch: pytest.MonkeyPatch, tmp
     out = backend.transcribe_batch([Path("a.wav"), Path("b.wav")])
     assert out == ["Hãy subscribe cho kênh La La School", "bật đèn"] and calls[1] == {"language": "vi", "beam_size": 5}
     assert asr_mod.sanitize(out[0], is_history=True) == ""
+    # Chép lại không câu mồi (lớp bảo vệ câu mồi): bỏ `initial_prompt` và `hotwords`, giữ mọi khoá khác.
+    prompted = asr_mod.make_backend(
+        dataclasses.replace(cfg, generate_kwargs={"language": "vi", "initial_prompt": "x", "hotwords": "y"})
+    )
+    assert isinstance(prompted, asr_mod.FasterWhisperASR)
+    prompted.transcribe_batch([Path("a.wav")])
+    prompted.transcribe_batch_unprompted([Path("a.wav")])
+    assert calls[-2] == {"language": "vi", "initial_prompt": "x", "hotwords": "y"} and calls[-1] == {"language": "vi"}

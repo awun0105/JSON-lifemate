@@ -8,6 +8,7 @@ Tài liệu của dự án. `SPEC.md` là nguồn sự thật cho mã: đổi h�
 | `decisions.md` | Nhật ký quyết định: ngày, quyết định, lý do, quyết định bị thay. Mỗi lần đổi hướng thêm một dòng. |
 | `experiments.md` | Nhật ký thí nghiệm: mỗi lần chạy một dòng, kèm điểm và đường dẫn kết quả thô. |
 | `reports/asr_benchmark.md` | Báo cáo so sánh mô hình và cấu hình ASR (whisper-large-v3, PhoWhisper, ChunkFormer, Parakeet): vấn đề, cấu hình từng mô hình kèm lý do, phương pháp, kết quả. |
+| `reports/asr_benchmark_en_mixed.md` | Báo cáo benchmark ASR lần 2: bốn mô hình tốt nhất của lần 1 đo trên các câu tiếng Việt chêm tiếng Anh (đang làm). |
 | `rationale.md` | Phân tích nguyên lý gốc về fine-tune LLM và ASR (27/10/2026). |
 | `overview.md` | Đề bài: đầu vào, đầu ra, cách chấm, ràng buộc, cấu trúc dữ liệu. |
 | `eda.md` | Phân tích dữ liệu: số mẫu, phân bố app, độ dài, đặc điểm âm thanh. |

@@ -9,6 +9,7 @@ Nội dung chính:
 - `smoke_sample`: lấy một tập nhỏ phân tầng (cho `smoke.txt` và `asr_tune.txt`).
 - `call_bucket`, `category`, `gold_apps`: phân loại mẫu theo số lời gọi, loại câu trả lời và app được dùng.
 - `UNSEEN_OUT_OF_SCOPE`: các mẫu gold rỗng được gắn tay vào app held-out.
+- `en_mixed_ids`: các mẫu có câu chêm tiếng Anh (benchmark ASR lần 2).
 - `main`: CLI đọc dữ liệu, chia tập và ghi file.
 
 Các tập được tạo:
@@ -33,6 +34,9 @@ Cách hoạt động:
 4. Kiểm tra rò rỉ: `meta.json` ghi số id trùng giữa train và hai tập val (phải bằng 0).
 5. Tuỳ chọn `--smoke`: lấy N id của `val_seen`, phân tầng theo (loại câu trả lời, có lịch sử hay không).
    Tuỳ chọn `--asr-tune`: lấy N id của train theo cùng cách phân tầng, làm tập dò config ASR.
+   Tuỳ chọn `--en-mixed`: ghi `{asr_tune,val_seen,val_unseen}_en_mixed.txt`, gồm các mẫu của tập tương ứng có ít nhất
+   một lượt người dùng (lượt cuối hoặc lịch sử) chêm từ tiếng Anh (`lifemate.eval.en_mixed.has_english`). Các tập
+   gốc không đổi.
 
 Lưu ý:
 - Nguồn: Adapted from the team lead's repo ThanhDanh1510/ZaloAI2026 src/preprocessing/dataset/split.py@7033c9f
@@ -53,6 +57,7 @@ from lifemate.core.config import load_profile
 from lifemate.core.paths import REPO_ROOT as REPO
 from lifemate.core.paths import local_data_root, repo_path
 from lifemate.core.textsim import cluster_near_duplicates
+from lifemate.eval.en_mixed import has_english
 
 DEFAULT_ROOT = local_data_root()
 # Lựa chọn của trưởng nhóm: mỗi miền một app (sức khoẻ, thể thao, du lịch, di chuyển, cá nhân, tài chính).
@@ -177,6 +182,18 @@ def smoke_sample(val_seen: list[dict], n: int, seed: int) -> list[str]:
     return sorted(out)
 
 
+def en_mixed_ids(items: list[dict]) -> list[str]:
+    """Trả về id (đã sắp xếp) của các mẫu có lượt cuối hoặc một lượt user trong lịch sử chêm từ tiếng Anh."""
+    out = []
+    for it in items:
+        texts = [it.get("audio_text") or ""] + [
+            h.get("audio_text") or "" for h in it["history"] if h.get("role") == "user"
+        ]
+        if any(has_english(t) for t in texts):
+            out.append(it["id"])
+    return sorted(out)
+
+
 def main() -> None:
     """Chạy CLI: tạo các split, các fold, `smoke.txt` và `asr_tune.txt` (tuỳ chọn), `meta.json`, rồi in thống kê."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -202,6 +219,11 @@ def main() -> None:
         default=0,
         metavar="N",
         help="also write asr_tune.txt: N train ids (same stratification) for choosing the ASR config; 0 = skip",
+    )
+    ap.add_argument(
+        "--en-mixed",
+        action="store_true",
+        help="also write {asr_tune,val_seen,val_unseen}_en_mixed.txt: samples with English words (needs asr_tune.txt)",
     )
     args = ap.parse_args()
     # Thứ tự ưu tiên: `--root`, rồi `data_root` của profile `--env`, rồi thư mục dữ liệu mặc định trên máy.
@@ -255,6 +277,18 @@ def main() -> None:
         tune = smoke_sample(train, args.asr_tune, args.seed)
         (args.out / "asr_tune.txt").write_text("".join(f"{i}\n" for i in tune))
         print(f"  asr_tune   {len(tune):>5}  -> {args.out / 'asr_tune.txt'}")
+    # Tập con chêm tiếng Anh (benchmark ASR lần 2): lọc từ các tập đã có, không chia lại.
+    if args.en_mixed:
+        tune_file = args.out / "asr_tune.txt"
+        if not tune_file.is_file():
+            ap.error("--en-mixed needs asr_tune.txt: pass --asr-tune N")
+        tune_ids = set(tune_file.read_text().split())
+        all_by_id = {it["id"]: it for it in items}
+        parts = {"asr_tune": [all_by_id[i] for i in sorted(tune_ids)], "val_seen": val_seen, "val_unseen": val_unseen}
+        for name, part in parts.items():
+            ids = en_mixed_ids(part)
+            (args.out / f"{name}_en_mixed.txt").write_text("".join(f"{i}\n" for i in ids))
+            print(f"  {name}_en_mixed {len(ids):>5} / {len(part)}  -> {args.out / f'{name}_en_mixed.txt'}")
 
     def mix(part):
         """Đếm số mẫu theo loại câu trả lời trong một split."""

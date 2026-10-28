@@ -4,7 +4,7 @@ Kernel Kaggle chạy tự động bằng Kaggle CLI. Mọi kernel đều riêng 
 
 | File | Chức năng |
 |---|---|
-| `smoke/lifemate_smoke.py` | Kernel chạy thử: tìm dữ liệu, clone mã, chỉnh profile Kaggle theo đường dẫn thật, cài thư viện, vLLM và faster-whisper, sinh lại `configs/splits/` từ dữ liệu, chạy test, đo chất lượng ASR, chọn cấu hình ASR, dựng cache ASR, chạy agent với chữ chuẩn (và với chữ ASR khi bật), đếm số bước bị ngắt ở hạn giờ, in báo cáo. Các tuỳ chọn đặt qua biến môi trường (`LIFEMATE_REF`, `RUN_IDS`, `RUN_TAG`, `RUN_GOLD`, `RUN_ASR`, `RUN_ASR_EVAL`, `ASR_EVAL_IDS`, `ASR_TUNE`, `RUN_ASR_CACHE`), mô tả ở docstring đầu file. |
+| `smoke/lifemate_smoke.py` | Kernel chạy thử: tìm dữ liệu, clone mã, chỉnh profile Kaggle theo đường dẫn thật, cài thư viện, vLLM và faster-whisper, sinh lại `configs/splits/` từ dữ liệu, chạy test, đo chất lượng ASR, chọn cấu hình ASR, dựng cache ASR, chạy agent với chữ chuẩn (và với chữ ASR khi bật), đếm số bước bị ngắt ở hạn giờ, in báo cáo. Các tuỳ chọn đặt qua biến môi trường (`LIFEMATE_REF`, `RUN_IDS`, `RUN_TAG`, `RUN_GOLD`, `RUN_ASR`, `RUN_ASR_EVAL`, `ASR_EVAL_IDS`, `ASR_TUNE`, `ASR_TUNE_ARGS`, `RUN_ASR_CACHE`), mô tả ở docstring đầu file. |
 | `smoke/kernel-metadata.json` | Khai báo kernel `lifemate-smoke`: GPU, mạng, dataset đi kèm. |
 | `eval/lifemate_eval.py` | Kernel cho vòng chỉnh prompt: đặt sẵn tuỳ chọn (`val_seen` và `val_unseen`, chữ chuẩn), lấy `smoke/lifemate_smoke.py` từ đúng tag rồi chạy script đó. |
 | `eval/kernel-metadata.json` | Khai báo kernel `lifemate-eval`. |

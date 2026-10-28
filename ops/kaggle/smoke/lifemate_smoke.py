@@ -29,6 +29,8 @@ Tham số (biến môi trường, đọc lúc chạy):
 - `ASR_TUNE`: danh sách model cho `lifemate.eval.asr_tune`, ví dụ "large-v3,phowhisper,parakeet"; để trống là bỏ
   qua.
 - `ASR_TUNE_PREFLIGHT`: N, chỉ chạy thử mọi lựa chọn trên N mẫu.
+- `ASR_TUNE_ARGS`: tham số thêm cho `lifemate.eval.asr_tune`, ví dụ cho benchmark lần 2: "--stages prompt
+  --start-option engine=vad --objective en_mixed".
 - `ASR_DIAG`, `ASR_DIAG_FROM`, `ASR_DIAG_SETS`: chẩn đoán một model trên các mẫu hỏng của lần chạy trước (mục 5c).
 - `ASR_EVAL_IDS`: file id để đo ASR, mặc định `val_seen`.
 - `RUN_IDS`: file danh sách id, mặc định là 30 mẫu smoke.
@@ -156,7 +158,7 @@ sh(
 # In thông tin môi trường mà LifeMate tự dò được.
 sh("python -c \"from pathlib import Path; from lifemate.core.envinfo import detect; print(detect(Path('.')))\"")
 # Danh sách id của các split bị git bỏ qua, nên dựng lại từ dữ liệu đã gắn (tất định, giống hệt file ở máy local).
-sh(f"python -m lifemate.eval.make_splits --root {data_root} --smoke 30 --asr-tune 300")
+sh(f"python -m lifemate.eval.make_splits --root {data_root} --smoke 30 --asr-tune 300 --en-mixed")
 # Chạy test offline (bỏ nhóm cần dữ liệu và tokenizer); test lỗi không dừng kịch bản.
 sh('python -m pytest -q -p no:cacheprovider -m "not data and not tokenizer"', check=False)
 
@@ -199,6 +201,8 @@ for model in sorted(tune_models, key=lambda m: LATE.get(m, 0)):
     # ASR_TUNE_PREFLIGHT=N: chỉ chạy thử mọi lựa chọn trên N mẫu (kernel CPU), không dò thật.
     pre = os.environ.get("ASR_TUNE_PREFLIGHT", "")
     extra = f" --preflight {pre}" if pre else ""
+    tune_args = os.environ.get("ASR_TUNE_ARGS", "").strip()
+    extra += f" {tune_args}" if tune_args else ""
     sh(
         f"python -m lifemate.eval.asr_tune --env kaggle --models {model} --out {WORK}/asr_tune/{model}{extra}",
         check=False,

@@ -29,6 +29,8 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, TypeVar
 
+from lifemate.core.paths import repo_path
+
 
 class ConfigError(ValueError):
     """Lỗi config: khoá bị thiếu, khoá không có trong dataclass, hoặc giá trị không hợp lệ."""
@@ -101,6 +103,11 @@ class ASRConfig:
         generate_kwargs: tham số giải mã truyền thẳng cho engine (beam, VAD...).
         sample_rate: tần số lấy mẫu audio, đơn vị Hz.
         sanitize: `True` thì lọc câu ảo giác bằng `lifemate.backends.asr_sanitizer`.
+        prompt_guard_ngram: lớp bảo vệ câu mồi (`lifemate.backends.asr_guard`); 0 là tắt, từ 2 trở lên là độ dài cụm
+            từ dùng để phát hiện chép lại câu mồi. Cần `generate_kwargs.initial_prompt`.
+        prompt_guard_max_compression: ngưỡng tỉ lệ nén của lớp bảo vệ; lớn hơn là câu lặp.
+        initial_prompt_file: file câu mồi (đường dẫn tính từ gốc repo, ví dụ `configs/asr_prompts/en_top10_v1.txt`);
+            `load_config` đọc file và đưa nội dung vào `generate_kwargs.initial_prompt`. Rỗng là không dùng.
     """
 
     backend: str
@@ -113,13 +120,29 @@ class ASRConfig:
     generate_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
     sample_rate: int = 16000
     sanitize: bool = False  # bỏ câu ảo giác kiểu phụ đề và đoạn lặp (`lifemate.backends.asr_sanitizer`)
+    prompt_guard_ngram: int = 0  # câu hỏng do câu mồi thì chép lại không câu mồi (`lifemate.backends.asr_guard`)
+    prompt_guard_max_compression: float = 2.4  # tỉ lệ nén zlib; như ngưỡng câu lặp của faster-whisper
+    initial_prompt_file: str = ""  # câu mồi có phiên bản trong configs/asr_prompts/, giống agent.system_prompt
 
 
 ASR_ENGINE_NAMES = frozenset({"faster_whisper", "hf_seq2seq", "chunkformer", "nemo_ctc"})
 ASR_DTYPES = frozenset({"auto", "float32", "float16", "bfloat16"})
 # Phải khớp với các trường có giá trị mặc định của `ASRConfig`; thiếu tên nào thì `_build` sẽ bắt buộc khoá đó
 # trong TOML.
-_ASR_OPTIONAL = frozenset({"engine", "device", "dtype", "batch_size", "generate_kwargs", "sample_rate", "sanitize"})
+_ASR_OPTIONAL = frozenset(
+    {
+        "engine",
+        "device",
+        "dtype",
+        "batch_size",
+        "generate_kwargs",
+        "sample_rate",
+        "sanitize",
+        "prompt_guard_ngram",
+        "prompt_guard_max_compression",
+        "initial_prompt_file",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,7 +323,29 @@ def load_config(path: Path, overrides: Sequence[str] = ()) -> Config:
     # Dataclass không ép kiểu theo annotation, nên kiểu của các trường số và bảng phải kiểm tra tay.
     _check(isinstance(asr.batch_size, int) and asr.batch_size >= 1, "asr.batch_size: must be an int >= 1")
     _check(isinstance(asr.generate_kwargs, dict), "asr.generate_kwargs: must be a table")
+    if asr.initial_prompt_file:
+        _check(
+            "initial_prompt" not in asr.generate_kwargs,
+            "asr.initial_prompt_file: set either it or asr.generate_kwargs.initial_prompt, not both",
+        )
+        prompt_path = repo_path(asr.initial_prompt_file)
+        _check(prompt_path.is_file(), f"asr.initial_prompt_file: {asr.initial_prompt_file} not found")
+        text = prompt_path.read_text(encoding="utf-8").strip()
+        _check(bool(text), f"asr.initial_prompt_file: {asr.initial_prompt_file} is empty")
+        asr = dataclasses.replace(asr, generate_kwargs={**asr.generate_kwargs, "initial_prompt": text})
     _check(isinstance(asr.sample_rate, int) and asr.sample_rate > 0, "asr.sample_rate: must be a positive int")
+    ngram = asr.prompt_guard_ngram
+    _check(
+        isinstance(ngram, int) and (ngram == 0 or ngram >= 2), "asr.prompt_guard_ngram: must be 0 (off) or an int >= 2"
+    )
+    _check(
+        isinstance(asr.prompt_guard_max_compression, int | float) and asr.prompt_guard_max_compression > 0,
+        "asr.prompt_guard_max_compression: must be a positive number",
+    )
+    _check(
+        not ngram or bool(asr.generate_kwargs.get("initial_prompt")),
+        "asr.prompt_guard_ngram: needs asr.generate_kwargs.initial_prompt",
+    )
     _check(
         isinstance(agent.guards, list) and all(isinstance(g, str) for g in agent.guards),
         "agent.guards: must be a list of str",

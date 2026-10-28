@@ -31,7 +31,7 @@ Cho một yêu cầu bằng giọng nói tiếng Việt, agent phải gọi đú
 | Agent v0 (`lifemate/`), CLI, hạ tầng đo | **Có, 27/10/2026**; đã chạy thật trên Kaggle T4 với hạn 29 s | 218 test pass (28/10); FakeLLM qua CLI được 100,00 (strict và canon) trên `val_seen`, `val_unseen`; `configs/fake.toml` chạy không cần model |
 | Chọn model | **Đã chọn** (mục 6.0, phụ lục E.5): Qwen3-4B-Instruct-2507; ASR whisper-large-v3 bản CTranslate2, không câu mồi (lịch sử ở `decisions.md` D17, D25, D30) | Qwen3, PhoWhisper và large-v3 đã chạy trên Kaggle T4 (`experiments.md`) |
 | vLLM thật | `VLLMBackend` viết theo API 0.32, **chỉ test với engine giả** (Q3) | |
-| ASR | `ASRTranscriber` + 4 engine (`faster_whisper` mặc định, `hf_seq2seq`, `chunkformer`, `nemo_ctc`), bộ lọc ảo giác `asr_sanitizer.py`, `eval_asr.py`, chọn cấu hình ASR `asr_tune.py` | large-v3 không câu mồi: WER 29,7%, bỏ sót thực thể 31% trên `val_seen` (ASR sweep v1, `experiments.md`); chưa có baseline agent hợp lệ với ASR thật |
+| ASR | `ASRTranscriber` + 4 engine (`faster_whisper` mặc định, `hf_seq2seq`, `chunkformer`, `nemo_ctc`), bộ lọc ảo giác `asr_sanitizer.py`, lớp bảo vệ câu mồi `asr_guard.py`, `eval_asr.py` (thêm chỉ số câu chêm tiếng Anh, `en_mixed.py`), chọn cấu hình ASR `asr_tune.py`, chấm lại offline `rescore_asr.py` | large-v3 không câu mồi: WER 29,7%, bỏ sót thực thể 31% trên `val_seen` (ASR sweep v1, `experiments.md`); chưa có baseline agent hợp lệ với ASR thật |
 | Docker | Dockerfile, entrypoint, `configs/docker.toml`, smoke script; **chưa build** | `docs/docker.md` |
 | Fine-tune | LLM train bằng ms-swift 4.6.0 (`swift_sft.py`, 28/10); dữ liệu trộn 70% chữ ASR, 3% mẫu phục hồi lỗi; template ms-swift đã so khớp với chat template trên 60 mẫu thật; `sft_data` và `asr_data` đã chạy trên dữ liệu thật; **train/merge chưa chạy** | Phụ lục E.5.2 ghi kế hoạch và thứ tự |
 | Môi trường | Profile local/kaggle/colab/rented/runpod/docker, notebook run và train, `ops/scripts/runpod_setup.sh` | Chỉ profile local đã chạy |
@@ -141,7 +141,8 @@ lifemate/                 # code, chia theo vai trò; mỗi gói 2–7 module
 ├── backends/             # model thật và giả, sau Protocol LLMBackend / Transcriber
 │   ├── llm.py            # A5: VLLMBackend, FakeLLM
 │   ├── asr.py            # A2: GoldTranscriber, ASRTranscriber, ASR_ENGINES (faster_whisper, hf_seq2seq, chunkformer, nemo_ctc)
-│   └── asr_sanitizer.py  # lọc câu ảo giác và vòng lặp của Whisper, kiểm tra giữ thực thể (theo team lead)
+│   ├── asr_sanitizer.py  # lọc câu ảo giác và vòng lặp của Whisper, kiểm tra giữ thực thể (theo team lead)
+│   └── asr_guard.py      # lớp bảo vệ câu mồi: phát hiện câu hỏng do initial_prompt để chép lại không câu mồi
 ├── io/                   # đọc dữ liệu thi, ghi kết quả
 │   ├── data.py           # A1: đọc <split>.jsonl thành Sample
 │   ├── zaic.py           # nạp zaic_tools đúng split, tạo ToolEnv (một lần mỗi mẫu)
@@ -157,15 +158,21 @@ lifemate/                 # code, chia theo vai trò; mỗi gói 2–7 module
 │   ├── score.py          # `python -m lifemate.eval.score` (mục 4.15)
 │   ├── make_splits.py    # sinh configs/splits/ (mục 3)
 │   ├── audit.py          # rà từng lời gọi của một lần chạy so với nhãn (theo team lead)
-│   └── eval_asr.py       # WER, CER, tỉ lệ nghe sai thực thể (6.4.2)
+│   ├── eval_asr.py       # WER, CER, tỉ lệ nghe sai thực thể, chỉ số câu chêm tiếng Anh (6.4.2)
+│   ├── en_mixed.py       # tìm từ tiếng Anh chêm trong câu tiếng Việt, xếp nhóm
+│   ├── asr_tune.py       # chọn mô hình và cấu hình ASR (D36, D40)
+│   ├── rescore_asr.py    # chấm lại hyps.jsonl đã có trên một tập con, không chạy model
+│   ├── asr_compare.py    # bảng so sánh nhiều hệ thống ASR từ hyps.jsonl, khoảng tin cậy bootstrap
+│   └── asr_merge.py      # ghép chữ RNNT với từ tiếng Anh của Whisper (thử offline)
 └── train/                # fine-tune: common, sft_data, sft, swift_sft (ms-swift), llm_pipeline, asr_cache, asr_data, asr, asr_pipeline (6.2, 6.4, 6.5)
 tests/                    # pytest, CPU; tests/train/ cho phần fine-tune
 configs/                  # mọi đầu vào cố định, có phiên bản
 ├── v0.toml  fake.toml  docker.toml
+├── asr_prompts/          # câu mồi ASR có phiên bản (asr.initial_prompt_file)
 ├── env/                  # local, kaggle, colab, rented, runpod, docker (4.16)
 ├── train/                # llm_v1.toml, asr_v1.toml
 ├── prompts/              # system_v0.md, system_v1.md (đang dùng)
-└── splits/               # KHÔNG vào git: train, val_seen, val_unseen, smoke (.txt), folds/, meta.json; `make splits`
+└── splits/               # KHÔNG vào git: train, val_seen, val_unseen, smoke, asr_tune, *_en_mixed (.txt), folds/, meta.json; `make splits`
 docs/                     # SPEC, decisions, experiments, rationale, overview, eda, CONTRIBUTING, docker, runpod, diagrams/ (png + src); slides/ không vào git
 ops/                      # vận hành: không có logic, chỉ gọi lifemate
 ├── docker/               # Dockerfile, Dockerfile.dockerignore, entrypoint.sh, smoke.sh (6.3)
@@ -895,6 +902,8 @@ Mỗi test ghi rõ ba ý: **bảo vệ** điều gì, **bắt lỗi** khi nào, 
   2. **Không** gom file của nhiều mẫu khác nhau, **không** chạy ASR trước cho cả split rồi mới chạy agent. Mỗi mẫu đi trọn ASR → agent → ghi kết quả rồi mới sang mẫu sau (quyết định S5).
   3. Giải mã tất định (`temperature = 0`), cố định seed. Bản large-v3 dùng beam 5 theo team lead (`generate_kwargs` trong `configs/v0.toml`); cần đo thời gian trên T4.
   3a. **Lọc ảo giác** (`sanitize = true`): cắt câu kiểu phụ đề YouTube và vòng lặp từ; lượt lịch sử chỉ toàn ảo giác thành chuỗi rỗng. Chữ số chỉ bị gộp khi lặp từ 8 lần để giữ số điện thoại. Kiểm tra trên 5036 câu `audio_text`: không câu nào bị đổi.
+  3a'. **Câu mồi** (`initial_prompt`): khai trong `asr.initial_prompt_file` (file có phiên bản trong `configs/asr_prompts/`, đường dẫn tính từ gốc repo, giống `agent.system_prompt`); `load_config` đọc file vào `generate_kwargs.initial_prompt`. Không khai cả hai cùng lúc.
+  3b. **Bảo vệ câu mồi** (`prompt_guard_ngram`, mặc định 0 = tắt; chỉ engine Whisper, cần `initial_prompt`): câu chép với câu mồi bị coi là hỏng khi rỗng sau lọc, bộ lọc ảo giác có cắt, chứa cụm `prompt_guard_ngram` từ liên tiếp của câu mồi, hoặc tỉ lệ nén zlib lớn hơn `prompt_guard_max_compression` (2,4). Câu hỏng được chép lại không câu mồi (`lifemate/backends/asr_guard.py`). Vẫn tất định.
   4. Chỉ khi đo thấy ASR quá chậm mới tính đến việc bỏ bớt các lượt user cũ. Khi đó vẫn giữ `text` và `tool_calls` của các lượt assistant để giữ ngữ cảnh.
 - **Đo trước khi chọn model ASR:** chạy trên 3 mẫu có tổng audio dài nhất của train và public, ghi thời gian ASR và tổng thời gian mỗi mẫu. Trên GPU sm80+, tổng thời gian mỗi mẫu phải ≤ 25 s.
 - **Normalizer (A3): không làm (quyết định 27/10/2026).** Đo trên Kaggle (30 mẫu smoke): `audio_text` của BTC viết số bằng chữ số ("8 giờ kém 15", "30 phần trăm", "126 triệu"), còn PhoWhisper viết bằng chữ ("tám giờ kém mười lăm", "ba mươi phần trăm"). BTC không chấm chữ ASR, chỉ chấm tool call và trạng thái cuối, nên **giữ nguyên chữ ASR nghe ra** và cho LLM học trên chính chữ đó (LLM v2, `transcript_source = "asr"`, mục 6.2.1). LLM tự đổi số theo quy tắc trong system prompt. Không đổi chữ ASR về dạng `audio_text` trước khi đưa vào LLM.
@@ -1077,6 +1086,7 @@ Chỉ đánh giá bằng agent thật trên 2 checkpoint, để hạn chế vi�
 | WER, CER | Trên chữ đã chuẩn hóa: chữ thường, NFC, bỏ token không biết (`⁇`, `<unk>`) và dấu câu. Câu chỉ có token không biết vì vậy là câu rỗng | Chỉ số chung |
 | **Tỉ lệ nghe sai thực thể** | Lấy các giá trị tham số chuỗi và số trong `label.tool_calls` mà **có xuất hiện** trong `audio_text`, ví dụ tên người, địa điểm, số tiền. Đếm tỉ lệ không xuất hiện trong chữ ASR, sau khi bỏ dấu và chữ hoa (dùng cùng cách chuẩn hóa `_fold` của `zaic_tools`) | Đây là lỗi làm sai tham số tool, ảnh hưởng điểm trực tiếp |
 | Điểm agent mất do ASR | Điểm khi dùng `GoldTranscriber` trừ điểm khi dùng ASR, cùng LLM và prompt | Quyết định có cần fine-tune hay không |
+| Câu chêm tiếng Anh | Từ ngoại trong `audio_text` tìm bằng quy tắc (`lifemate/eval/en_mixed.py`: không dấu và không ghép được âm tiết Việt, hoặc viết hoa toàn bộ; nhóm từ thường, viết tắt, tên, từ mượn). `en_mixed_wer`: WER trên các câu có từ ngoại. `en_word_recall`: tỉ lệ từ ngoại có trong chữ ASR sau khi gập, theo nhóm và theo có/không trong câu mồi. `prompt_insertions`: từ ngoại của câu mồi xuất hiện trong chữ ASR mà đáp án không có | Benchmark ASR lần 2 (D40) |
 | Thời gian | p50, p95, max thời gian ASR mỗi mẫu | Giới hạn 30 giây |
 
 #### 6.4.3. Script train (`lifemate/train/asr.py`)

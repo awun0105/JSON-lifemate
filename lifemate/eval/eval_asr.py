@@ -22,6 +22,15 @@ Cách hoạt động:
 - `terms`: với mỗi tên riêng trong `TERMS`, cặp [số câu đáp án có tên đó, số câu ASR cũng viết ra tên đó].
 - `n_unk`: số câu mà chữ ASR chỉ gồm ký hiệu token không biết (`⁇` hoặc `<unk>`). Đây là lỗi của model hoặc
   engine (ví dụ đầu ra NaN), không phải lỗi nghe, nên được đếm riêng dù cũng nằm trong `n_empty`.
+- Từ tiếng Anh chêm trong câu (`lifemate.eval.en_mixed`), tính trên các câu có ít nhất một từ ngoại trong đáp án:
+  `en_utterances` (số câu), `en_mixed_wer` (WER trên các câu đó), `en_word_recall` (tỉ lệ từ ngoại của đáp án có mặt
+  trong chữ ASR, so sau khi gập, đếm theo số lần xuất hiện), `en_word_recall_lenient` (chấp nhận "TV" cho "tivi",
+  "Minh Mart" cho "MinhMart"…), `en_groups` (nhóm -> [số từ, số từ chép đúng]), `en_prompt` ("in"/"out" ->
+  [số từ, số từ chép đúng], tách theo từ có hay không có trong câu mồi). `vi_only_wer`: WER trên các câu còn lại
+  (không có từ ngoại), để biết câu mồi tiếng Anh có làm hại câu thuần Việt không.
+- `prompt_insertions`: số lần một từ ngoại của câu mồi có trong chữ ASR mà không có trong đáp án của câu đó (đếm mỗi
+  từ một lần mỗi câu), trên mọi câu. Đo việc câu mồi làm model viết ra từ không được nói.
+- `n_prompt_retries`: số câu lớp bảo vệ câu mồi đã chép lại không câu mồi (`ASRTranscriber.n_prompt_retries`).
 - `--set mục.khoá=giá_trị`: ghi đè config từ dòng lệnh (ví dụ `--set asr.dtype=float32`), dùng để chẩn đoán.
 """
 
@@ -39,6 +48,7 @@ from typing import Any
 
 from lifemate.core.paths import REPO_ROOT, repo_path
 from lifemate.core.types import Sample, Transcriber, Transcript
+from lifemate.eval.en_mixed import GROUPS, english_words, hits, letter_words
 
 _PUNCT = re.compile(r"[^\w\s]|_")
 
@@ -285,6 +295,17 @@ class AsrReport:
         n_hallucinated: số câu mà chữ trước khi lọc khớp mẫu phụ đề bịa.
         terms: tên riêng tới [số câu đáp án có tên đó, số câu ASR viết đúng].
         n_unk: số câu mà chữ ASR chỉ gồm token không biết (cũng được đếm trong `n_empty`).
+        en_utterances: số câu có từ ngoại trong đáp án.
+        en_mixed_wer: WER trên các câu có từ ngoại.
+        en_words: số từ ngoại trong đáp án (đếm lặp).
+        en_words_hit: số từ ngoại có mặt trong chữ ASR.
+        en_word_recall: `en_words_hit / en_words`; mỗi từ được tính đúng tối đa bằng số lần nó có trong chữ ASR.
+        en_word_recall_lenient: như trên nhưng chấp nhận cách viết tương đương.
+        vi_only_wer: WER trên các câu không có từ ngoại.
+        en_groups: nhóm từ ngoại -> [số từ, số từ chép đúng].
+        en_prompt: "in"/"out" -> [số từ, số từ chép đúng], theo từ có hay không có trong câu mồi.
+        prompt_insertions: số lần từ ngoại của câu mồi xuất hiện trong chữ ASR mà đáp án không có.
+        n_prompt_retries: số câu lớp bảo vệ câu mồi đã chép lại.
     """
 
     n_samples: int
@@ -303,6 +324,17 @@ class AsrReport:
     n_hallucinated: int = 0  # câu mà chữ trước khi lọc khớp mẫu phụ đề bịa (chỉ đếm khi transcript có `raw`)
     terms: dict[str, list[int]] = field(default_factory=dict)  # tên -> [số câu đáp án có tên, số câu ASR viết đúng]
     n_unk: int = 0  # câu mà chữ ASR chỉ gồm token không biết (`⁇`): lỗi model/engine, cũng nằm trong n_empty
+    en_utterances: int = 0
+    en_mixed_wer: float = 0.0
+    en_words: int = 0
+    en_words_hit: int = 0
+    en_word_recall: float = 0.0
+    en_word_recall_lenient: float = 0.0  # chấp nhận cách viết tương đương (`en_mixed.EQUIVALENTS`, tên ghép bị tách)
+    vi_only_wer: float = 0.0  # WER trên các câu không có từ ngoại: câu mồi có làm hại câu thuần Việt không
+    en_groups: dict[str, list[int]] = field(default_factory=dict)  # nhóm -> [số từ, số từ chép đúng]
+    en_prompt: dict[str, list[int]] = field(default_factory=dict)  # "in"/"out" câu mồi -> [số từ, số từ chép đúng]
+    prompt_insertions: int = 0
+    n_prompt_retries: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         """Chuyển thành dict để ghi JSON; phần chi tiết thực thể chỉ gồm các mẫu có thực thể bị bỏ sót."""
@@ -320,12 +352,19 @@ class AsrReport:
             f"samples={self.n_samples} utterances={self.n_utterances} empty={self.n_empty} unk_only={self.n_unk}\n"
             f"WER={self.wer:.4f} WER_nonum={self.wer_nonum:.4f} CER={self.cer:.4f} hallucinated={self.n_hallucinated}\n"
             f"entity_miss_rate={self.entity_miss_rate:.4f} ({self.entity_missed}/{self.entity_total})\n"
+            f"en_utterances={self.en_utterances} en_mixed_WER={self.en_mixed_wer:.4f} "
+            f"en_word_recall={self.en_word_recall:.4f} ({self.en_words_hit}/{self.en_words}) "
+            f"lenient={self.en_word_recall_lenient:.4f} vi_only_WER={self.vi_only_wer:.4f} "
+            f"prompt_insertions={self.prompt_insertions} prompt_retries={self.n_prompt_retries}\n"
             f"seconds p50={self.p50_s:.3f} p95={self.p95_s:.3f} max={self.max_s:.3f}"
         )
 
 
 def evaluate(
-    samples: Sequence[Sample], transcriber: Transcriber, hyps: list[dict[str, Any]] | None = None
+    samples: Sequence[Sample],
+    transcriber: Transcriber,
+    hyps: list[dict[str, Any]] | None = None,
+    prompt: str = "",
 ) -> AsrReport:
     """Chép lời mọi mẫu rồi tính WER/CER trên cả kho, gồm câu cuối và các lượt user trong lịch sử.
 
@@ -337,6 +376,8 @@ def evaluate(
         transcriber: transcriber cần đo.
         hyps: nếu truyền vào, mỗi câu được thêm vào list này dạng `{"id", "turn", "ref", "hyp"}` (`turn` là "final"
             hoặc chỉ số lượt trong lịch sử), để soi lỗi từng câu.
+        prompt: câu mồi của config (`initial_prompt`), để tách từ ngoại có/không có trong câu mồi và đếm
+            `prompt_insertions`; rỗng khi không có câu mồi.
 
     Trả về:
         `AsrReport` của tập mẫu.
@@ -347,6 +388,13 @@ def evaluate(
     transcripts = [transcriber.transcribe(s) for s in samples]
     w_err = w_n = c_err = c_n = n_utt = n_empty = nn_err = nn_n = n_hall = n_unk = 0
     terms = {name: [0, 0] for name in TERMS}
+    # Từ ngoại: từ viết hoa đứng đầu câu được xếp nhóm nhờ các từ viết thường gặp ở bất kỳ đáp án nào trong tập.
+    refs = [x for s in samples for x in [s.audio_text, *(h.audio_text for h in s.history)] if x]
+    lowercase_seen = {w.folded for x in refs for w in english_words(x) if w.text.islower()}
+    prompt_words = {w.folded for w in english_words(prompt, lowercase_seen)}
+    en_utt = en_err = en_n = en_tot = en_hit = en_hit_lenient = ins = vi_err = vi_n = 0
+    groups = {g: [0, 0] for g in GROUPS}
+    by_prompt = {"in": [0, 0], "out": [0, 0]}
     for s, t in zip(samples, transcripts, strict=True):
         # Ghép (tham chiếu, giả thuyết, chữ trước khi lọc) cho mọi câu có cả hai phía. `raw` theo thứ tự file: các lượt
         # user trong lịch sử trước, lượt cuối sau. Vì vậy `k` chỉ tăng ở lượt user.
@@ -388,6 +436,27 @@ def evaluate(
                 if re.search(pat, fr):
                     terms[name][0] += 1
                     terms[name][1] += int(bool(re.search(pat, fh)))
+            hw, rw = letter_words(hyp), letter_words(ref)
+            ins += len((prompt_words & hw) - rw)
+            en = english_words(ref, lowercase_seen)
+            if not en:
+                vi_err += _edit_distance(r.split(), h.split())
+                vi_n += len(r.split())
+            else:
+                en_utt += 1
+                en_err += _edit_distance(r.split(), h.split())
+                en_n += len(r.split())
+                strict, loose = hits(en, hyp), hits(en, hyp, lenient=True)
+                en_hit_lenient += sum(loose)
+                for w, ok in zip(en, strict, strict=True):
+                    hit = int(ok)
+                    en_tot += 1
+                    en_hit += hit
+                    groups[w.group][0] += 1
+                    groups[w.group][1] += hit
+                    side = by_prompt["in" if w.folded in prompt_words else "out"]
+                    side[0] += 1
+                    side[1] += hit
     missed, total, rate, details = entity_miss_rate(samples, transcripts)
     secs = [t.seconds for t in transcripts]
     return AsrReport(
@@ -407,6 +476,17 @@ def evaluate(
         n_hallucinated=n_hall,
         terms={k: v for k, v in terms.items() if v[0]},
         n_unk=n_unk,
+        en_utterances=en_utt,
+        en_mixed_wer=_rate(en_err, en_n),
+        en_words=en_tot,
+        en_words_hit=en_hit,
+        en_word_recall=_rate(en_hit, en_tot),
+        en_word_recall_lenient=_rate(en_hit_lenient, en_tot),
+        vi_only_wer=_rate(vi_err, vi_n),
+        en_groups={g: v for g, v in groups.items() if v[0]},
+        en_prompt=by_prompt if prompt_words else {},
+        prompt_insertions=ins,
+        n_prompt_retries=int(getattr(transcriber, "n_prompt_retries", 0)),
     )
 
 
@@ -451,7 +531,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         transcriber = ASRTranscriber(cfg.asr, data_root=root, split=args.split)
     hyps: list[dict[str, Any]] | None = [] if args.hyps is not None else None
-    report = evaluate(samples, transcriber, hyps)
+    report = evaluate(samples, transcriber, hyps, prompt=str(cfg.asr.generate_kwargs.get("initial_prompt") or ""))
     if args.hyps is not None and hyps is not None:
         args.hyps.parent.mkdir(parents=True, exist_ok=True)
         args.hyps.write_text("".join(json.dumps(h, ensure_ascii=False) + "\n" for h in hyps), encoding="utf-8")

@@ -176,3 +176,45 @@ def test_unk_only_counted_and_bad_ids() -> None:
     ]
     assert bad_ids(rows) == ["a"]
     assert bad_ids(rows, "empty") == ["a", "b"]
+
+
+def test_evaluate_english_metrics() -> None:
+    """Chỉ số tiếng Anh: chỉ câu có từ ngoại mới vào `en_mixed_wer`; recall theo nhóm và theo có/không trong câu mồi;
+    từ của câu mồi bị viết ra mà không được nói thì đếm vào `prompt_insertions`.
+    """
+    samples = [
+        _sample("s1", "Check mail rồi nhắn Zalo nha", []),
+        _sample("s2", "Bật đèn phòng khách", []),
+        _sample("s3", "Giá vàng SJC hôm nay", []),
+    ]
+    asr = _Fixed({"s1": "chắc mail rồi nhắn zalo nha", "s2": "bật đèn phòng khách zalo", "s3": "giá vàng sgc hôm nay"})
+    rep = evaluate(samples, asr, prompt="Nhắn Zalo cho Lan.")
+    assert rep.en_utterances == 2
+    # s1: 1 lỗi / 6 từ; s3: 1 lỗi / 5 từ. Câu s2 không có từ ngoại nên không tính.
+    assert rep.en_mixed_wer == pytest.approx(2 / 11)
+    assert (rep.en_words, rep.en_words_hit) == (4, 2) and rep.en_word_recall == 0.5
+    # "Check" đứng đầu câu và không gặp viết thường ở đâu trong tập nên xếp nhóm tên.
+    assert rep.en_groups == {"common": [1, 1], "name": [2, 1], "acronym": [1, 0]}
+    assert rep.en_prompt == {"in": [1, 1], "out": [3, 1]}
+    assert rep.prompt_insertions == 1  # "zalo" ở s2
+    assert rep.n_prompt_retries == 0
+    assert evaluate(samples, asr).en_prompt == {}
+
+
+def test_rescore_replay_matches_hyps() -> None:
+    """`ReplayTranscriber` dựng lại transcript từ `hyps`: chấm lại cho cùng số với lần chấm gốc."""
+    from lifemate.eval.rescore_asr import ReplayTranscriber
+
+    hist = (Turn(role="user", audio=None, audio_text="Check mail", text=None, tool_calls=(), tool_results=()),)
+    samples = [_sample("s1", "Nhắn Zalo cho Lan", [], history=hist), _sample("s2", "Giá vàng SJC", [])]
+    hyps: list[dict[str, Any]] = []
+    asr = _Fixed({"s1": "nhắn dalo cho lan", "s2": "giá vàng sjc"})
+    first = evaluate(samples, GoldTranscriber(), hyps)
+    hyps = [
+        {**h, "hyp": asr.transcribe(next(s for s in samples if s.id == h["id"])).final} if h["turn"] == "final" else h
+        for h in hyps
+    ]
+    again = evaluate(samples, ReplayTranscriber(hyps))
+    # Check, mail, Zalo, SJC; chỉ "Zalo" bị chép sai thành "dalo".
+    assert first.en_words == again.en_words == 4
+    assert again.en_words_hit == 3 and again.n_utterances == 3
