@@ -31,23 +31,25 @@ from typing import Any
 
 from lifemate.core.paths import REPO_ROOT, repo_path
 from lifemate.core.types import Sample
-from lifemate.eval.eval_asr import AsrReport, evaluate
+from lifemate.eval.eval_asr import evaluate
 from lifemate.eval.rescore_asr import ReplayTranscriber
 
-METRICS = (
-    "wer",
-    "wer_nonum",
-    "en_mixed_wer",
-    "vi_only_wer",
-    "en_word_recall",
-    "en_word_recall_lenient",
-    "entity_miss_rate",
-)
+# Chỉ số -> (tử số, mẫu số) trong `AsrReport.counts`.
+METRICS: dict[str, tuple[str, str]] = {
+    "wer": ("wer_err", "wer_n"),
+    "wer_nonum": ("nonum_err", "nonum_n"),
+    "en_mixed_wer": ("en_err", "en_n"),
+    "vi_only_wer": ("vi_err", "vi_n"),
+    "en_word_recall": ("en_hit", "en_words"),
+    "en_word_recall_lenient": ("en_hit_lenient", "en_words"),
+    "entity_miss_rate": ("entity_missed", "entity_total"),
+}
 
 
-def _score(samples: Sequence[Sample], rows: Sequence[Mapping[str, Any]], prompt: str) -> AsrReport:
-    """Chấm một hệ thống trên `samples` từ các dòng `hyps.jsonl` đã có."""
-    return evaluate(samples, ReplayTranscriber(rows), prompt=prompt)
+def _rate(counts: Mapping[str, int], metric: str) -> float:
+    """Tính một chỉ số từ tử số và mẫu số đã cộng dồn; mẫu số 0 cho 0.0."""
+    num, den = METRICS[metric]
+    return counts[num] / counts[den] if counts[den] else 0.0
 
 
 def _ci(values: list[float]) -> list[float]:
@@ -59,10 +61,13 @@ def _ci(values: list[float]) -> list[float]:
 def compare(
     samples: Sequence[Sample],
     systems: Mapping[str, tuple[Sequence[Mapping[str, Any]], str]],
-    rounds: int = 200,
+    rounds: int = 1000,
     seed: int = 0,
 ) -> dict[str, Any]:
     """Chấm mọi hệ thống và bootstrap có ghép cặp.
+
+    Mỗi mẫu được chấm riêng một lần để lấy tử số và mẫu số (`AsrReport.counts`); mỗi vòng bootstrap chỉ cộng các số
+    đó, nên kết quả giống hệt chấm lại cả tập mà nhanh hơn nhiều.
 
     Tham số:
         samples: các mẫu của tập so sánh.
@@ -75,15 +80,20 @@ def compare(
         `diff_ci` là khoảng tin cậy của (hệ thống này - hệ thống mốc).
     """
     names = list(systems)
-    full = {n: _score(samples, *systems[n]).to_dict() for n in names}
+    full = {n: evaluate(samples, ReplayTranscriber(systems[n][0]), prompt=systems[n][1]).to_dict() for n in names}
+    per = {
+        n: [evaluate([s], ReplayTranscriber(systems[n][0]), prompt=systems[n][1]).counts for s in samples]
+        for n in names
+    }
+    keys = sorted({k for pair in METRICS.values() for k in pair})
     rng = random.Random(seed)
     boot: dict[str, dict[str, list[float]]] = {n: {m: [] for m in METRICS} for n in names}
     for _ in range(rounds):
-        pick = [samples[rng.randrange(len(samples))] for _ in samples]
+        pick = [rng.randrange(len(samples)) for _ in samples]
         for n in names:
-            rep = _score(pick, *systems[n])
+            tot = {k: sum(per[n][i][k] for i in pick) for k in keys}
             for m in METRICS:
-                boot[n][m].append(float(getattr(rep, m)))
+                boot[n][m].append(_rate(tot, m))
     out: dict[str, Any] = {}
     for n in names:
         base = boot[names[0]]
@@ -116,7 +126,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--split", default="train")
     ap.add_argument("--ids", type=Path, required=True)
     ap.add_argument("--system", action="append", required=True, metavar="NAME=HYPS[:CONFIG]")
-    ap.add_argument("--rounds", type=int, default=200)
+    ap.add_argument("--rounds", type=int, default=1000)
     ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args(argv)
     profile = load_profile(args.env, REPO_ROOT).with_overrides(root=args.root)

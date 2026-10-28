@@ -306,6 +306,8 @@ class AsrReport:
         en_prompt: "in"/"out" -> [số từ, số từ chép đúng], theo từ có hay không có trong câu mồi.
         prompt_insertions: số lần từ ngoại của câu mồi xuất hiện trong chữ ASR mà đáp án không có.
         n_prompt_retries: số câu lớp bảo vệ câu mồi đã chép lại.
+        counts: tử số và mẫu số của các tỉ lệ (`wer_err`, `wer_n`, `nonum_err`, `nonum_n`, `en_err`, `en_n`, `vi_err`,
+            `vi_n`, `en_words`, `en_hit`, `en_hit_lenient`, `entity_missed`, `entity_total`).
     """
 
     n_samples: int
@@ -335,6 +337,8 @@ class AsrReport:
     en_prompt: dict[str, list[int]] = field(default_factory=dict)  # "in"/"out" câu mồi -> [số từ, số từ chép đúng]
     prompt_insertions: int = 0
     n_prompt_retries: int = 0
+    # Tử số và mẫu số của các tỉ lệ, để cộng dồn qua nhiều tập con (bootstrap ở `asr_compare`).
+    counts: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Chuyển thành dict để ghi JSON; phần chi tiết thực thể chỉ gồm các mẫu có thực thể bị bỏ sót."""
@@ -487,6 +491,21 @@ def evaluate(
         en_prompt=by_prompt if prompt_words else {},
         prompt_insertions=ins,
         n_prompt_retries=int(getattr(transcriber, "n_prompt_retries", 0)),
+        counts={
+            "wer_err": w_err,
+            "wer_n": w_n,
+            "nonum_err": nn_err,
+            "nonum_n": nn_n,
+            "en_err": en_err,
+            "en_n": en_n,
+            "vi_err": vi_err,
+            "vi_n": vi_n,
+            "en_words": en_tot,
+            "en_hit": en_hit,
+            "en_hit_lenient": en_hit_lenient,
+            "entity_missed": missed,
+            "entity_total": total,
+        },
     )
 
 

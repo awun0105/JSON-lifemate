@@ -218,3 +218,22 @@ def test_rescore_replay_matches_hyps() -> None:
     # Check, mail, Zalo, SJC; chỉ "Zalo" bị chép sai thành "dalo".
     assert first.en_words == again.en_words == 4
     assert again.en_words_hit == 3 and again.n_utterances == 3
+
+
+def test_compare_counts_add_up_and_ci_contains_value() -> None:
+    """Tử số và mẫu số chấm theo từng mẫu cộng lại bằng số của cả tập; khoảng tin cậy chứa giá trị đo được, và chênh lệch
+    của hệ thống mốc với chính nó là 0.
+    """
+    from lifemate.eval.asr_compare import compare
+
+    samples = [_sample(f"s{i}", t, []) for i, t in enumerate(["Check mail nha", "Bật đèn", "Giá vàng SJC", "Book xe"])]
+    asr = _Fixed({"s0": "chắc mail nha", "s1": "bật đèn", "s2": "giá vàng sjc", "s3": "búc xe"})
+    hyps: list[dict[str, Any]] = []
+    evaluate(samples, asr, hyps)
+    full = evaluate(samples, asr)
+    res = compare(samples, {"a": (hyps, ""), "b": (hyps, "")}, rounds=50)
+    assert res["a"]["report"]["wer"] == pytest.approx(full.wer)
+    assert res["a"]["report"]["en_word_recall"] == pytest.approx(full.en_word_recall)
+    lo, hi = res["a"]["ci"]["en_word_recall"]
+    assert lo <= full.en_word_recall <= hi
+    assert res["b"]["diff_ci"]["wer"] == [0.0, 0.0]
