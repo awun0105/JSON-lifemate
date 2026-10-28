@@ -156,24 +156,17 @@ if flag("RUN_ASR_EVAL"):
 # 5a. Chọn mô hình và cấu hình ASR công bằng (lifemate/eval/asr_tune.py): dò từng bước trên asr_tune.txt, cùng hàm
 # mục tiêu cho mọi mô hình, rồi đo cấu hình thắng một lần trên val_seen và val_unseen.
 # Mỗi mô hình một lệnh. ChunkFormer và Parakeet đo sau cùng, thư viện riêng của chúng cài ngay trước khi đo:
-# chunkformer cần torchaudio (cài bản khớp torch hiện tại, vì bản có sẵn trên Kaggle làm hỏng transformers), NeMo
-# kéo theo nhiều thư viện và có thể đổi phiên bản torch. Cài lỗi thì chỉ mô hình đó hỏng, các mô hình trước đã xong.
+# chunkformer kéo theo torchaudio (bản có sẵn trên Kaggle làm hỏng transformers), NeMo hạ transformers xuống 4.x.
+# Cài lỗi thì chỉ mô hình đó hỏng, các mô hình trước đã đo xong.
 tune_models = [m.strip() for m in os.environ.get("ASR_TUNE", "").split(",") if m.strip()]
 LATE = {"chunkformer": 1, "chunkformer-rnnt": 1, "parakeet": 2}
 installed: set[str] = set()
 for model in sorted(tune_models, key=lambda m: LATE.get(m, 0)):
     if model.startswith("chunkformer") and "chunkformer" not in installed:
         installed.add("chunkformer")
-        sh(
-            "TV=$(python -c \"import torch; print(torch.__version__.split('+')[0])\"); "
-            "CU=$(python -c \"import torch; print('cu' + torch.version.cuda.replace('.', ''))\"); "
-            'pip install -q "torchaudio==$TV" --index-url "https://download.pytorch.org/whl/$CU"',
-            check=False,
-        )
-        sh('pip install -q "chunkformer==1.2.2"', check=False)
+        sh('pip install -q "chunkformer==1.2.2"', check=False)  # tự cài torchaudio hợp với torch đang có
     if model == "parakeet":
         sh('pip install -q "nemo_toolkit[asr]==2.6.2"', check=False)
-        sh("pip install -q flashlight-text", check=False)  # cho lựa chọn lm (beam + KenLM); thiếu thì chỉ lm lỗi
     # ASR_TUNE_PREFLIGHT=N: chỉ chạy thử mọi lựa chọn trên N mẫu (kernel CPU), không dò thật.
     pre = os.environ.get("ASR_TUNE_PREFLIGHT", "")
     extra = f" --preflight {pre}" if pre else ""

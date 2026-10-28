@@ -29,11 +29,10 @@ def test_objective_and_supported() -> None:
     assert not asr_tune.supported("hf_seq2seq", {"hotwords": "x"})
     assert not asr_tune.supported("hf_seq2seq", {"temperature": [0.0, 0.2]})
     assert asr_tune.supported("faster_whisper", {"vad_filter": True})
-    assert not asr_tune.supported("faster_whisper", {"lm": True})
-    assert asr_tune.supported("nemo_ctc", {"lm": True}) and asr_tune.supported("nemo_ctc", {"beam_size": 1})
+    assert asr_tune.supported("nemo_ctc", {"beam_size": 1})
     assert not asr_tune.supported("nemo_ctc", {"beam_size": 5})
     assert not asr_tune.supported("nemo_ctc", {"initial_prompt": "x"})
-    assert asr_tune.supported("chunkformer", {}) and not asr_tune.supported("chunkformer", {"lm": True})
+    assert asr_tune.supported("chunkformer", {}) and not asr_tune.supported("chunkformer", {"vad_filter": True})
 
 
 def test_tune_picks_per_stage_and_reuses_runs(tmp_path: Path, repo_root: Path) -> None:
@@ -59,14 +58,12 @@ def test_tune_picks_per_stage_and_reuses_runs(tmp_path: Path, repo_root: Path) -
     assert len(calls) == 5
     v3 = asr_tune.tune("large-v3", base, "ids.txt", tmp_path / "v3", runner, 6.0)
     assert {r["option"] for r in v3["runs"]} >= {"hotwords", "vad", "temp_fallback"}
-    assert "lm" not in {r["option"] for r in v3["runs"]}
     pk = asr_tune.tune("parakeet", base, "ids.txt", tmp_path / "pk", runner, 6.0)
     assert {(r["stage"], r["option"]) for r in pk["runs"]} == {
         ("decode", "greedy"),
         ("prompt", "none"),
         ("antirepeat", "off"),
         ("engine", "none"),
-        ("engine", "lm"),
     }
     a = tomllib.loads(calls[0].read_text(encoding="utf-8"))["asr"]
     b = tomllib.loads((tmp_path / "v3" / "large-v3__decode_greedy.toml").read_text(encoding="utf-8"))["asr"]
@@ -84,11 +81,14 @@ def test_preflight_runs_each_supported_option_once(tmp_path: Path, repo_root: Pa
     seen_ids: list[str] = []
 
     def runner(cfg: Path, ids_file: str, out: Path, hyps: Path) -> dict[str, Any] | None:
-        """Lựa chọn lm lỗi (giả lập thiếu flashlight-text), còn lại thành công."""
+        """Beam 5 lỗi (giả lập), còn lại thành công."""
         seen_ids.append(Path(ids_file).read_text(encoding="utf-8"))
         gk = tomllib.loads(cfg.read_text(encoding="utf-8"))["asr"]["generate_kwargs"]
-        return None if gk.get("lm") else _report(0.3)
+        return None if gk["beam_size"] == 5 else _report(0.3)
 
-    rows = asr_tune.preflight("parakeet", base, str(ids), 2, tmp_path / "pk", runner)
-    assert {(r["option"], r["ok"]) for r in rows} == {("greedy", True), ("none", True), ("off", True), ("lm", False)}
-    assert len(seen_ids) == 2 and seen_ids[0] == "a\nb\n"
+    rows = asr_tune.preflight("phowhisper", base, str(ids), 2, tmp_path / "pho", runner)
+    assert [r for r in rows if not r["ok"]] == [
+        {"model": "phowhisper", "stage": "decode", "option": "beam5", "ok": False}
+    ]
+    # greedy (dùng chung cho mọi lựa chọn "giữ nguyên"), beam5, lead, short, antirepeat on: 5 lần đo.
+    assert len(seen_ids) == 5 and seen_ids[0] == "a\nb\n"

@@ -77,7 +77,7 @@ cần BTC xác nhận trước khi dùng để nộp bài.
 | 1. Giải mã | tham lam (beam 1), beam 5 | Beam xem nhiều phương án hơn nhưng chậm hơn và dễ chọn câu thuộc lòng có xác suất cao |
 | 2. Câu mồi | không; câu của lead; câu ngắn giống lời nói ("Nhắn Zalo cho Lan. Chuyển sang kênh VTV3."); `hotwords` | Câu mồi giúp viết đúng tên riêng nhưng có thể gây bịa; sweep v2 cho thấy câu ngắn viết đúng Zalo nhiều hơn |
 | 3. Chống lặp | tắt; `repetition_penalty = 1.2` + `no_repeat_ngram_size = 3` | Cấu hình của lead; có thể làm sai âm tiết lặp hợp lệ trong tiếng Việt |
-| 4. Riêng engine | không; VAD (cắt khoảng lặng ≥ 500 ms); nhiệt độ thử lại `[0; 0,2; …; 1]`; beam + KenLM | Chỉ engine có tính năng đó mới thử |
+| 4. Riêng engine | không; VAD (cắt khoảng lặng ≥ 500 ms); nhiệt độ thử lại `[0; 0,2; …; 1]` | Chỉ engine có tính năng đó mới thử |
 
 **Lựa chọn mỗi mô hình được thử, và lý do:**
 
@@ -87,7 +87,7 @@ cần BTC xác nhận trước khi dùng để nộp bài.
 | PhoWhisper | tham lam, beam 5 | không, lead, ngắn | tắt, bật | không | transformers có beam, câu mồi (`prompt_ids`), chống lặp; không có VAD, `hotwords`. Nhiệt độ thử lại của transformers cần thêm ngưỡng riêng nên không thử, để giống cách tính của faster-whisper |
 | ChunkFormer CTC | tham lam | không | tắt | không | Gói `chunkformer` chỉ giải mã tham lam; mô hình CTC không có câu mồi hay chống lặp |
 | ChunkFormer RNNT | tham lam | không | tắt | không | Như trên (cùng gói) |
-| Parakeet CTC | tham lam | không | tắt | không, beam + KenLM | CTC tham lam, hoặc beam 64 với mô hình ngôn ngữ KenLM 4-gram và lexicon đi kèm repo (`alpha = 0,3`, `beta = 0,5` theo model card) |
+| Parakeet CTC | tham lam | không | tắt | không | CTC tham lam. Beam + KenLM đi kèm repo không thử được: gói flashlight-text không build được trên Python 3.13 của Kaggle (lần chạy thử trên CPU) |
 
 **Chi tiết cấu hình theo engine, và lý do:**
 
@@ -99,7 +99,7 @@ cần BTC xác nhận trước khi dùng để nộp bài.
 - **ChunkFormer:** gói tự tải mô hình nhưng bỏ qua revision, nên engine tải snapshot đúng revision trước khi nạp.
   Tham số chunk giữ mặc định của gói (`chunk_size = 64`, ngữ cảnh trái/phải 128): không dò để giữ số lần chạy ngang
   nhau giữa các mô hình.
-- **Parakeet:** lựa chọn beam + KenLM dùng đúng các giá trị ví dụ trong model card, không dò thêm `alpha`, `beta`.
+- **Parakeet:** không dùng `ASRModel.transcribe` vì bộ nạp dữ liệu của NeMo (lhotse) lỗi với torch 2.13 trên Kaggle; engine tự đọc WAV, gọi `forward` rồi bộ giải mã CTC của mô hình, tắt dither như `transcribe` làm. NeMo 2.6.2 hạ transformers xuống 4.x, nên Parakeet đo sau cùng.
 - Các khóa chung kiểu Whisper (`language`, `task`, `temperature = 0`, `beam_size = 1`) bị engine CTC bỏ qua vì không
   áp dụng; khóa khác (câu mồi, VAD…) làm engine CTC báo lỗi thay vì lặng lẽ bỏ qua.
 
@@ -107,6 +107,9 @@ cần BTC xác nhận trước khi dùng để nộp bài.
 
 1. **Chạy thử trên CPU** (kernel `quanlam/lifemate-asr-preflight`): cài đúng các thư viện như kernel GPU, chạy mọi
    lựa chọn của từng mô hình trên 3 mẫu. Mục đích: bắt lỗi cài đặt, nạp mô hình và tham số trước khi tốn GPU.
+   Lần 1: large-v3 11/11, PhoWhisper 8/8, hai ChunkFormer 4/4 lựa chọn chạy được; Parakeet lỗi cả 5 (bộ nạp dữ
+   liệu lhotse với torch 2.13) và flashlight-text không build được. Đã sửa engine Parakeet, bỏ lựa chọn KenLM, chạy
+   thử lần 2.
 2. **Dò cấu hình trên GPU** (kernel `quanlam/lifemate-asr-tune`, một phiên T4 cho cả năm mô hình): với mỗi mô hình,
    chạy `python -m lifemate.eval.asr_tune` theo các bước ở mục 3 trên `asr_tune.txt`. Cấu hình đã đo thì dùng lại
    kết quả.

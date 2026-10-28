@@ -253,19 +253,17 @@ class ChunkFormerASR:
 class NemoCTCASR:
     """Parakeet CTC của NVIDIA (nvidia/parakeet-ctc-0.6b-Vietnamese) qua NeMo (`pip install nemo_toolkit[asr]`).
 
-    `cfg.model` là repo HF chứa đúng một file `.nemo`, tải theo `cfg.revision`. CTC không có câu mồi, beam search
-    thường hay tham số chống lặp, nên `generate_kwargs` chỉ nhận:
-      - các khóa chung của cấu hình kiểu Whisper (language, task, temperature = 0, beam_size = 1,
-        condition_on_previous_text), bị bỏ qua vì không áp dụng cho CTC;
-      - `lm = true` (tùy chọn): beam search có mô hình ngôn ngữ KenLM 4-gram và lexicon đi kèm repo, với
-        `lm_beam_size` (64), `lm_alpha` (0.3), `lm_beta` (0.5) theo model card; cần thêm gói flashlight-text.
-    Khóa khác (initial_prompt, hotwords, VAD, chống lặp, beam_size > 1) gây ValueError.
+    `cfg.model` là repo HF chứa đúng một file `.nemo`, tải theo `cfg.revision`. Giải mã CTC tham lam.
+    Không dùng `ASRModel.transcribe`: bộ nạp dữ liệu của nó (lhotse) lỗi với torch 2.13 (TypeError ở
+    `Sampler.__init__`, kernel chạy thử 28/10/2026), nên engine tự đọc WAV, gọi `forward` rồi bộ giải mã CTC
+    của mô hình, tắt dither như `transcribe` làm. CTC không có câu mồi, beam thường hay chống lặp; các khóa chung kiểu
+    Whisper (language, task, temperature = 0, beam_size = 1, condition_on_previous_text) bị bỏ qua, khóa khác gây
+    ValueError. Beam + KenLM đi kèm repo không dùng: gói flashlight-text không build được trên Python 3.13 của Kaggle.
     """
 
     _IGNORED: ClassVar[frozenset[str]] = frozenset(
         {"language", "task", "temperature", "beam_size", "condition_on_previous_text"}
     )
-    _LM_KEYS: ClassVar[frozenset[str]] = frozenset({"lm", "lm_beam_size", "lm_alpha", "lm_beta"})
 
     def __init__(self, cfg: ASRConfig) -> None:
         import torch
@@ -273,60 +271,46 @@ class NemoCTCASR:
         from nemo.collections.asr.models import ASRModel
 
         gk = dict(cfg.generate_kwargs)
-        bad = sorted(k for k in gk if k not in self._IGNORED | self._LM_KEYS)
+        bad = sorted(k for k in gk if k not in self._IGNORED)
         if bad or int(gk.get("beam_size", 1)) != 1 or gk.get("temperature", 0.0) not in (0, 0.0):
-            raise ValueError(f"nemo_ctc supports only greedy CTC or lm = true; got generate_kwargs {sorted(gk)}")
+            raise ValueError(f"nemo_ctc supports only greedy CTC; got generate_kwargs {sorted(gk)}")
         self._cfg = cfg
         rev = cfg.revision or None
-        files = list_repo_files(cfg.model, revision=rev)
-        nemo_files = [f for f in files if f.endswith(".nemo")]
+        nemo_files = [f for f in list_repo_files(cfg.model, revision=rev) if f.endswith(".nemo")]
         if len(nemo_files) != 1:
             raise ValueError(f"asr.model: {cfg.model} must hold exactly one .nemo file, found {nemo_files}")
         on_gpu = cfg.device == "cuda" or (cfg.device == "auto" and torch.cuda.is_available())
+        self._device = torch.device("cuda" if on_gpu else "cpu")
         model: Any = ASRModel.restore_from(
-            hf_hub_download(cfg.model, nemo_files[0], revision=rev), map_location="cuda" if on_gpu else "cpu"
+            hf_hub_download(cfg.model, nemo_files[0], revision=rev), map_location=self._device
         )
         cc = tuple(torch.cuda.get_device_capability(0)) if on_gpu else None
         self.dtype = resolve_asr_dtype(cfg.dtype, on_gpu, cc)
         self._autocast = on_gpu and self.dtype != "float32"
-        self._torch = torch
-        if gk.get("lm"):
-            from omegaconf import open_dict
-
-            dec = model.cfg.decoding
-            with open_dict(dec):
-                dec.strategy = "beam"
-                dec.beam.search_type = "flashlight"
-                dec.beam.beam_size = int(gk.get("lm_beam_size", 64))
-                dec.beam.beam_alpha = float(gk.get("lm_alpha", 0.3))
-                dec.beam.beam_beta = float(gk.get("lm_beta", 0.5))
-                dec.beam.kenlm_path = hf_hub_download(cfg.model, self._one_file(files, ".bin"), revision=rev)
-                dec.beam.flashlight_cfg.lexicon_path = hf_hub_download(
-                    cfg.model, self._one_file(files, ".lexicon"), revision=rev
-                )
-            model.change_decoding_strategy(dec)
+        # Như ASRModel.transcribe: tắt dither và đệm khung khi suy luận để kết quả tất định.
+        model.preprocessor.featurizer.dither = 0.0
+        model.preprocessor.featurizer.pad_to = 0
         self._model = model.eval()
-
-    @staticmethod
-    def _one_file(files: Sequence[str], suffix: str) -> str:
-        """Tên file duy nhất có đuôi `suffix` trong repo (mô hình ngôn ngữ, lexicon)."""
-        hits = [f for f in files if f.endswith(suffix)]
-        if len(hits) != 1:
-            raise ValueError(f"expected one {suffix} file in the model repo, found {hits}")
-        return hits[0]
+        self._torch = torch
 
     def transcribe_batch(self, wav_paths: Sequence[Path]) -> list[str]:
-        """NeMo tự đọc file; mỗi đường dẫn một văn bản, theo thứ tự đầu vào (kết quả là Hypothesis hoặc chuỗi)."""
+        """Đọc WAV, đệm thành một lô, chạy encoder rồi giải mã CTC tham lam; một văn bản mỗi file, đúng thứ tự."""
         torch = self._torch
-        paths = [str(p) for p in wav_paths]
+        audios = [read_wav(p, self._cfg.sample_rate) for p in wav_paths]
+        lens = torch.tensor([len(a) for a in audios], dtype=torch.long)
+        x = torch.zeros(len(audios), int(lens.max()), dtype=torch.float32)
+        for i, a in enumerate(audios):
+            x[i, : len(a)] = torch.from_numpy(a)
+        dev = self._device
         with torch.no_grad(), torch.autocast("cuda", dtype=getattr(torch, self.dtype), enabled=self._autocast):
-            out = self._model.transcribe(paths, batch_size=len(paths), verbose=False)
+            log_probs, enc_len, _ = self._model.forward(input_signal=x.to(dev), input_signal_length=lens.to(dev))
+        out = self._model.decoding.ctc_decoder_predictions_tensor(log_probs.float(), decoder_lengths=enc_len)
         if isinstance(out, tuple):  # một số phiên bản trả (best, all)
             out = out[0]
         return [str(getattr(o, "text", o)).strip() for o in out]
 
     def warmup(self) -> None:
-        """Chạy một lượt trên 1 giây im lặng ghi ra file WAV tạm (NeMo nhận đường dẫn file)."""
+        """Chạy một lượt trên 1 giây im lặng."""
         import tempfile
 
         import numpy as np

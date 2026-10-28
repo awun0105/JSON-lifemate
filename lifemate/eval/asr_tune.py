@@ -100,7 +100,6 @@ STAGES: list[tuple[str, dict[str, dict[str, Any]]]] = [
             "none": {},
             "vad": {"vad_filter": True, "vad_parameters": {"min_silence_duration_ms": 500}},
             "temp_fallback": {"temperature": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]},
-            "lm": {"lm": True},  # beam + KenLM đi kèm repo, chỉ Parakeet CTC
         },
     ),
 ]
@@ -112,17 +111,12 @@ _FW_ONLY = frozenset({"hotwords", "vad_filter", "vad_parameters"})
 def supported(engine: str, patch: Mapping[str, Any]) -> bool:
     """True khi engine chạy được lựa chọn này.
 
-    - faster_whisper: mọi lựa chọn trừ `lm`.
-    - hf_seq2seq (transformers): không có hotwords, VAD, nhiệt độ thử lại, `lm`.
-    - nemo_ctc (CTC): chỉ giải mã tham lam hoặc `lm`; không có câu mồi, beam thường, chống lặp.
-    - chunkformer (CTC): chỉ giải mã tham lam.
+    - faster_whisper: mọi lựa chọn.
+    - hf_seq2seq (transformers): không có hotwords, VAD, nhiệt độ thử lại.
+    - nemo_ctc, chunkformer (CTC, RNNT): chỉ giải mã tham lam; không có câu mồi, beam, chống lặp.
     """
-    if engine == "nemo_ctc":
-        return all(k == "lm" or (k == "beam_size" and v == 1) for k, v in patch.items())
-    if engine == "chunkformer":
+    if engine in ("nemo_ctc", "chunkformer"):
         return all(k == "beam_size" and v == 1 for k, v in patch.items())
-    if "lm" in patch:
-        return False
     if engine == "faster_whisper":
         return True
     return not (_FW_ONLY & patch.keys()) and not isinstance(patch.get("temperature"), list)

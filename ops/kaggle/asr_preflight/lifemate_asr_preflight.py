@@ -1,7 +1,7 @@
 """Kernel Kaggle chạy thử trên CPU trước lần chọn cấu hình ASR (kernel riêng tư quanlam/lifemate-asr-preflight).
 
-Cài đúng các thư viện như kernel asr_tune (vLLM, faster-whisper, chunkformer, torchaudio khớp torch, NeMo,
-flashlight-text), rồi chạy mọi lựa chọn engine hỗ trợ của từng mô hình trên 3 mẫu (`asr_tune --preflight 3`).
+Cài đúng các thư viện như kernel asr_tune (vLLM, faster-whisper, chunkformer, NeMo), rồi chạy mọi lựa chọn engine
+hỗ trợ của từng mô hình trên 3 mẫu (`asr_tune --preflight 3`).
 Bắt lỗi cài đặt, nạp mô hình và tham số mà không tốn GPU; chưa kiểm được CUDA và bộ nhớ GPU.
 Đẩy lên: kaggle kernels push -p ops/kaggle/asr_preflight (không cần --accelerator)
 """
@@ -15,7 +15,7 @@ RUN = {
     "RUN_GOLD": "0",
     "RUN_ASR": "0",
     "RUN_ASR_EVAL": "0",
-    "ASR_TUNE": "large-v3,phowhisper,chunkformer,chunkformer-rnnt,parakeet",
+    "ASR_TUNE": "chunkformer,parakeet",  # lần 2: chỉ hai mô hình đổi cách cài/engine sau lần 1
     "ASR_TUNE_PREFLIGHT": "3",
 }
 os.environ.update(RUN)
