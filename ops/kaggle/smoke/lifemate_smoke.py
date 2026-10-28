@@ -5,7 +5,7 @@ Nội dung: kịch bản chạy trọn một lượt kiểm tra trên Kaggle, t�
 
 Các bước: tìm dataset dữ liệu riêng tư, clone mã nguồn từ GitHub, cài các thư viện đã khoá phiên bản
 cùng vLLM, chạy các bài kiểm thử offline, đo chất lượng ASR ở float32 so với dtype auto trên val_seen,
-sau đó chạy 30 mẫu smoke với vLLM thật (transcript gold và/hoặc PhoWhisper). Kết quả nằm trong
+sau đó chạy 30 mẫu smoke với vLLM thật (transcript gold và/hoặc ASR whisper-large-v3). Kết quả nằm trong
 /kaggle/working/runs và /kaggle/working/asr_eval để tải về bằng `kaggle kernels output`.
 
 Cách hoạt động, theo thứ tự trong file:
@@ -20,7 +20,9 @@ Cách hoạt động, theo thứ tự trong file:
 Đẩy lên:  kaggle kernels push -p ops/kaggle/smoke --accelerator NvidiaTeslaT4
 Dữ liệu:  dataset riêng tư quanlam/zac2026-lifemate (tuyệt đối không công khai).
 Tham số (biến môi trường, đọc lúc chạy): LIFEMATE_REF (git ref, mặc định main),
-RUN_GOLD / RUN_ASR / RUN_ASR_EVAL ("1" để chạy, mặc định đều là "1"), RUN_ASR_CACHE (mặc định "0"),
+RUN_GOLD / RUN_ASR_EVAL ("1" để chạy, mặc định "1"), RUN_ASR (agent trên chữ ASR, mặc định "0": T4 15 GB
+không chứa nổi vLLM cùng whisper-large-v3 ở dtype auto), RUN_ASR_CACHE (mặc định "0"),
+ASR_SWEEP (danh sách biến thể trong ASR_VARIANTS, trống = bỏ qua), ASR_DTYPE (ghi đè asr.dtype của config chạy agent),
 ASR_EVAL_DTYPES ("auto" hoặc "auto,fp32"), ASR_EVAL_IDS (mặc định val_seen), RUN_IDS (file danh sách id,
 mặc định là 30 mẫu smoke), RUN_TAG (hậu tố của tên lượt chạy). ops/kaggle/eval đặt các biến này rồi
 exec file này.
@@ -114,9 +116,9 @@ v0 = CODE / "configs/v0.toml"
 asr_cfg = CODE / "configs/kaggle_asr.toml"
 shutil.copy(v0, asr_cfg)
 edit(asr_cfg, r'^backend = "gold".*$', 'backend = "asr"')
-# T4 có 15 GB dùng chung cho vLLM và ASR. Prompt dài nhất đo được khoảng 7.7K token, nên context 8K
-# với mức sử dụng bộ nhớ 0.72 vừa đủ cho vLLM + PhoWhisper-medium;
-# whisper-large-v3 (CT2) chưa được đo ở đây. A30 (24 GB) giữ nguyên giá trị của v0.
+# T4 có 15 GB dùng chung cho vLLM và ASR. Prompt dài nhất đo được khoảng 7.7K token, nên context 8K.
+# Mức 0.72 từng vừa cho vLLM + PhoWhisper-medium; với whisper-large-v3 ở float16 thì hết bộ nhớ
+# (eval 28/10: 431/452 mẫu lỗi), nên agent trên chữ ASR cần GPU >= 24 GB. A30 giữ nguyên giá trị của v0.
 edit(asr_cfg, r"^max_model_len = .*$", "max_model_len = 8192")
 edit(asr_cfg, r"^gpu_memory_utilization = .*$", "gpu_memory_utilization = 0.72")
 
@@ -162,16 +164,22 @@ if flag("RUN_ASR_EVAL"):
         )
 
 # 5a. So các biến thể cấu hình ASR trên cùng bộ mẫu (ASR_SWEEP="lead,norep,..."; trống = bỏ qua). Mỗi biến thể là
-# một bản sao của cấu hình ASR với vài khóa [asr] được sửa; ghi WER/thực thể và từng câu nghe ra (--hyps).
-# Lý do (28/10): large-v3 với tham số của lead cho WER 44% trên val_seen, có nhiều câu rỗng.
+# một bản sao của cấu hình ASR hiện tại (configs/v0.toml) với vài khóa [asr] được sửa; ghi WER/thực thể và từng câu
+# nghe ra (--hyps). Kết quả sweep 28/10 (artifacts/runs/kaggle/asr_sweep_v1): v0 đã bỏ câu mồi và hai tham số
+# chống lặp, nên các biến thể cần những khóa đó tự thêm lại qua "gk" để luôn đo đúng cấu hình như tên gọi.
+LEAD_PROMPT = (
+    "LifeMate: trợ lý ảo tiếng Việt điều khiển smart home, tivi, đặt xe, ngân hàng, HTV7, VTV1, VTV3, deadline, "
+    "voucher, Zalo."
+)
+LEAD_GK = {"repetition_penalty": 1.2, "no_repeat_ngram_size": 3, "initial_prompt": LEAD_PROMPT}
 ASR_VARIANTS = {
-    "lead": {},
-    "norep": {"drop": ["repetition_penalty", "no_repeat_ngram_size"]},
-    "norep_raw": {"drop": ["repetition_penalty", "no_repeat_ngram_size"], "set": {"sanitize": False}},
-    "norep_noprompt": {"drop": ["repetition_penalty", "no_repeat_ngram_size", "initial_prompt"]},
+    "lead": {"gk": LEAD_GK},  # tham số giải mã gốc của team lead
+    "norep": {"gk": {"initial_prompt": LEAD_PROMPT}},  # bỏ chống lặp, giữ câu mồi
+    "norep_raw": {"gk": {"initial_prompt": LEAD_PROMPT}, "set": {"sanitize": False}},
+    "norep_noprompt": {},  # = cấu hình hiện tại của v0
     "norep_novad": {
-        "drop": ["repetition_penalty", "no_repeat_ngram_size", "vad_parameters"],
-        "gk": {"vad_filter": False},
+        "drop": ["vad_parameters"],
+        "gk": {"vad_filter": False, "initial_prompt": LEAD_PROMPT},
     },
     "phowhisper": {
         "set": {
@@ -234,7 +242,7 @@ logs.mkdir(exist_ok=True)
 for ids in id_files:
     split_args = f"--split train --ids {ids}"
     prefix = tag if len(id_files) == 1 else f"{tag}_{Path(ids).stem}"
-    for kind, enabled, cfg in (("gold", flag("RUN_GOLD"), "configs/v0.toml"), ("asr", flag("RUN_ASR"), asr_cfg)):
+    for kind, enabled, cfg in (("gold", flag("RUN_GOLD"), "configs/v0.toml"), ("asr", flag("RUN_ASR", "0"), asr_cfg)):
         if enabled:
             name = f"{prefix}_{kind}"
             # Ghi log ra file qua tee; mã thoát của lượt chạy được lưu để in ở cuối.

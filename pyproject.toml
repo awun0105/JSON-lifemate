@@ -21,7 +21,7 @@ gpu = [
     "vllm>=0.9",
     "faster-whisper==1.2.1",   # default ASR engine (whisper-large-v3 on CTranslate2), team lead's choice
 ]
-# Optional ASR engines (SPEC 6.1, approach 5.5); install on the GPU box only when that engine is chosen.
+# Optional ASR engines (SPEC 6.1, SPEC appendix E.5); install on the GPU box only when that engine is chosen.
 asr-chunkformer = [
     "chunkformer",
 ]

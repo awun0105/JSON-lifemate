@@ -2,7 +2,8 @@
 
 Nội dung: một trình khởi chạy mỏng, chỉ đặt tham số rồi giao việc cho kịch bản smoke.
 
-Chạy agent với transcript PhoWhisper trên một danh sách id và giữ runs/ cùng logs/ làm output.
+Chạy agent với transcript gold trên một danh sách id và giữ runs/ cùng logs/ làm output. Chạy agent trên chữ ASR
+thật cần GPU >= 24 GB (T4 15 GB không chứa nổi vLLM cùng whisper-large-v3): dùng `make eval` trên Colab hoặc máy thuê.
 File lấy ops/kaggle/smoke/lifemate_smoke.py từ cùng git ref rồi exec với các tham số này,
 nên mỗi vòng lặp chỉ cần một commit trên main và lệnh `kaggle kernels push -p ops/kaggle/eval`.
 Sửa RUN bên dưới để đổi split hoặc tên lượt chạy.
@@ -21,8 +22,8 @@ RUN = {
     "LIFEMATE_REF": "main",
     "RUN_IDS": "configs/splits/val_seen.txt,configs/splits/val_unseen.txt",
     "RUN_TAG": "base28",
-    "RUN_GOLD": "0",
-    "RUN_ASR": "1",
+    "RUN_GOLD": "1",
+    "RUN_ASR": "0",
     "RUN_ASR_EVAL": "0",
 }
 os.environ.update(RUN)

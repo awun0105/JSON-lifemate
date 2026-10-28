@@ -61,6 +61,7 @@ class BaseSection:
     model: str
     revision: str
     run_config: str
+    eval_transcripts: str  # chữ dùng khi chấm checkpoint bằng agent thật: "asr" (sát lúc thi) hoặc "gold"
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,6 +131,8 @@ def load_llm_train_config(path: Path) -> LLMTrainConfig:
         lora=build_section(LoraSection, "lora", raw["lora"]),
         train=build_section(TrainSection, "train", raw["train"]),
     )
+    if cfg.base.eval_transcripts not in {"gold", "asr"}:
+        raise ConfigError(f"base.eval_transcripts: {cfg.base.eval_transcripts!r} not in gold|asr")
     if cfg.lora.quant not in {"nf4", "none"}:
         raise ConfigError(f"lora.quant: {cfg.lora.quant!r} not in nf4|none")
     if cfg.data.transcript_source not in {"gold", "asr", "mix"}:

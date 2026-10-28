@@ -3,11 +3,13 @@
 Read in this order before touching code:
 
 1. `docs/overview.md`: the task as the organisers state it (scoring, limits, data layout).
-2. `docs/approach.md`: why the system is built this way, decisions already taken (section 7), model choice and
-   fine-tune plan (5.5), experiment log (8).
-3. `docs/SPEC.md`: the source of truth for implementation. Section 1.3 says what is verified and what is not;
-   section 11 lists open questions. Code and SPEC must stay in step: when you change behaviour, update SPEC
+2. `docs/SPEC.md`: the source of truth for implementation; it describes the current state only. Section 1.3
+   says what is verified and what is not; section 11 lists open questions. Appendices A–F hold the pipeline,
+   evaluation and splits, measurement infra, submission rules, model list with licenses and fine-tune plan
+   (E.5), and the timeline. Code and SPEC must stay in step: when you change behaviour, update SPEC
    in the same commit.
+3. `docs/decisions.md` (decision log: date, decision, reason, what it supersedes), `docs/experiments.md`
+   (one row per run with scores), `docs/rationale.md` (first-principles reasoning behind the fine-tune plan).
 4. `docs/CONTRIBUTING.md`: code conventions (ruff, mypy --strict, test docstring format, logging).
 5. `docs/docker.md`, `docs/runpod.md` for the GPU/Docker side; `docs/eda.md` for data facts.
 
@@ -24,5 +26,10 @@ Hard rules (competition and safety):
   never from `val_*` or `public_test`.
 
 Working style: `make check` and `make test` must pass before a commit; one commit per task with a message that
-names the SPEC section; record any deviation from SPEC in SPEC itself (and in `approach.md` 7 if it is a
-decision).
+names the SPEC section; record any deviation from SPEC in SPEC itself.
+
+Documentation log rules:
+
+- Every run (agent, ASR, train), including failed ones, adds a row to `docs/experiments.md`.
+- Every change of direction adds a row to `docs/decisions.md`, naming the decision it supersedes.
+- `docs/SPEC.md` always describes the current state; history goes to the two logs, not into SPEC.

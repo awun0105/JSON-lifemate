@@ -108,7 +108,7 @@ JSON-lifemate/
 ├── tests/             Bộ kiểm thử pytest, chạy trên CPU, không cần GPU
 ├── configs/           Cấu hình chạy, profile từng loại máy, prompt, danh sách chia dữ liệu, cấu hình huấn luyện
 ├── ops/               Vận hành: Docker, kernel Kaggle, notebook, script cài đặt và đóng gói
-├── docs/              Tài liệu: đặc tả, lý do thiết kế, phân tích dữ liệu, sơ đồ, slide
+├── docs/              Tài liệu: đặc tả, nhật ký quyết định và thí nghiệm, lý do thiết kế, phân tích dữ liệu, sơ đồ, slide
 ├── artifacts/models/  Sổ đăng ký các mô hình đã huấn luyện (chỉ file registry, không có trọng số)
 ├── AGENTS.md          Thứ tự đọc tài liệu và các luật bắt buộc cho người mới
 ├── Makefile           Các lệnh thường dùng
@@ -280,6 +280,8 @@ Lệnh thứ hai chạy ASR một lần cho mọi tập và lưu chữ lại, v�
 
 - `AGENTS.md`: thứ tự đọc tài liệu và các luật bắt buộc.
 - `docs/SPEC.md`: đặc tả chi tiết, nguồn sự thật cho mã.
-- `docs/approach.md`: lý do của từng quyết định, nhật ký thí nghiệm.
+- `docs/decisions.md`: nhật ký quyết định, mỗi lần đổi hướng một dòng.
+- `docs/experiments.md`: nhật ký thí nghiệm, mỗi lần chạy một dòng.
+- `docs/rationale.md`: lập luận từ nguyên lý gốc cho kế hoạch fine-tune.
 - `docs/CONTRIBUTING.md`: quy ước viết mã.
 - `docs/docker.md`, `docs/runpod.md`: chạy trên GPU và đóng gói.

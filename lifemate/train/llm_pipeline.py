@@ -228,7 +228,7 @@ def _subprocess_runner(cmd: Sequence[str], cwd: Path) -> int:
 
 
 def eval_command(ctx: PipelineContext, run_config: Path, split_ids: str, run_dir: Path) -> list[str]:
-    """Lệnh `python -m lifemate.run.cli` chạy trên một file id val, kèm `--limit`."""
+    """Lệnh `python -m lifemate.run.cli` trên một file id val, kèm `--limit` và nguồn chữ `base.eval_transcripts`."""
     return [
         sys.executable,
         "-m",
@@ -243,6 +243,8 @@ def eval_command(ctx: PipelineContext, run_config: Path, split_ids: str, run_dir
         split_ids,
         "--limit",
         str(ctx.limit),
+        "--transcripts",
+        ctx.cfg.base.eval_transcripts,
         "--out",
         str(run_dir),
     ]

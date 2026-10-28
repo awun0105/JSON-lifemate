@@ -26,6 +26,9 @@ Read `docs/SPEC.md` for what to build; this file is how to write it. SPEC wins o
 
 - One task per commit, message `<area>: <what>` (e.g. `agent: budget with predictive deadline`).
 - When implementation deviates from SPEC for a good reason, change the code and update the matching SPEC section in the same commit.
+- Every run (agent, ASR, train), including failed ones, adds a row to `docs/experiments.md`.
+- Every change of direction adds a row to `docs/decisions.md` (date, decision, reason, which decision it supersedes).
+- `docs/SPEC.md` always describes the current state; history lives in `decisions.md` and `experiments.md`.
 
 ## Package layout (SPEC 4.1)
 

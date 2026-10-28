@@ -321,3 +321,10 @@ def test_parse_args_defaults() -> None:
     """Giá trị mặc định của CLI pipeline: limit=30 và bắt đầu từ stage data."""
     ns = llm_pipeline.parse_args(["--config", "x.toml"])
     assert isinstance(ns, argparse.Namespace) and ns.limit == 30 and ns.from_stage == "data"
+
+
+def test_eval_command_uses_eval_transcripts(tmp_path: Path) -> None:
+    """Bảo vệ: chấm checkpoint chạy agent với nguồn chữ `base.eval_transcripts` (llm_v1 đặt "asr", như lúc thi)."""
+    ctx = _ctx(tmp_path)
+    cmd = llm_pipeline.eval_command(ctx, tmp_path / "run.toml", "configs/splits/val_seen.txt", tmp_path / "r")
+    assert cmd[cmd.index("--transcripts") + 1] == ctx.cfg.base.eval_transcripts == "asr"

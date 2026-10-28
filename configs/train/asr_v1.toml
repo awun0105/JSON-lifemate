@@ -5,7 +5,7 @@ revision = "55a7e3eb6c906de891f8f06a107754427dd3be79"
 [data]
 train = "data/asr/v1.jsonl"
 [method]
-kind = "full"               # "lora" | "full"; PhoWhisper-medium 0,77B: full fine-tune vừa T4 với fp16 + grad checkpointing (approach 5.5)
+kind = "full"               # "lora" | "full"; PhoWhisper-medium 0,77B: full fine-tune vừa T4 với fp16 + grad checkpointing (SPEC phụ lục E.5.2)
 freeze_encoder = true       # giai đoạn 1 chỉ train decoder (học văn phong audio_text); mở encoder ở giai đoạn 2 nếu WER còn cao
 spec_augment = true
 [train]

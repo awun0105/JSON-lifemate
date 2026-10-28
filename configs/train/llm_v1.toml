@@ -7,6 +7,7 @@
 model = "Qwen/Qwen3-4B-Instruct-2507"   # cùng model với [llm] của configs/v0.toml
 revision = "cdbee75f17c01a7cc42f958dc650907174af0554"
 run_config = "configs/v0.toml"   # prompt, max_result_chars, max_model_len lấy từ config lúc chạy (giống từng byte)
+eval_transcripts = "asr"         # chấm checkpoint trên chữ ASR thật như lúc thi (cần GPU >= 24 GB); "gold" = chữ chuẩn
 [data]
 train = "data/sft/v1.jsonl"
 eval_seen = "data/sft/v1_val_seen.jsonl"      # dựng bằng cùng script, chỉ để đo loss, không train
