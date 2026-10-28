@@ -125,6 +125,8 @@ Nằm ngoài git (khai báo trong `.gitignore`):
 
 ![Kiến trúc tổng quan của LifeMate](docs/diagrams/png/readme-architecture.png)
 
+[![Architecture diagram of awun0105/json-lifemate](https://gitdiagram.com/awun0105/json-lifemate/diagram.png)](https://gitdiagram.com/awun0105/json-lifemate?utm_source=readme&utm_medium=picture)
+
 **Hàng trên là pha chạy**, tức việc hệ thống làm với mỗi yêu cầu khi chấm bài, theo sáu bước:
 
 1. **Đọc mẫu:** file âm thanh, ngữ cảnh và lịch sử hội thoại.
