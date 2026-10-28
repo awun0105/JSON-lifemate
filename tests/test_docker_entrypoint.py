@@ -1,7 +1,11 @@
-"""Kiểm tra entrypoint Docker: nhận diện split, tạo symlink, argv CLI chính xác (SPEC 6.3) và nội dung .dockerignore.
+"""Test entrypoint Docker: nhận diện split, tạo symlink, argv CLI đúng (SPEC 6.3), và nội dung `.dockerignore`.
 
-Test chạy `ops/docker/entrypoint.sh` thật bằng bash trong sandbox `tmp_path`. Lệnh `python` được thay bằng
-script giả `FAKE_PYTHON`, chỉ ghi argv ra file để so sánh. Không cần dữ liệu cuộc thi hay tokenizer.
+Cách hoạt động:
+- Chạy `ops/docker/entrypoint.sh` thật bằng bash trong sandbox `tmp_path`.
+- Lệnh `python` được thay bằng script giả `FAKE_PYTHON`, chỉ ghi argv ra file để so sánh.
+
+Lưu ý:
+- Không cần dữ liệu cuộc thi hay tokenizer.
 """
 
 from __future__ import annotations
@@ -21,7 +25,11 @@ printf '%s\\n' "$@" > "$ARGV_LOG"
 
 
 def _sandbox(tmp_path: Path, splits: list[str]) -> tuple[dict[str, str], Path, Path, Path]:
-    """Dựng sandbox: thư mục data có catalog cho từng split, `python` giả đứng đầu PATH; trả về env, data, work, log."""
+    """Dựng sandbox: thư mục data có catalog cho từng split, `python` giả đứng đầu `PATH`.
+
+    Trả về:
+        Bộ bốn (biến môi trường, thư mục data, thư mục làm việc, file log argv).
+    """
     data = tmp_path / "data"
     data.mkdir()
     for s in splits:
@@ -47,14 +55,14 @@ def _sandbox(tmp_path: Path, splits: list[str]) -> tuple[dict[str, str], Path, P
 
 
 def _run(env: dict[str, str], work: Path, *extra: str) -> subprocess.CompletedProcess[str]:
-    """Chạy entrypoint trong thư mục `work`, không ném lỗi khi mã thoát khác 0."""
+    """Chạy entrypoint trong thư mục `work`; không ném lỗi khi mã thoát khác 0."""
     return subprocess.run(
         ["bash", str(ENTRYPOINT), *extra], check=False, cwd=work, env=env, capture_output=True, text=True
     )
 
 
 def test_detects_split_links_and_execs_cli(tmp_path: Path) -> None:
-    """Entrypoint tìm split từ tên catalog, symlink data vào ZAIC_ROOT, tạo `result/` và gọi CLI đúng argv."""
+    """Entrypoint tìm split từ tên catalog, symlink data vào `ZAIC_ROOT`, tạo `result/` và gọi CLI đúng argv."""
     env, data, work, log = _sandbox(tmp_path, ["private_test"])
     proc = _run(env, work, "--limit", "3")
     assert proc.returncode == 0, proc.stderr
@@ -90,7 +98,7 @@ def test_config_override(tmp_path: Path) -> None:
 
 
 def test_rerun_replaces_symlink(tmp_path: Path) -> None:
-    """Chạy lại lần hai không lỗi vì symlink đã tồn tại; symlink vẫn trỏ đúng thư mục data."""
+    """Chạy lại lần hai không lỗi dù symlink đã có, và symlink vẫn trỏ đúng thư mục data."""
     env, data, work, _ = _sandbox(tmp_path, ["public_test"])
     assert _run(env, work).returncode == 0
     assert _run(env, work).returncode == 0
@@ -108,7 +116,7 @@ def test_fails_unless_exactly_one_catalog(tmp_path: Path, splits: list[str]) -> 
 
 
 def test_dockerignore_excludes_heavy_and_local_dirs() -> None:
-    """File .dockerignore loại các thư mục nặng hoặc chỉ dùng cục bộ khỏi build context."""
+    """`.dockerignore` loại các thư mục nặng hoặc chỉ dùng trên máy khỏi build context."""
     ignore = REPO / "ops" / "docker" / "Dockerfile.dockerignore"
     lines = {ln.strip() for ln in ignore.read_text(encoding="utf-8").splitlines()}
     for entry in ["data/", "artifacts/runs/", ".venv", "artifacts/dist/", "graphify-out/"]:

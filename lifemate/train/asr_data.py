@@ -1,10 +1,19 @@
-"""Tạo cặp fine-tune ASR (wav, audio_text nguyên văn) cho lượt cuối và mọi lượt user trong lịch sử (SPEC 6.4.1).
+"""Tạo cặp dữ liệu fine-tune ASR (file wav, `audio_text` nguyên văn) cho lượt cuối và mọi lượt user trong lịch sử (SPEC
+6.4.1).
 
-Nội dung: `sample_pairs`, `build_pairs`, CLI `run`/`main`.
+Nội dung chính:
+- `sample_pairs`: các cặp của một mẫu.
+- `build_pairs`: các cặp của nhiều mẫu.
+- `parse_args`, `run`, `main`: CLI tạo file cặp kèm file meta.
 
-Cách xây dựng: đọc file id → chặn id thuộc val_seen/val_unseen (trừ khi có `--allow-eval`, chỉ dành cho file đo)
-→ nạp mẫu theo đúng thứ tự file id → mỗi mẫu cho các dòng `u1, u2, …` rồi `final` → ghi jsonl và `<out>.meta.json`
-(sha256, argv, phiên bản code). Đường dẫn audio giữ tương đối với thư mục split, không sao chép file.
+Cách hoạt động:
+1. Đọc file id. Chặn id thuộc `val_seen`/`val_unseen`, trừ khi có `--allow-eval` (chỉ dành cho file đo).
+2. Nạp mẫu theo đúng thứ tự trong file id.
+3. Mỗi mẫu cho các dòng `u1, u2, …` rồi `final`.
+4. Ghi file jsonl và `<out>.meta.json` (sha256, argv, phiên bản code).
+
+Lưu ý:
+- Đường dẫn audio giữ tương đối với thư mục split; file audio không bị sao chép.
 """
 
 from __future__ import annotations
@@ -32,9 +41,19 @@ FINAL_TURN = "final"
 
 
 def sample_pairs(sample: Sample, split_tag: str) -> list[dict[str, Any]]:
-    """Các dòng `{id, turn, audio, text, split}`: lượt user lịch sử `u1, u2, …` rồi lượt cuối (thứ tự ASR, 6.1).
+    """Tạo các dòng `{id, turn, audio, text, split}` của một mẫu.
 
-    Thiếu audio hoặc audio_text ở bất kỳ lượt nào đều báo ValueError.
+    Thứ tự giống thứ tự ASR (SPEC 6.1): các lượt user trong lịch sử `u1, u2, …` trước, lượt cuối sau.
+
+    Tham số:
+        sample: mẫu có `audio_text` ở mọi lượt user.
+        split_tag: giá trị của trường `split` trong mỗi dòng.
+
+    Trả về:
+        Danh sách dòng.
+
+    Lỗi:
+        ValueError: khi một lượt bất kỳ thiếu `audio` hoặc `audio_text`.
     """
     rows: list[dict[str, Any]] = []
     k = 0
@@ -56,12 +75,12 @@ def sample_pairs(sample: Sample, split_tag: str) -> list[dict[str, Any]]:
 
 
 def build_pairs(samples: Sequence[Sample], split_tag: str) -> list[dict[str, Any]]:
-    """Cặp của mọi mẫu theo thứ tự; đường dẫn audio giữ tương đối với thư mục split (không sao chép)."""
+    """Tạo các cặp của mọi mẫu theo thứ tự; đường dẫn audio giữ tương đối với thư mục split (không sao chép file)."""
     return [row for s in samples for row in sample_pairs(s, split_tag)]
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    """Tham số dòng lệnh."""
+    """Đọc tham số dòng lệnh."""
     ap = argparse.ArgumentParser(prog="python -m lifemate.train.asr_data", description="Build ASR pairs (6.4.1).")
     ap.add_argument("--env", default="local", help="env profile name or path")
     ap.add_argument("--ids", required=True, type=Path, help="file with one sample id per line")
@@ -74,16 +93,25 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def run(args: argparse.Namespace, repo_root: Path = REPO_ROOT, argv: Sequence[str] | None = None) -> dict[str, Any]:
-    """Tạo một file cặp ASR kèm `<out>.meta.json`; trả về dict meta."""
+    """Tạo một file cặp ASR kèm `<out>.meta.json`.
+
+    Tham số:
+        args: tham số dòng lệnh đã đọc.
+        repo_root: thư mục gốc repo.
+        argv: tham số gốc, ghi vào file meta; `None` thì lấy `sys.argv`.
+
+    Trả về:
+        Dict meta đã ghi.
+    """
     profile = load_profile(args.env, repo_root).with_overrides(root=args.root)
     root = abs_path(profile.data_root, repo_root)
     ids_path = abs_path(args.ids, repo_root)
     ids = read_ids(ids_path)
-    # Chống rò rỉ: id đánh giá chỉ được dùng khi cố ý tạo file đo.
+    # Chống lộ dữ liệu đánh giá: id của tập val chỉ được dùng khi cố ý tạo file đo.
     leaked = sorted(set(ids) & eval_ids(repo_root))
     if leaked and not args.allow_eval:
         raise SystemExit(f"refusing: {len(leaked)} ids are in val_seen/val_unseen (e.g. {leaked[:3]}); --allow-eval")
-    # load_split không giữ thứ tự, nên sắp lại theo thứ tự trong file id để đầu ra ổn định.
+    # `load_split` trả mẫu theo thứ tự trong file dữ liệu, không theo file id; sắp lại để đầu ra ổn định.
     order = {sid: i for i, sid in enumerate(ids)}
     samples = sorted(load_split(root, args.split, ids), key=lambda s: order[s.id])
     rows = build_pairs(samples, args.tag or ids_path.stem)
@@ -107,7 +135,7 @@ def run(args: argparse.Namespace, repo_root: Path = REPO_ROOT, argv: Sequence[st
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Điểm vào CLI."""
+    """Chạy CLI và in số dòng, số mẫu đã tạo; trả về mã thoát 0."""
     meta = run(parse_args(argv), argv=argv)
     print(f"rows={meta['n_rows']} samples={meta['n_samples']}")
     return 0

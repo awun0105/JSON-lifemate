@@ -1,18 +1,22 @@
-"""Cấu hình fine-tune LLM, nhãn loss chỉ trên lượt assistant và gộp adapter (SPEC 6.2.2, 6.2.3, 6.2.4).
-
-Nội dung file:
-- Các dataclass `BaseSection`, `DataSection`, `LoraSection`, `TrainSection`, `LLMTrainConfig` và
-  `load_llm_train_config`: đọc và kiểm tra configs/train/llm_vN.toml với khóa chặt chẽ.
-- `build_labels` và các hàm phụ: tính nhãn loss chỉ cho lượt assistant, thuần Python, kiểm thử bằng tokenizer giả.
-- `merge_adapter`: gộp adapter LoRA vào model gốc bf16.
-- `main`: giao diện dòng lệnh, gọi `swift_sft.train` rồi ghi train_config.json.
-
-Cách dựng: bản thân việc train chạy trong ms-swift (`lifemate.train.swift_sft`). Trainer Unsloth trước đây được
-giữ bên dưới ở dạng chú thích. `build_labels` vẫn còn: đây là bản tham chiếu phía phục vụ mà
-`swift_sft.check_template` dùng để so với cách ms-swift mã hóa hội thoại.
+"""Config fine-tune LLM, nhãn loss chỉ trên lượt assistant, và gộp adapter LoRA (SPEC 6.2.2, 6.2.3, 6.2.4).
 
 Ví dụ:
     python -m lifemate.train.sft --config configs/train/llm_v1.toml --env local
+
+Nội dung chính:
+- `BaseSection`, `DataSection`, `LoraSection`, `TrainSection`, `LLMTrainConfig`: các mục của
+  `configs/train/llm_vN.toml`; `load_llm_train_config` đọc và kiểm tra file này, từ chối khoá lạ hoặc thiếu.
+- `build_labels` và các hàm phụ: tính nhãn loss chỉ cho lượt assistant; thuần Python, test bằng tokenizer giả.
+- `merge_adapter`: gộp adapter LoRA vào model gốc bf16.
+- `main`: CLI gọi `swift_sft.train` rồi ghi `train_config.json`.
+
+Cách hoạt động:
+- Việc train thật chạy trong ms-swift (`lifemate.train.swift_sft`).
+- `build_labels` vẫn được giữ làm bản tham chiếu: `swift_sft.check_template` so cách ms-swift mã hoá hội thoại
+  với kết quả của hàm này.
+
+Lưu ý:
+- Trainer Unsloth cũ được giữ bên dưới dưới dạng chú thích, để tham khảo hoặc quay lui.
 """
 
 from __future__ import annotations
@@ -56,33 +60,61 @@ EVAL_METRIC = "eval_unseen_loss"
 
 @dataclass(frozen=True, slots=True)
 class BaseSection:
-    """[base]: model cần fine-tune (tên, revision) và cấu hình run có thiết lập prompt mà dữ liệu phải khớp."""
+    """Mục `[base]`: model cần fine-tune và config chạy mà dữ liệu phải khớp về prompt.
+
+    Thuộc tính:
+        model: tên model trên Hugging Face.
+        revision: commit cố định của model.
+        run_config: config chạy agent (ví dụ `configs/v0.toml`) có thiết lập prompt.
+        eval_transcripts: nguồn chữ khi chấm checkpoint bằng agent thật (xem chú thích bên dưới).
+    """
 
     model: str
     revision: str
     run_config: str
-    eval_transcripts: str  # chữ dùng khi chấm checkpoint bằng agent thật: "asr" (sát lúc thi) hoặc "gold"
+    eval_transcripts: str  # nguồn chữ khi chấm checkpoint bằng agent thật: "asr" (sát lúc thi) hoặc "gold"
 
 
 @dataclass(frozen=True, slots=True)
 class DataSection:
-    """[data]: các file SFT jsonl (train, eval_seen, eval_unseen) và tham số dựng dữ liệu cho sft_data."""
+    """Mục `[data]`: các file SFT jsonl và tham số dựng dữ liệu cho `sft_data`.
+
+    Thuộc tính:
+        train: file jsonl dữ liệu train.
+        eval_seen: file jsonl để eval trên app đã thấy.
+        eval_unseen: file jsonl để eval trên app held-out.
+        transcript_source: nguồn chữ của lượt user (xem chú thích bên dưới).
+        asr_ratio: với `mix`, tỉ lệ mẫu dựng từ transcript ASR.
+        asr_cache: cache ASR do `lifemate.train.asr_cache` tạo.
+        error_recovery_ratio: tỉ lệ dòng train có một lời gọi lỗi rồi lời gọi sửa.
+        oversample_hard: hệ số nhân bản dòng khó.
+        distractor_apps: số app cài thêm làm nhiễu cho mỗi mẫu train.
+        dedup_max_k: số mẫu train tối đa mỗi cụm gần trùng.
+    """
 
     train: str
     eval_seen: str
     eval_unseen: str
-    transcript_source: str  # gold | asr | mix (lifemate.train.sft_data); mix = 30% gold / 70% ASR của trưởng nhóm
-    asr_ratio: float  # chỉ cho mix: tỉ lệ mẫu dựng từ transcript ASR
+    transcript_source: str  # gold | asr | mix (lifemate.train.sft_data); mix = 30% gold / 70% ASR, theo trưởng nhóm
+    asr_ratio: float  # chỉ dùng với mix: tỉ lệ mẫu dựng từ transcript ASR
     asr_cache: str  # cache ASR từ lifemate.train.asr_cache ("" khi transcript_source = gold)
     error_recovery_ratio: float  # tỉ lệ dòng train có một lời gọi lỗi rồi lời gọi sửa (sft_data.Augment)
-    oversample_hard: float  # hệ số nhân bản dòng ask_missing_info / out_of_scope; 1.0 = không
-    distractor_apps: int  # số app cài thêm cho mỗi mẫu train; 0 = không
-    dedup_max_k: int  # tối đa số mẫu train mỗi cụm gần trùng; 0 = giữ tất cả
+    oversample_hard: float  # hệ số nhân bản dòng ask_missing_info / out_of_scope; 1.0 = không nhân
+    distractor_apps: int  # số app cài thêm cho mỗi mẫu train; 0 = không thêm
+    dedup_max_k: int  # số mẫu train tối đa mỗi cụm gần trùng; 0 = giữ tất cả
 
 
 @dataclass(frozen=True, slots=True)
 class LoraSection:
-    """[lora]: lượng tử hóa (nf4 | none), hạng r, alpha, dropout và các module đích của LoRA."""
+    """Mục `[lora]`: lượng tử hoá và các tham số của LoRA.
+
+    Thuộc tính:
+        quant: `"nf4"` (lượng tử hoá 4 bit, tức QLoRA) hoặc `"none"`.
+        r: hạng (rank) của LoRA.
+        alpha: hệ số alpha của LoRA.
+        dropout: tỉ lệ dropout của LoRA.
+        target_modules: tên các module gắn LoRA.
+    """
 
     quant: str
     r: int
@@ -93,11 +125,25 @@ class LoraSection:
 
 @dataclass(frozen=True, slots=True)
 class TrainSection:
-    """[train]: siêu tham số train, seed và chu kỳ eval/lưu checkpoint (tính theo bước)."""
+    """Mục `[train]`: siêu tham số train, seed và nhịp eval, nhịp lưu checkpoint (tính theo step).
+
+    Thuộc tính:
+        lr: learning rate.
+        lr_scheduler: tên scheduler của transformers.
+        tuner_backend: backend tuner của ms-swift.
+        warmup_ratio: tỉ lệ step warmup.
+        epochs: số epoch.
+        batch_size: batch size trên mỗi GPU.
+        grad_accum: số bước cộng dồn gradient.
+        max_len: số token tối đa của một dòng.
+        seed: seed ngẫu nhiên.
+        eval_every_steps: số step giữa hai lần eval.
+        save_every_steps: số step giữa hai lần lưu checkpoint; phải là bội của `eval_every_steps`.
+    """
 
     lr: float
     lr_scheduler: str  # tên scheduler của transformers, ví dụ cosine
-    tuner_backend: str  # giá trị --tuner_backend của ms-swift: peft | unsloth
+    tuner_backend: str  # giá trị `--tuner_backend` của ms-swift: peft | unsloth
     warmup_ratio: float
     epochs: int
     batch_size: int
@@ -110,7 +156,14 @@ class TrainSection:
 
 @dataclass(frozen=True, slots=True)
 class LLMTrainConfig:
-    """Toàn bộ nội dung configs/train/llm_vN.toml."""
+    """Toàn bộ nội dung `configs/train/llm_vN.toml`.
+
+    Thuộc tính:
+        base: mục `[base]`.
+        data: mục `[data]`.
+        lora: mục `[lora]`.
+        train: mục `[train]`.
+    """
 
     base: BaseSection
     data: DataSection
@@ -119,10 +172,14 @@ class LLMTrainConfig:
 
 
 def load_llm_train_config(path: Path) -> LLMTrainConfig:
-    """Đọc và kiểm tra file TOML cấu hình train LLM (khóa chặt chẽ: thiếu hay thừa khóa đều báo lỗi).
+    """Đọc và kiểm tra file TOML config train LLM; thiếu hay thừa khoá đều báo lỗi.
 
-    Ngoài kiểu dữ liệu, hàm còn kiểm tra miền giá trị: quant, transcript_source, các tỉ lệ trong [0, 1],
-    tuner_backend, và save_every_steps phải là bội của eval_every_steps (checkpoint chỉ lưu sau một lượt eval).
+    Ngoài kiểu dữ liệu, hàm còn kiểm tra miền giá trị: `quant`, `transcript_source`, các tỉ lệ trong [0, 1],
+    `tuner_backend`, và `save_every_steps` phải là bội của `eval_every_steps` (checkpoint chỉ được lưu sau một lần
+    eval).
+
+    Lỗi:
+        ConfigError: khi config sai.
     """
     raw = load_toml(path, ("base", "data", "lora", "train"))
     cfg = LLMTrainConfig(
@@ -152,17 +209,17 @@ def load_llm_train_config(path: Path) -> LLMTrainConfig:
     return cfg
 
 
-# ---------------------------------------------------------------- che loss (thuần, kiểm thử bằng tokenizer giả)
+# ---------------------------------------------------------------- Che loss (hàm thuần, test bằng tokenizer giả)
 
 
 class ChatTokenizer(Protocol):
-    """Phần của tokenizer HF mà `build_labels` dùng."""
+    """Phần giao diện của tokenizer HF mà `build_labels` dùng."""
 
     def apply_chat_template(self, conversation: Any, **kwargs: Any) -> Any: ...
 
 
 def _ids(out: Any) -> list[int]:
-    """Chuẩn hóa đầu ra của apply_chat_template (list, dict/BatchEncoding, dạng batch) thành list id."""
+    """Chuẩn hoá đầu ra của `apply_chat_template` (list, dict/BatchEncoding, dạng batch) thành list id."""
     if isinstance(out, Mapping) or hasattr(out, "input_ids"):
         out = out["input_ids"]
     if out and isinstance(out[0], list):  # dạng batch: lấy phần tử đầu
@@ -180,7 +237,7 @@ def _render(
 
 
 def _common_prefix(a: Sequence[int], b: Sequence[int]) -> int:
-    """Độ dài tiền tố chung của hai dãy id."""
+    """Trả về độ dài phần đầu chung của hai dãy id."""
     n = 0
     for x, y in zip(a, b, strict=False):
         if x != y:
@@ -190,7 +247,7 @@ def _common_prefix(a: Sequence[int], b: Sequence[int]) -> int:
 
 
 def template_kwargs(tokenizer: Any) -> dict[str, Any]:
-    """Trả `enable_thinking=False` khi chat template biết cờ này (giống VLLMBackend lúc chạy, S6), ngược lại rỗng."""
+    """Trả về `enable_thinking=False` khi chat template có cờ này (giống `VLLMBackend` lúc chạy, S6), không thì `{}`."""
     template = getattr(tokenizer, "chat_template", None)
     return {"enable_thinking": False} if isinstance(template, str) and "enable_thinking" in template else {}
 
@@ -200,18 +257,30 @@ def build_labels(
     messages: Sequence[Mapping[str, Any]],
     chat_template_kwargs: Mapping[str, Any] | None = None,
 ) -> tuple[list[int], list[int]]:
-    """Id token của cả hội thoại và nhãn; nhãn là IGNORE_INDEX ngoài lượt assistant và trên lượt `"loss": false`.
+    """Token hoá cả hội thoại và tạo nhãn loss chỉ cho lượt assistant.
 
-    Lượt assistant có `"loss": false` là lời gọi lỗi của một dòng error-recovery.
+    Nhãn là `IGNORE_INDEX` ở mọi vị trí ngoài lượt assistant, và ở lượt assistant có `"loss": false` (lời gọi lỗi của
+    một dòng error-recovery).
 
-    Đoạn assistant thứ k = các token nằm sau bản render của messages[:k] kèm generation prompt, kéo tới hết bản
-    render của messages[:k+1] (nhờ vậy token kết thúc lượt cũng được train). Điểm bắt đầu là tiền tố chung giữa bản
-    render có generation prompt và toàn bộ id, cách này xử lý được template render generation prompt khác với một
-    lượt assistant đã hoàn tất. Template không ổn định tiền tố gây ValueError.
+    Cách tìm đoạn assistant thứ k: đó là các token nằm sau bản render của `messages[:k]` kèm generation prompt, kéo
+    tới hết bản render của `messages[:k+1]`. Nhờ vậy token kết thúc lượt cũng được train. Điểm bắt đầu lấy bằng phần
+    đầu chung giữa bản render có generation prompt và toàn bộ id. Cách này xử lý được template render generation
+    prompt khác với một lượt assistant đã hoàn tất.
+
+    Tham số:
+        tokenizer: tokenizer có chat template.
+        messages: các tin nhắn; tin assistant có thể có khoá `loss`.
+        chat_template_kwargs: tham số thêm cho chat template (ví dụ `enable_thinking`).
+
+    Trả về:
+        Cặp (id token của cả hội thoại, nhãn cùng độ dài).
+
+    Lỗi:
+        ValueError: khi template không ổn định phần đầu (bản render ngắn không phải phần đầu của bản dài).
     """
     kwargs = dict(chat_template_kwargs or {})
     trained = [m.get("role") == "assistant" and m.get("loss", True) is not False for m in messages]
-    # Khóa `loss` không bao giờ được đưa vào template.
+    # Khoá `loss` không bao giờ được đưa vào template.
     plain = [{"role": m["role"], "content": m["content"]} for m in messages]
     full = _render(tokenizer, plain, False, kwargs)
     labels = [IGNORE_INDEX] * len(full)
@@ -219,7 +288,7 @@ def build_labels(
         if not trained[k]:
             continue
         upto = _render(tokenizer, plain[: k + 1], False, kwargs)
-        # Bản render ngắn hơn phải là tiền tố của bản đầy đủ, nếu không vị trí nhãn sẽ lệch.
+        # Bản render ngắn hơn phải là phần đầu của bản đầy đủ; nếu không, vị trí nhãn sẽ lệch.
         if full[: len(upto)] != upto:
             raise ValueError(f"chat template is not prefix-stable at message {k}")
         start = min(_common_prefix(_render(tokenizer, plain[:k], True, kwargs), full), len(upto))
@@ -229,7 +298,13 @@ def build_labels(
 
 @dataclass(frozen=True, slots=True)
 class Example:
-    """Một dòng SFT đã token hóa: id mẫu, input_ids và labels."""
+    """Một dòng SFT đã token hoá.
+
+    Thuộc tính:
+        id: id mẫu.
+        input_ids: id token của cả hội thoại.
+        labels: nhãn loss, cùng độ dài với `input_ids`.
+    """
 
     id: str
     input_ids: list[int]
@@ -237,7 +312,7 @@ class Example:
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    """Đọc các dòng của file jsonl (bỏ dòng trống)."""
+    """Đọc các dòng của file jsonl, bỏ dòng trống."""
     with open(path, encoding="utf-8") as f:
         return [json.loads(ln) for ln in f if ln.strip()]
 
@@ -269,7 +344,7 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 #     return batch
 
 
-# ---------------------------------------------------------------- phần GPU (không chạy trong test)
+# ---------------------------------------------------------------- Phần chạy trên GPU (test không chạy phần này)
 
 
 # --- Không dùng từ khi chuyển sang ms-swift (lifemate/train/swift_sft.py); giữ dạng chú thích để tham khảo/quay lui.
@@ -411,9 +486,21 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def merge_adapter(base: str, adapter_dir: Path, out_dir: Path, *, revision: str | None = None) -> Path:
-    """Gộp adapter LoRA vào model gốc bf16 và lưu safetensors đầy đủ (chạy trên CPU cũng được, SPEC 6.2.4).
+    """Gộp adapter LoRA vào model gốc bf16 và lưu safetensors đầy đủ; chạy trên CPU cũng được (SPEC 6.2.4).
 
-    Tokenizer của model gốc được lưu cùng thư mục, để thư mục đầu ra phục vụ được ngay. Trả về `out_dir`.
+    Tokenizer của model gốc được lưu cùng thư mục, để thư mục đầu ra phục vụ (serve) được ngay.
+
+    Tham số:
+        base: tên model gốc.
+        adapter_dir: thư mục adapter LoRA.
+        out_dir: thư mục ghi model đã gộp.
+        revision: commit của model gốc.
+
+    Trả về:
+        `out_dir`.
+
+    Lỗi:
+        RuntimeError: khi thiếu torch, transformers hoặc peft.
     """
     try:
         torch = importlib.import_module("torch")
@@ -444,22 +531,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def default_out_dir(env: str, config_path: Path, repo_root: Path) -> Path:
-    """Thư mục đầu ra mặc định: `<profile.runs_dir>/train/<config stem>`."""
+    """Trả về thư mục đầu ra mặc định: `<profile.runs_dir>/train/<config stem>`."""
     profile = load_profile(env, repo_root)
     return abs_path(profile.runs_dir, repo_root) / "train" / config_path.stem
 
 
 def main(argv: Sequence[str] | None = None, repo_root: Path = REPO_ROOT) -> int:
-    """Điểm vào dòng lệnh: train bằng ms-swift rồi ghi train_config.json kèm sha256 của các file dữ liệu."""
+    """Chạy CLI: train bằng ms-swift rồi ghi `train_config.json` kèm sha256 của các file dữ liệu; trả về mã thoát 0."""
     args = parse_args(argv)
     cfg_path = abs_path(args.config, repo_root)
     cfg = load_llm_train_config(cfg_path)
     out = abs_path(args.out_dir, repo_root) if args.out_dir else default_out_dir(args.env, cfg_path, repo_root)
-    from lifemate.train import swift_sft  # swift_sft import module này; import cục bộ để tránh vòng import
+    from lifemate.train import swift_sft  # `swift_sft` import module này; import trong hàm để tránh import vòng
 
     # ckpt_dir = train(cfg, repo_root=repo_root, out_dir=out, resume_from=args.resume_from)  # Unsloth trainer
     ckpt_dir = swift_sft.train(cfg, repo_root=repo_root, out_dir=out, resume=not args.no_resume)
-    # sha256 cho mọi giá trị chuỗi trong [data] trỏ tới file có thật (train, eval, cache ASR).
+    # sha256 cho mọi giá trị chuỗi trong `[data]` trỏ tới file có thật (train, eval, cache ASR).
     data_sha = {
         k: sha256_file(abs_path(v, repo_root))
         for k, v in dataclasses.asdict(cfg.data).items()

@@ -1,7 +1,12 @@
-"""Kiểm tra lớp nối với ms-swift (lifemate.train.swift_sft): tham số, xuất dòng, kiểm template, checkpoint.
+"""Test lớp nối với ms-swift (`lifemate.train.swift_sft`): tham số, xuất dòng, kiểm tra template, checkpoint.
 
-Các test đọc cấu hình thật `configs/train/llm_v1.toml`, dựng checkpoint giả bằng `_checkpoint` trong `tmp_path` và
-thay lệnh `swift` bằng runner giả. Không cần GPU, tokenizer hay dữ liệu cuộc thi.
+Cách hoạt động:
+- Đọc config thật `configs/train/llm_v1.toml`.
+- Dựng checkpoint giả bằng `_checkpoint` trong `tmp_path`.
+- Thay lệnh `swift` bằng runner giả.
+
+Lưu ý:
+- Không cần GPU, tokenizer hay dữ liệu cuộc thi.
 """
 
 from __future__ import annotations
@@ -25,7 +30,7 @@ def _flag(argv: Sequence[str], name: str) -> str:
 
 
 def test_argv_follows_the_config() -> None:
-    """Tham số dòng lệnh ms-swift lấy đúng từ cấu hình; chỉ thêm --resume_from_checkpoint khi có resume_from."""
+    """Tham số dòng lệnh ms-swift lấy đúng từ config; chỉ thêm `--resume_from_checkpoint` khi có `resume_from`."""
     cfg = load_llm_train_config(CFG)
     argv = swift_sft.swift_argv(
         cfg, train_file=Path("t.jsonl"), val_file=Path("v.jsonl"), out_dir=Path("o"), dtype="float16"
@@ -49,7 +54,7 @@ def test_argv_follows_the_config() -> None:
 
 
 def test_export_keeps_messages_and_loss_flags_only(tmp_path: Path) -> None:
-    """File xuất cho ms-swift chỉ giữ `messages` (kèm cờ loss), bỏ các trường phụ như id, category."""
+    """File xuất cho ms-swift chỉ giữ `messages` (kèm cờ `loss`), bỏ các trường phụ như id, category."""
     src = tmp_path / "rows.jsonl"
     row = {
         "id": "x",
@@ -67,7 +72,7 @@ def test_export_keeps_messages_and_loss_flags_only(tmp_path: Path) -> None:
 
 
 def test_pick_check_rows_puts_error_recovery_first() -> None:
-    """Khi chọn dòng để kiểm template, dòng hồi phục lỗi (có loss=False) được ưu tiên đứng đầu."""
+    """Khi chọn dòng để kiểm tra template, dòng phục hồi lỗi (có `loss=False`) được xếp đầu."""
     plain = [{"id": str(i), "messages": [{"role": "assistant", "content": "a"}]} for i in range(5)]
     special = {"id": "s", "messages": [{"role": "assistant", "content": "a", "loss": False}]}
     picked = swift_sft.pick_check_rows([*plain, special], 3)
@@ -75,7 +80,7 @@ def test_pick_check_rows_puts_error_recovery_first() -> None:
 
 
 def test_compare_encodings() -> None:
-    """So sánh mã hóa của hai bên báo lỗi rõ vị trí token đầu tiên lệch ở input_ids hoặc labels."""
+    """So hai cách mã hoá báo lỗi rõ vị trí token đầu tiên lệch ở `input_ids` hoặc `labels`."""
     swift_sft.compare_encodings("r", ([1, 2], [-100, 2]), ([1, 2], [-100, 2]), lambda ids: "")
     with pytest.raises(swift_sft.TemplateMismatchError, match="input_ids differ at token 1"):
         swift_sft.compare_encodings("r", ([1, 2], [-100, 2]), ([1, 3], [-100, 3]), lambda ids: "")
@@ -84,14 +89,14 @@ def test_compare_encodings() -> None:
 
 
 def _checkpoint(root: Path, step: int, history: list[dict]) -> None:
-    """Tạo thư mục checkpoint-<step> giả với trainer_state.json chứa log_history cho trước."""
+    """Tạo thư mục `checkpoint-<step>` giả với `trainer_state.json` chứa `log_history` cho trước."""
     d = root / f"checkpoint-{step}"
     d.mkdir(parents=True)
     (d / "trainer_state.json").write_text(json.dumps({"log_history": history}), encoding="utf-8")
 
 
 def test_checkpoints_best_and_latest(tmp_path: Path) -> None:
-    """Liệt kê checkpoint bỏ qua bản đang ghi dở; best_k theo eval_loss thấp nhất, latest theo step lớn nhất."""
+    """Liệt kê checkpoint bỏ qua bản đang ghi dở; `best_k` theo `eval_loss` thấp nhất, `latest` theo step lớn nhất."""
     hist = [{"step": 50, "eval_loss": 0.9}, {"step": 50, "loss": 1.2}, {"step": 100, "eval_loss": 0.7}]
     _checkpoint(tmp_path, 50, hist[:2])
     _checkpoint(tmp_path, 100, hist)
@@ -104,7 +109,7 @@ def test_checkpoints_best_and_latest(tmp_path: Path) -> None:
 
 
 def test_train_exports_checks_and_runs_swift(tmp_path: Path) -> None:
-    """train xuất dữ liệu, kiểm template, gọi `swift sft` tiếp từ checkpoint mới nhất, báo lỗi khi mã thoát khác 0."""
+    """`train` xuất dữ liệu, kiểm tra template, chạy `swift sft` từ checkpoint mới nhất, báo lỗi khi mã thoát khác 0."""
     cfg = load_llm_train_config(CFG)
     rows = {"id": "x", "messages": [{"role": "user", "content": "u"}, {"role": "assistant", "content": "a"}]}
     for rel in (cfg.data.train, cfg.data.eval_unseen):
@@ -142,7 +147,7 @@ def test_train_exports_checks_and_runs_swift(tmp_path: Path) -> None:
 
 
 def test_write_metrics_renames_eval_loss(tmp_path: Path) -> None:
-    """Bảo vệ: metrics.jsonl được dựng từ checkpoint mới nhất, `eval_loss` thành `eval_unseen_loss`."""
+    """`metrics.jsonl` được dựng từ checkpoint mới nhất, với `eval_loss` đổi tên thành `eval_unseen_loss`."""
     assert swift_sft.write_metrics(tmp_path / "none", tmp_path / "m.jsonl") == 0
     hist = [{"step": 10, "loss": 1.5}, {"step": 50, "eval_loss": 0.9}]
     _checkpoint(tmp_path / "swift", 50, hist)

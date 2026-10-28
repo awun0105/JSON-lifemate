@@ -1,6 +1,8 @@
-"""T5, T18: kiểm tra các guard và chuỗi guard mở rộng được qua registry (SPEC 4.9).
+"""T5, T18: test các guard và việc mở rộng chuỗi guard qua registry (SPEC 4.9).
 
-Dùng catalog tổng hợp `CATALOG` và `FakeEnv` từ `tests/fakes.py`. Không cần dữ liệu cuộc thi hay tokenizer.
+Lưu ý:
+- Dùng catalog tổng hợp `CATALOG` và `FakeEnv` từ `tests/fakes.py`.
+- Không cần dữ liệu cuộc thi hay tokenizer.
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ from tests.fakes import FakeEnv
 
 
 def _tool(name: str, kind: str, required: list[str] | None = None) -> dict[str, Any]:
-    """Tạo mô tả tool trong catalog, các tham số bắt buộc đều kiểu string."""
+    """Tạo mô tả tool trong catalog; các tham số bắt buộc đều kiểu string."""
     props = {p: {"type": "string", "description": p} for p in required or []}
     return {
         "name": name,
@@ -79,12 +81,12 @@ def call(name: str, **arguments: Any) -> Action:
 
 
 def ctx(env: FakeEnv, calls: tuple[Action, ...] = ()) -> GuardContext:
-    """Tạo `GuardContext` với các lần gọi trước đó `calls`."""
+    """Tạo `GuardContext` với các lời gọi trước đó `calls`."""
     return GuardContext(env=env, allowed=ALLOWED, tool_kind=INDEX.tool_kinds(), calls_so_far=calls)
 
 
 def test_unknown_tool_blocked() -> None:
-    """Tool không được cài bị chặn với mã UNKNOWN_TOOL và không chạm tới môi trường."""
+    """Tool chưa cài bị chặn với mã `UNKNOWN_TOOL` và không chạm tới môi trường."""
     env = make_env()
     res, warns = build_guard_chain(["allowed_tool", "schema", "duplicate_write"]).check(call("bank.pay"), ctx(env))
     assert res.verdict is GuardVerdict.BLOCK and res.code is ErrorCode.UNKNOWN_TOOL
@@ -93,7 +95,7 @@ def test_unknown_tool_blocked() -> None:
 
 
 def test_missing_required_blocked() -> None:
-    """Thiếu tham số bắt buộc bị chặn với mã INVALID_ARGS và thông báo chính xác."""
+    """Thiếu tham số bắt buộc thì bị chặn với mã `INVALID_ARGS` và thông báo chính xác."""
     env = make_env()
     res, _ = build_guard_chain(["allowed_tool", "schema"]).check(call("alarm.delete"), ctx(env))
     assert res.verdict is GuardVerdict.BLOCK and res.code is ErrorCode.INVALID_ARGS
@@ -116,7 +118,7 @@ def test_duplicate_write_warns_only() -> None:
 
 
 def test_after_ask_stops() -> None:
-    """Sau khi đã hỏi lại người dùng thì mọi lệnh gọi tiếp theo bị dừng."""
+    """Sau khi đã hỏi lại người dùng, mọi lời gọi tiếp theo bị dừng."""
     env = make_env()
     asked = (call(ASK_TOOL, question="giờ nào?"),)
     assert AfterAskGuard().check(call("alarm.list"), ctx(env, asked)).verdict is GuardVerdict.STOP
@@ -128,12 +130,13 @@ def test_chain_order_stops_at_first_block() -> None:
     seen: list[str] = []
 
     class Spy:
-        """Guard giả ghi lại thứ tự được gọi và trả verdict cố định."""
+        """Guard giả ghi lại thứ tự được gọi và trả kết luận cố định."""
 
         def __init__(self, tag: str, verdict: GuardVerdict) -> None:
             self.tag, self.verdict = tag, verdict
 
         def check(self, action: Action, c: GuardContext) -> GuardResult:
+            """Ghi tên guard vào `seen` rồi trả kết luận đã định sẵn."""
             seen.append(self.tag)
             return GuardResult(
                 self.verdict, ErrorCode.DUPLICATE_WRITE if self.verdict is GuardVerdict.WARN else None, None
@@ -162,13 +165,14 @@ def test_registry_and_build() -> None:
 
 
 def test_guard_chain_open_closed(monkeypatch: pytest.MonkeyPatch) -> None:
-    """T18: guard chỉ thêm qua registry và config vẫn được gọi, không cần sửa mã chuỗi guard."""
+    """T18: guard chỉ thêm qua registry và config vẫn được gọi, không cần sửa mã của chuỗi guard."""
     invoked: list[str | None] = []
 
     class Custom:
         """Guard tuỳ biến ghi lại tên tool được kiểm tra."""
 
         def check(self, action: Action, c: GuardContext) -> GuardResult:
+            """Ghi tên tool rồi cho qua."""
             invoked.append(action.name)
             return GuardResult(GuardVerdict.PASS, None, None)
 

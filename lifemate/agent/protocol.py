@@ -1,15 +1,20 @@
-"""Định dạng đầu ra của LLM: JSON schema theo từng mẫu và bộ phân tích dễ dãi (SPEC 4.7).
+"""Quy định định dạng đầu ra của LLM: JSON schema cho từng mẫu và bộ parse chịu lỗi (SPEC 4.7).
 
-Nội dung: hằng số hành động (`call`, `done`), hàm tạo văn bản chuẩn của một lời gọi, hàm sinh JSON schema
-cho constrained decoding và hàm `parse` biến đầu ra của mô hình thành `Action`.
+Nội dung chính:
+- `ACTION_CALL`, `ACTION_DONE`, `DONE_TEXT`: tên hai loại hành động và văn bản chuẩn của hành động `done`.
+- `call_text`: văn bản chuẩn của một lời gọi tool.
+- `output_schema`, `schema_json`: JSON schema dùng cho constrained decoding (ép LLM sinh đúng cấu trúc).
+- `parse`: biến đầu ra của LLM thành `Action` hoặc `ParseError`.
 
-Cách xây dựng:
-- Mỗi lượt mô hình trả về đúng một JSON: `{"action": "call", "name", "arguments"}` hoặc `{"action": "done"}`.
-- Schema giới hạn `name` vào tập tool được phép của mẫu (luôn có `sys.ask_missing_info`), tên được sắp xếp
-  để hai mẫu cùng tập tool cho ra schema giống hệt từng byte; schema được cache theo tập tool.
-- `call_text` và `DONE_TEXT` dùng JSON chuẩn hóa, nên văn bản assistant khi huấn luyện trùng khớp từng byte
-  với văn bản mô hình sinh ra lúc chạy.
-- `parse` không bao giờ ném lỗi: đầu ra hỏng trở thành `ParseError` để vòng lặp agent xử lý bằng thử lại.
+Cách hoạt động:
+- Mỗi lượt, LLM trả về đúng một JSON: `{"action": "call", "name", "arguments"}` hoặc `{"action": "done"}`.
+- Schema chỉ cho `name` nhận các tool được phép của mẫu, luôn kèm `sys.ask_missing_info`. Tên tool được sắp xếp,
+  nên hai mẫu cùng tập tool có schema giống hệt nhau từng byte. Schema được cache theo tập tool.
+- `call_text` và `DONE_TEXT` dùng JSON chuẩn tắc, nên văn bản assistant lúc train khớp từng byte với văn bản
+  model sinh ra lúc chạy.
+
+Lưu ý:
+- `parse` không bao giờ ném lỗi: đầu ra hỏng thành `ParseError`, để vòng lặp agent xử lý bằng cách thử lại.
 """
 
 from __future__ import annotations
@@ -30,14 +35,14 @@ DONE_TEXT = canonical_json({"action": ACTION_DONE})
 
 
 def call_text(name: str, arguments: dict[str, Any]) -> str:
-    """Văn bản assistant chuẩn của một lời gọi tool (JSON chuẩn hóa)."""
+    """Tạo văn bản assistant chuẩn (JSON chuẩn tắc) cho một lời gọi tool."""
     return canonical_json({"action": ACTION_CALL, "name": name, "arguments": arguments})
 
 
 @functools.lru_cache(maxsize=1024)
 def _schema_cached(allowed: frozenset[str]) -> dict[str, Any]:
-    """Dựng schema cho một tập tool; được cache vì nhiều mẫu dùng chung tập tool."""
-    # Luôn thêm tool hỏi lại; sắp xếp tên để schema ổn định, không phụ thuộc thứ tự của set.
+    """Dựng schema cho một tập tool; có cache vì nhiều mẫu dùng chung tập tool."""
+    # Luôn thêm tool hỏi lại. Tên được sắp xếp để schema không phụ thuộc thứ tự duyệt của set.
     names = sorted(allowed | {ASK_TOOL})
     return {
         "anyOf": [
@@ -62,28 +67,34 @@ def _schema_cached(allowed: frozenset[str]) -> dict[str, Any]:
 
 
 def output_schema(allowed_tools: Iterable[str]) -> dict[str, Any]:
-    """JSON schema ràng buộc một lượt của LLM; tên tool được sắp xếp, `sys.ask_missing_info` có đúng một lần.
+    """Trả về JSON schema ràng buộc một lượt của LLM.
 
-    Dict trả về được cache và dùng chung: không được sửa trực tiếp.
+    Tên tool trong schema đã sắp xếp, và `sys.ask_missing_info` xuất hiện đúng một lần.
+
+    Tham số:
+        allowed_tools: tên các tool được phép của mẫu.
+
+    Trả về:
+        Dict schema. Dict này được cache và dùng chung, nên không được sửa trực tiếp.
     """
     return _schema_cached(frozenset(allowed_tools))
 
 
 def schema_json(allowed_tools: Iterable[str]) -> str:
-    """Chuỗi chuẩn hóa của `output_schema`; giống hệt nhau với các mẫu có cùng tập tool."""
+    """Trả về chuỗi JSON chuẩn tắc của `output_schema`; giống hệt nhau với các mẫu có cùng tập tool."""
     return canonical_json(output_schema(allowed_tools))
 
 
 def _loads_object(text: str) -> Any:
-    """Đọc JSON; nếu thất bại thì thử lại với đoạn từ `{` đầu tiên tới `}` cuối cùng.
+    """Đọc JSON từ `text`; nếu lỗi thì thử lại với đoạn từ dấu `{` đầu tiên tới dấu `}` cuối cùng.
 
-    Raises:
+    Lỗi:
         json.JSONDecodeError: khi cả hai cách đều không đọc được.
     """
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        # Mô hình đôi khi bọc JSON trong văn bản thừa (giải thích, code fence); cắt lấy phần ngoặc nhọn.
+        # Model đôi khi bọc JSON trong văn bản thừa (lời giải thích, code fence), nên cắt lấy phần trong ngoặc nhọn.
         start, end = text.find("{"), text.rfind("}")
         if start == -1 or end <= start:
             raise
@@ -91,19 +102,19 @@ def _loads_object(text: str) -> Any:
 
 
 def parse(text: str) -> Action | ParseError:
-    """Phân tích một đầu ra của LLM thành `Action`; không bao giờ ném lỗi.
+    """Parse một đầu ra của LLM thành `Action`; không bao giờ ném lỗi.
 
-    Args:
-        text: văn bản thô mô hình sinh ra.
+    Tham số:
+        text: văn bản thô do model sinh ra.
 
-    Returns:
+    Trả về:
         `Action` loại `done` hoặc `call`, hoặc `ParseError` (kèm văn bản thô) khi đầu ra không hợp lệ.
     """
     stripped = text.strip()
     try:
         obj = _loads_object(stripped)
     except (json.JSONDecodeError, RecursionError) as exc:
-        # RecursionError: JSON lồng quá sâu cũng chỉ là đầu ra hỏng, không được làm sập vòng lặp.
+        # `RecursionError` xảy ra khi JSON lồng quá sâu. Đó cũng chỉ là đầu ra hỏng, không được làm sập vòng lặp.
         return ParseError(message=f"invalid json: {exc}", raw=text)
     if not isinstance(obj, dict):
         return ParseError(message="output is not a JSON object", raw=text)

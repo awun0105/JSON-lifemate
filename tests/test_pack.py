@@ -1,7 +1,10 @@
-"""Kiểm tra đóng gói (SPEC 4.16): file zip mã nguồn, requirements cho notebook, notebook không chứa logic.
+"""Test phần đóng gói (SPEC 4.16): file zip mã nguồn, requirements cho notebook, và notebook không chứa logic.
 
-Chạy script `ops/scripts/pack_code.sh` thật (cần git checkout, nếu không thì skip) và đọc file trong repo.
-Không cần dữ liệu cuộc thi hay tokenizer.
+Cách hoạt động:
+- Chạy script `ops/scripts/pack_code.sh` thật và đọc các file trong repo.
+
+Lưu ý:
+- Cần git checkout, không có thì skip. Không cần dữ liệu cuộc thi hay tokenizer.
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ NOTEBOOKS = [REPO / "ops" / "notebooks" / "kaggle_run.ipynb", REPO / "ops" / "no
 
 @pytest.mark.skipif(shutil.which("git") is None or not (REPO / ".git").exists(), reason="needs a git checkout")
 def test_pack_code_zip(tmp_path: Path) -> None:
-    """Script đóng gói in đường dẫn zip và sha256; zip có mã nguồn, file VERSION, không có cache hay venv."""
+    """Script đóng gói in đường dẫn zip và sha256; zip có mã nguồn và file `VERSION`, không có cache hay venv."""
     out = subprocess.run(
         ["bash", str(REPO / "ops" / "scripts" / "pack_code.sh")],
         env={"DIST_DIR": str(tmp_path), "PATH": "/usr/bin:/bin:/usr/local/bin"},
@@ -44,7 +47,7 @@ def test_pack_code_zip(tmp_path: Path) -> None:
 
 
 def test_notebook_requirements_pinned_sorted_no_gpu() -> None:
-    """Requirements của notebook ghim phiên bản, sắp xếp theo tên và không kéo gói GPU."""
+    """Requirements của notebook có ghim phiên bản, sắp theo tên, và không kéo gói GPU."""
     lines = [
         ln for ln in (REPO / "ops" / "requirements" / "notebook.txt").read_text().splitlines() if ln and ln[0] != "#"
     ]

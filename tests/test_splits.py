@@ -1,8 +1,14 @@
-"""T26: kiểm tra các split, gồm configs/splits/smoke.txt (30 id val_seen, đủ mọi loại câu trả lời, ổn định).
+"""T26: test các split do `make_splits` sinh ra, gồm `configs/splits/smoke.txt` (30 id `val_seen`, đủ loại, ổn định).
 
-Ngoài ra kiểm tra gom cụm gần trùng, chia fold có nhóm và việc các split đã sinh không rò rỉ sang nhau.
-Cách kiểm tra: hai test mang marker `data` cần gói dữ liệu cuộc thi (thiếu thì skip qua fixture `data_root`) và chạy
-make_splits.py bằng subprocess; các test còn lại dùng mẫu giả từ `_item` hoặc file split đã sinh. Không cần tokenizer.
+Nội dung chính:
+- `smoke.txt` đúng kích thước, đủ loại và ổn định giữa các lần chạy.
+- Gom cụm gần trùng và chia fold theo nhóm.
+- Các split đã sinh không rò rỉ sang nhau.
+
+Lưu ý:
+- Hai test mang marker `data` cần gói dữ liệu cuộc thi (thiếu thì skip qua fixture `data_root`) và chạy
+  `make_splits.py` bằng subprocess.
+- Các test còn lại dùng mẫu giả từ `_item` hoặc file split đã sinh. Không cần tokenizer.
 """
 
 from __future__ import annotations
@@ -21,7 +27,7 @@ SPLITS = REPO / "configs" / "splits"
 
 @pytest.fixture
 def data_root() -> Path:
-    """Trả thư mục dữ liệu cuộc thi; skip nếu thiếu gói dữ liệu."""
+    """Trả về thư mục dữ liệu cuộc thi; skip nếu thiếu gói dữ liệu."""
     if not (DATA / "train" / "train.jsonl").exists():
         pytest.skip("competition data package is absent")
     return DATA
@@ -33,7 +39,7 @@ def _ids(path: Path) -> list[str]:
 
 
 def _category(calls: list[dict]) -> str:
-    """Xếp loại câu trả lời từ danh sách tool call: out_of_scope, ask_missing_info hoặc execute."""
+    """Phân loại câu trả lời từ danh sách lời gọi: `out_of_scope`, `ask_missing_info` hoặc `execute`."""
     names = [c["name"] for c in calls]
     if not names:
         return "out_of_scope"
@@ -42,7 +48,7 @@ def _category(calls: list[dict]) -> str:
 
 @pytest.mark.data
 def test_smoke_split(data_root):
-    """Bảo vệ: smoke.txt có đúng 30 id khác nhau, nằm trong val_seen và phủ cả ba loại câu trả lời."""
+    """`smoke.txt` có đúng 30 id khác nhau, đều thuộc `val_seen`, và phủ cả ba loại câu trả lời."""
     smoke = _ids(SPLITS / "smoke.txt")
     assert len(smoke) == 30
     assert len(set(smoke)) == 30
@@ -54,7 +60,7 @@ def test_smoke_split(data_root):
 
 @pytest.mark.data
 def test_smoke_stable(data_root, tmp_path):
-    """Bảo vệ: chạy make_splits hai lần cho cùng smoke.txt, và trùng file đã commit."""
+    """Chạy `make_splits` hai lần ra cùng `smoke.txt`, và trùng với file đã commit."""
     runs = []
     for name in ("a", "b"):
         out = tmp_path / name
@@ -67,7 +73,7 @@ def test_smoke_stable(data_root, tmp_path):
 
 
 def _item(i: str, text: str, n_calls: int, ask: bool = False) -> dict:
-    """Tạo mẫu giả với `n_calls` tool call, thêm sys.ask_missing_info khi `ask` bật."""
+    """Tạo mẫu giả có `n_calls` lời gọi tool, thêm `sys.ask_missing_info` khi `ask` bật."""
     calls = [{"name": "alarm.create", "arguments": {}}] * n_calls
     if ask:
         calls = [*calls, {"name": "sys.ask_missing_info", "arguments": {}}]
@@ -75,7 +81,7 @@ def _item(i: str, text: str, n_calls: int, ask: bool = False) -> dict:
 
 
 def test_near_duplicates_cluster_and_stay_in_one_fold() -> None:
-    """Bảo vệ: yêu cầu gần trùng (độ giống >= 0.85) không bao giờ nằm cả ở train lẫn val (theo trưởng nhóm)."""
+    """Yêu cầu gần trùng (độ giống từ 0.85) không bao giờ nằm cả ở train lẫn val (theo trưởng nhóm)."""
     from lifemate.eval.make_splits import cluster_near_duplicates, stratified_group_folds
 
     items = [
@@ -95,13 +101,13 @@ def test_near_duplicates_cluster_and_stay_in_one_fold() -> None:
 
 
 def test_generated_splits_do_not_leak() -> None:
-    """Bắt lỗi từng có trong repo của trưởng nhóm: id val_unseen nằm trong tập huấn luyện, hoặc val_seen trùng train."""
+    """Id `val_unseen` không lọt vào train và `val_seen` không trùng train (lỗi từng có trong repo của trưởng nhóm)."""
     if not (SPLITS / "meta.json").is_file():
         pytest.skip("splits not generated (git-ignored): run `make splits`")
     train, seen, unseen = (set(_ids(SPLITS / f"{n}.txt")) for n in ("train", "val_seen", "val_unseen"))
     assert not train & unseen and not train & seen and not seen & unseen
     folds = [set(_ids(p)) for p in sorted((SPLITS / "folds").glob("fold_*.txt"))]
-    # fold 0 chính là val_seen, các fold còn lại hợp thành train.
+    # Fold 0 chính là `val_seen`, các fold còn lại hợp thành train.
     assert len(folds) == 5 and folds[0] == seen and set().union(*folds[1:]) == train
     meta = json.loads((SPLITS / "meta.json").read_text(encoding="utf-8"))
     assert meta["leak_check"] == {"train_and_val_unseen": 0, "train_and_val_seen": 0}

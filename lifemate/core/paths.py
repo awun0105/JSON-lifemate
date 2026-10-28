@@ -1,12 +1,16 @@
-"""Thư mục gốc của repo: định nghĩa một lần thay cho việc đếm `Path(__file__).parent.parent...` ở từng module.
+"""Khai báo thư mục gốc của repo ở một chỗ, để các module không phải tự đếm `Path(__file__).parent.parent...`.
 
-Cách xây dựng: tính từ vị trí của chính file này, nên đúng cả khi gói được cài ở chế độ editable hay chạy
-trực tiếp từ mã nguồn, không phụ thuộc thư mục làm việc hiện tại.
+Nội dung chính:
+- `REPO_ROOT`: đường dẫn tuyệt đối tới thư mục gốc của repo.
+
+Lưu ý:
+- Đường dẫn được tính từ vị trí của chính file này, không phụ thuộc thư mục làm việc hiện tại. Vì vậy giá trị
+  vẫn đúng khi gói được cài ở chế độ editable hoặc khi chạy thẳng từ mã nguồn.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-# lifemate/core/paths.py -> lifemate/core -> lifemate -> repo
+# Đi lên ba cấp: lifemate/core/paths.py -> lifemate/core -> lifemate -> repo.
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent

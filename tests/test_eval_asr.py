@@ -1,7 +1,11 @@
-"""Kiểm tra các chỉ số của eval_asr: WER, CER, tỉ lệ bỏ sót thực thể, phân vị (SPEC 6.4.2).
+"""Test các chỉ số của `eval_asr`: WER, CER, tỉ lệ bỏ sót thực thể, phân vị (SPEC 6.4.2).
 
-Sample dựng tay qua `_sample`; `evaluate` chạy với `GoldTranscriber` (trả đúng văn bản gốc).
-Không cần dữ liệu cuộc thi hay tokenizer.
+Nội dung chính:
+- `_EmptyFinal`, `_RawASR`: transcriber giả cho các ca câu rỗng và câu bịa.
+
+Lưu ý:
+- `Sample` dựng tay qua `_sample`; `evaluate` chạy với `GoldTranscriber` (trả đúng văn bản gốc).
+- Không cần dữ liệu cuộc thi hay tokenizer.
 """
 
 from typing import Any
@@ -14,7 +18,7 @@ from lifemate.eval.eval_asr import cer, entity_miss_rate, evaluate, normalize_te
 
 
 def _sample(sid: str, text: str, calls: list[dict[str, Any]], history: tuple[Turn, ...] = ()) -> Sample:
-    """Tạo `Sample` có văn bản gốc `text` và nhãn là danh sách tool call `calls`."""
+    """Tạo `Sample` có văn bản gốc `text` và nhãn là danh sách lời gọi `calls`."""
     return Sample(
         id=sid,
         split="train",
@@ -32,7 +36,7 @@ def test_normalize() -> None:
 
 
 def test_wer_cer_known() -> None:
-    """WER và CER khớp giá trị tính tay; hai chuỗi rỗng cho 0 thay vì chia cho 0."""
+    """WER và CER khớp giá trị tính tay; hai chuỗi rỗng cho 0 thay vì lỗi chia cho 0."""
     assert wer("a b c d", "a x c") == pytest.approx(0.5)
     assert wer("Xin chào", "xin chào!") == 0.0
     assert cer("abcd", "abed") == pytest.approx(0.25)
@@ -40,7 +44,7 @@ def test_wer_cer_known() -> None:
 
 
 def test_entity_miss() -> None:
-    """Thực thể trong tham số nhãn ("Huy") bị ASR nghe sai thì được tính là bỏ sót; số 150000 vẫn khớp."""
+    """Thực thể trong tham số nhãn ("Huy") bị ASR nghe sai thì tính là bỏ sót, còn số 150000 vẫn khớp."""
     s = _sample(
         "e", "chuyển cho Huy 150000", [{"name": "bank.transfer", "arguments": {"contact": "Huy", "amount": 150000}}]
     )
@@ -60,7 +64,7 @@ def test_entity_skips_ask_and_absent() -> None:
 
 
 def test_percentile() -> None:
-    """Phân vị theo cách làm tròn của hàm; danh sách rỗng cho 0."""
+    """Phân vị làm tròn theo hạng gần nhất; danh sách rỗng cho 0."""
     xs = [float(i) for i in range(1, 21)]
     assert percentile(xs, 95) == 19.0
     assert percentile(xs, 50) == 10.0
@@ -68,7 +72,7 @@ def test_percentile() -> None:
 
 
 def test_evaluate_gold() -> None:
-    """Với transcript vàng: WER/CER bằng 0, đếm cả lượt user trong history, báo cáo có đủ các khoá."""
+    """Với transcript gold: WER, CER bằng 0, có đếm cả lượt user trong lịch sử, và báo cáo đủ các khoá."""
     u = Turn(role="user", audio=None, audio_text="trước đó", text=None, tool_calls=(), tool_results=())
     a = Turn(role="assistant", audio=None, audio_text=None, text="ok", tool_calls=(), tool_results=())
     samples = [
@@ -79,7 +83,7 @@ def test_evaluate_gold() -> None:
     rep = evaluate(samples, GoldTranscriber())
     assert rep.wer == 0.0 and rep.cer == 0.0
     assert (rep.entity_missed, rep.entity_total) == (0, 3)
-    # 3 câu cuối cộng 1 lượt user trong history của sample "b".
+    # 3 câu cuối cộng 1 lượt user trong lịch sử của mẫu "b".
     assert rep.n_utterances == 4
     text = rep.to_text()
     for key in ("WER", "CER", "entity_miss_rate", "p95"):
@@ -88,18 +92,18 @@ def test_evaluate_gold() -> None:
 
 
 class _EmptyFinal:
-    """Transcriber giả: câu cuối luôn rỗng (như khi VAD cắt mất giọng hoặc bộ lọc xóa nhầm)."""
+    """Transcriber giả luôn trả câu cuối rỗng (như khi VAD cắt mất giọng hoặc bộ lọc xoá nhầm)."""
 
     def transcribe(self, sample: Sample) -> Transcript:
         """Trả câu cuối rỗng, không có lịch sử."""
         return Transcript(final="", history=tuple(None for _ in sample.history), seconds=0.1)
 
     def warmup(self) -> None:
-        """Không cần khởi động."""
+        """Không cần làm gì."""
 
 
 def test_evaluate_counts_empty_and_records_hyps() -> None:
-    """Bảo vệ: câu ASR rỗng được đếm riêng (n_empty) và `hyps` ghi đủ ref/hyp từng câu để soi lỗi."""
+    """Câu ASR rỗng được đếm riêng (`n_empty`), và `hyps` ghi đủ ref/hyp từng câu để soi lỗi."""
     samples = [_sample("s1", "bật đèn", []), _sample("s2", "tắt quạt", [])]
     hyps: list[dict[str, Any]] = []
     rep = evaluate(samples, _EmptyFinal(), hyps)
@@ -112,25 +116,25 @@ def test_evaluate_counts_empty_and_records_hyps() -> None:
 
 
 class _RawASR:
-    """Transcriber giả có chữ trước lọc: lượt cuối bị bịa (bộ lọc xóa hết), số viết bằng chữ số."""
+    """Transcriber giả có chữ trước khi lọc: lượt cuối bị bịa (bộ lọc xoá hết), số viết bằng chữ số."""
 
     def warmup(self) -> None:
-        """Không cần khởi động."""
+        """Không cần làm gì."""
 
     def transcribe(self, sample: Sample) -> Transcript:
-        """s1: nghe đúng nhưng viết số bằng chữ số; s2: câu bịa phụ đề, sau lọc thành rỗng."""
+        """Mẫu s1: nghe đúng nhưng viết số bằng chữ số; mẫu s2: câu phụ đề bịa, sau khi lọc thành rỗng."""
         if sample.id == "s1":
             return Transcript(final="nhắn zalo lúc 8 giờ", history=(), seconds=0.1, raw=("nhắn zalo lúc 8 giờ",))
         return Transcript(final="", history=(), seconds=0.1, raw=("Hãy subscribe cho kênh lalaschool",))
 
 
 def test_evaluate_nonum_wer_hallucination_and_terms() -> None:
-    """Bảo vệ: wer_nonum bỏ khác biệt cách viết số; câu bịa đếm trên chữ trước lọc; terms đếm tên riêng viết đúng."""
+    """`wer_nonum` bỏ khác biệt cách viết số, câu bịa đếm trên chữ trước khi lọc, `terms` đếm tên riêng viết đúng."""
     samples = [_sample("s1", "Nhắn Zalo lúc tám giờ", []), _sample("s2", "Gọi Zalo cho mẹ", [])]
     hyps: list[dict[str, Any]] = []
     rep = evaluate(samples, _RawASR(), hyps)
     assert rep.n_hallucinated == 1 and rep.n_empty == 1
-    # s1 chỉ khác cách viết số nên không có lỗi; s2 rỗng: 4 từ bị xóa trên tổng 4 + 4 từ không phải số.
+    # s1 chỉ khác cách viết số nên không có lỗi; s2 rỗng: 4 từ bị xoá trên tổng 4 + 4 từ không phải số.
     assert rep.wer_nonum == 4 / 8
     assert rep.terms == {"zalo": [2, 1]}
     assert hyps[1]["raw"] == "Hãy subscribe cho kênh lalaschool"

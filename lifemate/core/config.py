@@ -1,19 +1,22 @@
-"""Cấu hình chạy và profile môi trường, đọc từ file TOML (SPEC 4.14, 4.16).
+"""Đọc config chạy và profile môi trường từ file TOML, kiểm tra kỹ rồi trả về dataclass (SPEC 4.14, 4.16).
 
-Nội dung file:
-- Các dataclass bất biến cho từng mục của config chạy: `LLMConfig` ([llm]), `AgentConfig` ([agent]),
-  `ASRConfig` ([asr]), gộp lại trong `Config`.
-- `EnvProfile`: nơi đặt dữ liệu, thư mục run và cache trên một máy cụ thể (`configs/env/<tên>.toml`).
-- `load_config` và `load_profile`: đọc TOML, kiểm tra khóa và giá trị, trả về dataclass.
+Nội dung chính:
+- `LLMConfig`, `AgentConfig`, `ASRConfig`: ba mục `[llm]`, `[agent]`, `[asr]` của config chạy.
+- `Config`: gộp ba mục trên thành config của một lần chạy.
+- `EnvProfile`: vị trí dữ liệu, thư mục run và cache trên một máy (`configs/env/<tên>.toml`).
+- `load_config`, `load_profile`: đọc TOML, kiểm tra khoá và giá trị, trả về dataclass tương ứng.
+- `ConfigError`: lỗi báo khi config sai.
 
-Cách xây dựng:
-- Config chạy (mô hình, tham số agent, ASR) tách khỏi profile môi trường (đường dẫn, nguồn token), để cùng một
-  config chạy được trên Kaggle, Colab hay máy cá nhân chỉ bằng cách đổi profile.
-- Kiểm tra chặt: khóa lạ hoặc thiếu khóa đều báo `ConfigError` ngay lúc nạp, thay vì lỗi muộn giữa lượt chạy.
-  Chỉ các khóa trong tập optional (ví dụ `_ASR_OPTIONAL`) mới được bỏ trống và dùng giá trị mặc định.
-- Dataclass `frozen=True, slots=True`: config không đổi sau khi nạp, mọi chỗ đọc đều thấy cùng một giá trị.
-- Token HF không nằm trong file; profile chỉ ghi nguồn (`env:`, `kaggle_secret:`, `colab_userdata:`) và token
-  được đọc lúc chạy.
+Cách hoạt động:
+- Config chạy (model, tham số agent, ASR) tách riêng khỏi profile môi trường (đường dẫn, nguồn token). Nhờ vậy
+  cùng một config chạy được trên Kaggle, Colab hay máy cá nhân, chỉ cần đổi profile.
+- Kiểm tra chặt ngay lúc nạp: khoá lạ hoặc thiếu khoá đều báo `ConfigError`, không để lỗi lộ ra giữa lần chạy.
+  Chỉ các khoá trong tập tuỳ chọn (ví dụ `_ASR_OPTIONAL`) mới được bỏ trống và lấy giá trị mặc định.
+- Các dataclass đều `frozen=True, slots=True`: config không đổi sau khi nạp, mọi chỗ đọc đều thấy cùng giá trị.
+
+Lưu ý:
+- Token Hugging Face (HF) không nằm trong file. Profile chỉ ghi nguồn của token (`env:`, `kaggle_secret:`,
+  `colab_userdata:`), còn token được đọc lúc chạy và không bao giờ ghi ra log.
 """
 
 from __future__ import annotations
@@ -27,12 +30,25 @@ from typing import Any, TypeVar
 
 
 class ConfigError(ValueError):
-    """Khóa config sai giá trị, không được biết hoặc bị thiếu."""
+    """Lỗi config: khoá bị thiếu, khoá không có trong dataclass, hoặc giá trị không hợp lệ."""
 
 
 @dataclass(frozen=True, slots=True)
 class LLMConfig:
-    """Mục [llm]: backend, mô hình và tham số sinh văn bản."""
+    """Mục `[llm]`: backend, model và tham số sinh văn bản.
+
+    Thuộc tính:
+        backend: `"vllm"` cho model thật, `"fake"` cho test.
+        model: tên model trên Hugging Face; bắt buộc khi `backend = "vllm"`.
+        revision: commit cố định của model.
+        dtype: `"auto"`, `"float16"` hoặc `"bfloat16"`; `auto` chọn theo GPU (xem `resolve_dtype`).
+        max_model_len: độ dài context tối đa, tính bằng token.
+        gpu_memory_utilization: tỉ lệ bộ nhớ GPU vLLM được dùng, trong khoảng (0, 1].
+        seed: seed ngẫu nhiên khi sinh văn bản.
+        max_tokens: số token tối đa sinh ra trong một bước.
+        batch_invariant: bật chế độ của vLLM giúp kết quả không phụ thuộc kích thước batch; cần GPU sm80 trở lên.
+        warmup_runs: số lần chạy làm nóng trước khi đo.
+    """
 
     backend: str
     model: str
@@ -48,11 +64,20 @@ class LLMConfig:
 
 @dataclass(frozen=True, slots=True)
 class AgentConfig:
-    """Mục [agent]: giới hạn vòng lặp agent, prompt hệ thống và danh sách guard."""
+    """Mục `[agent]`: giới hạn của vòng lặp agent, đường dẫn system prompt và danh sách guard.
+
+    Thuộc tính:
+        max_steps: số bước LLM tối đa cho một mẫu.
+        max_retries: số lần thử lại tối đa khi đầu ra LLM sai định dạng hoặc bị guard từ chối.
+        deadline_s: hạn giờ của một mẫu, tính bằng giây từ lúc bắt đầu mẫu (gồm cả ASR).
+        max_result_chars: số ký tự tối đa của kết quả tool trước khi đưa lại vào prompt.
+        system_prompt: đường dẫn file system prompt.
+        guards: tên các guard được bật, chạy theo thứ tự trong list.
+    """
 
     max_steps: int
     max_retries: int
-    deadline_s: float  # số giây tính từ lúc bắt đầu mẫu (gồm cả ASR); bước LLM đang chạy bị dừng tại mốc này
+    deadline_s: float  # giây, tính từ lúc bắt đầu mẫu (gồm cả ASR); tới mốc này bước LLM đang chạy bị ngắt
     max_result_chars: int
     system_prompt: str
     guards: list[str]
@@ -60,29 +85,51 @@ class AgentConfig:
 
 @dataclass(frozen=True, slots=True)
 class ASRConfig:
-    """Mục [asr]: backend nhận dạng giọng nói; các trường có giá trị mặc định là tùy chọn trong TOML."""
+    """Mục `[asr]`: backend nhận dạng giọng nói (ASR, speech to text).
+
+    Các trường có giá trị mặc định là tuỳ chọn trong file TOML.
+
+    Thuộc tính:
+        backend: `"gold"` dùng transcript có sẵn, `"asr"` chạy model ASR thật.
+        model: tên model ASR; bắt buộc khi `backend = "asr"`.
+        revision: commit cố định của model ASR.
+        engine: cách nạp `model`, một tên trong `ASR_ENGINE_NAMES`.
+        device: `"auto"`, `"cpu"` hoặc `"cuda"`.
+        dtype: một giá trị trong `ASR_DTYPES`.
+        batch_size: số file audio xử lý trong một batch, tối thiểu 1.
+        generate_kwargs: tham số giải mã truyền thẳng cho engine (beam, VAD...).
+        sample_rate: tần số lấy mẫu audio, đơn vị Hz.
+        sanitize: `True` thì lọc câu ảo giác bằng `lifemate.backends.asr_sanitizer`.
+    """
 
     backend: str
     model: str
     revision: str
-    engine: str = "hf_seq2seq"  # cách nạp `model` khi backend = "asr"; xem lifemate.backends.asr.ASR_ENGINES
+    engine: str = "hf_seq2seq"  # cách nạp `model` khi backend = "asr"; xem `lifemate.backends.asr.ASR_ENGINES`
     device: str = "auto"
-    dtype: str = "auto"  # auto: bfloat16 trên GPU sm80+, float16 trên GPU cũ hơn, float32 trên CPU
+    dtype: str = "auto"  # auto: bfloat16 trên GPU sm80 trở lên, float16 trên GPU cũ hơn, float32 trên CPU
     batch_size: int = 8
     generate_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
     sample_rate: int = 16000
-    sanitize: bool = False  # bỏ ảo giác kiểu phụ đề và đoạn lặp (lifemate.backends.asr_sanitizer)
+    sanitize: bool = False  # bỏ câu ảo giác kiểu phụ đề và đoạn lặp (`lifemate.backends.asr_sanitizer`)
 
 
 ASR_ENGINE_NAMES = frozenset({"faster_whisper", "hf_seq2seq", "chunkformer", "nemo_ctc"})
 ASR_DTYPES = frozenset({"auto", "float32", "float16", "bfloat16"})
-# Phải khớp với các trường có giá trị mặc định của ASRConfig, nếu không `_build` sẽ đòi khóa đó trong TOML.
+# Phải khớp với các trường có giá trị mặc định của `ASRConfig`; thiếu tên nào thì `_build` sẽ bắt buộc khoá đó
+# trong TOML.
 _ASR_OPTIONAL = frozenset({"engine", "device", "dtype", "batch_size", "generate_kwargs", "sample_rate", "sanitize"})
 
 
 @dataclass(frozen=True, slots=True)
 class Config:
-    """Toàn bộ config của một lượt chạy: gồm ba mục llm, agent và asr."""
+    """Toàn bộ config của một lần chạy, gồm ba mục `llm`, `agent` và `asr`.
+
+    Thuộc tính:
+        llm: mục `[llm]`.
+        agent: mục `[agent]`.
+        asr: mục `[asr]`.
+    """
 
     llm: LLMConfig
     agent: AgentConfig
@@ -91,7 +138,15 @@ class Config:
 
 @dataclass(frozen=True, slots=True)
 class EnvProfile:
-    """Nơi đặt dữ liệu, thư mục run và cache trên một máy."""
+    """Vị trí dữ liệu, thư mục run và cache trên một máy cụ thể.
+
+    Thuộc tính:
+        data_root: thư mục chứa dữ liệu cuộc thi.
+        runs_dir: thư mục ghi kết quả các lần chạy.
+        hf_token_source: nguồn đọc token HF, dạng `<loại>:<tên>`.
+        persist: cách giữ kết quả sau khi máy tắt (`local`, `drive`, `kaggle_dataset`).
+        hf_cache: thư mục cache model của Hugging Face; `None` thì dùng mặc định.
+    """
 
     data_root: str
     runs_dir: str
@@ -100,13 +155,14 @@ class EnvProfile:
     hf_cache: str | None = None
 
     def with_overrides(self, root: str | None = None, out: str | None = None) -> EnvProfile:
-        """Áp tham số dòng lệnh (--root, --out), ưu tiên hơn giá trị trong profile.
+        """Tạo profile mới với tham số dòng lệnh `--root`, `--out` ghi đè lên giá trị trong profile.
 
         Tham số:
-            root: thư mục dữ liệu thay cho `data_root`; None thì giữ nguyên.
-            out: thư mục run thay cho `runs_dir`; None thì giữ nguyên.
+            root: thư mục dữ liệu thay cho `data_root`; `None` thì giữ nguyên.
+            out: thư mục run thay cho `runs_dir`; `None` thì giữ nguyên.
 
-        Trả về một `EnvProfile` mới; profile gốc không đổi.
+        Trả về:
+            `EnvProfile` mới; profile gốc không đổi.
         """
         return dataclasses.replace(
             self,
@@ -115,10 +171,13 @@ class EnvProfile:
         )
 
     def resolve_hf_token(self) -> str | None:
-        """Đọc token HF từ nguồn đã khai báo lúc chạy; không bao giờ ghi token ra log.
+        """Đọc token HF từ nguồn đã khai báo, chỉ lúc chạy và không ghi token ra log.
 
         `hf_token_source` có dạng `<loại>:<tên>`, với loại là `env`, `kaggle_secret` hoặc `colab_userdata`.
-        Trả về None khi loại không hỗ trợ, biến môi trường rỗng, hoặc thư viện của nền tảng không có.
+
+        Trả về:
+            Token dạng chuỗi, hoặc `None` khi loại nguồn không được hỗ trợ, biến môi trường rỗng, hoặc máy không có
+            thư viện của nền tảng tương ứng (Kaggle, Colab).
         """
         kind, _, name = self.hf_token_source.partition(":")
         if kind == "env":
@@ -143,10 +202,20 @@ _T = TypeVar("_T")
 
 
 def _build(cls: type[_T], section: str, raw: Any, optional: frozenset[str] = frozenset()) -> _T:
-    """Dựng dataclass `cls` từ bảng TOML `raw` của mục `section`, kiểm tra khóa trước.
+    """Dựng dataclass `cls` từ bảng TOML `raw` của mục `section`, sau khi kiểm tra khoá.
 
-    Báo `ConfigError` khi `raw` không phải bảng, có khóa không thuộc dataclass, hoặc thiếu khóa bắt buộc
-    (mọi trường không nằm trong `optional`).
+    Tham số:
+        cls: lớp dataclass cần dựng.
+        section: tên mục, chỉ dùng trong thông báo lỗi.
+        raw: giá trị đọc từ TOML cho mục đó.
+        optional: các trường được phép vắng mặt và lấy giá trị mặc định.
+
+    Trả về:
+        Đối tượng `cls` đã dựng.
+
+    Lỗi:
+        ConfigError: khi `raw` không phải bảng, có khoá không thuộc dataclass, hoặc thiếu khoá bắt buộc (mọi trường
+            không nằm trong `optional`).
     """
     if not isinstance(raw, dict):
         raise ConfigError(f"[{section}] must be a table")
@@ -161,18 +230,23 @@ def _build(cls: type[_T], section: str, raw: Any, optional: frozenset[str] = fro
 
 
 def _check(cond: bool, msg: str) -> None:
+    """Báo `ConfigError` với thông báo `msg` khi `cond` sai."""
     if not cond:
         raise ConfigError(msg)
 
 
 def load_config(path: Path) -> Config:
-    """Đọc và kiểm tra file TOML config chạy.
+    """Đọc file TOML config chạy và kiểm tra khoá, kiểu, giá trị.
 
     Tham số:
-        path: đường dẫn file TOML có đúng ba mục [llm], [agent], [asr].
+        path: đường dẫn file TOML có đúng ba mục `[llm]`, `[agent]`, `[asr]`.
 
-    Trả về `Config` đã kiểm tra. Báo `ConfigError` khi thiếu hoặc thừa mục/khóa, hoặc khi giá trị nằm ngoài
-    tập cho phép (backend, dtype, engine, device, batch_size...).
+    Trả về:
+        `Config` đã kiểm tra.
+
+    Lỗi:
+        ConfigError: khi thiếu hoặc thừa mục, thiếu hoặc thừa khoá, hoặc giá trị nằm ngoài tập cho phép (backend,
+            dtype, engine, device, batch_size...).
     """
     with open(path, "rb") as f:
         raw = tomllib.load(f)
@@ -183,7 +257,7 @@ def load_config(path: Path) -> Config:
     llm = _build(LLMConfig, "llm", raw["llm"])
     agent = _build(AgentConfig, "agent", raw["agent"])
     asr = _build(ASRConfig, "asr", raw["asr"], optional=_ASR_OPTIONAL)
-    # Kiểm tra giá trị: backend "fake" và "gold" dùng cho test nên không cần tên mô hình.
+    # Kiểm tra giá trị. Backend `fake` và `gold` dùng cho test nên không cần tên model.
     _check(llm.backend in {"vllm", "fake"}, f"llm.backend: {llm.backend!r} not in vllm|fake")
     _check(not (llm.backend == "vllm" and llm.model == ""), "llm.model: required when llm.backend = 'vllm'")
     _check(llm.dtype in {"auto", "float16", "bfloat16"}, f"llm.dtype: {llm.dtype!r} not in auto|float16|bfloat16")
@@ -192,7 +266,7 @@ def load_config(path: Path) -> Config:
     _check(asr.dtype in ASR_DTYPES, f"asr.dtype: {asr.dtype!r} not in {'|'.join(sorted(ASR_DTYPES))}")
     _check(not (asr.backend == "asr" and asr.model == ""), "asr.model: required when asr.backend = 'asr'")
     _check(asr.device in {"auto", "cpu", "cuda"}, f"asr.device: {asr.device!r} not in auto|cpu|cuda")
-    # TOML không ép kiểu theo annotation của dataclass, nên kiểu của các trường số và bảng phải kiểm tra tay.
+    # Dataclass không ép kiểu theo annotation, nên kiểu của các trường số và bảng phải kiểm tra tay.
     _check(isinstance(asr.batch_size, int) and asr.batch_size >= 1, "asr.batch_size: must be an int >= 1")
     _check(isinstance(asr.generate_kwargs, dict), "asr.generate_kwargs: must be a table")
     _check(isinstance(asr.sample_rate, int) and asr.sample_rate > 0, "asr.sample_rate: must be a positive int")
@@ -204,16 +278,20 @@ def load_config(path: Path) -> Config:
 
 
 def load_profile(name_or_path: str, repo_root: Path) -> EnvProfile:
-    """Đọc profile môi trường theo tên (configs/env/<tên>.toml) hoặc theo đường dẫn.
+    """Đọc profile môi trường theo tên (`configs/env/<tên>.toml`) hoặc theo đường dẫn.
 
     Tham số:
         name_or_path: tên profile, hoặc đường dẫn tới file có đuôi `.toml`.
-        repo_root: gốc repo, dùng để tìm `configs/env/` khi chỉ có tên.
+        repo_root: thư mục gốc repo, dùng để tìm `configs/env/` khi chỉ có tên.
 
-    Trả về `EnvProfile`; báo `ConfigError` khi khóa sai hoặc thiếu (`hf_cache` là tùy chọn).
+    Trả về:
+        `EnvProfile` đã kiểm tra.
+
+    Lỗi:
+        ConfigError: khi có khoá lạ hoặc thiếu khoá bắt buộc (`hf_cache` là tuỳ chọn).
     """
     path = Path(name_or_path)
-    # Không có đuôi .toml thì hiểu là tên profile trong configs/env/.
+    # Không có đuôi `.toml` thì coi là tên profile trong `configs/env/`.
     if path.suffix != ".toml":
         path = repo_root / "configs" / "env" / f"{name_or_path}.toml"
     with open(path, "rb") as f:

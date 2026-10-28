@@ -1,1 +1,1 @@
-"""Các test cho lifemate.train."""
+"""Các test cho `lifemate.train`."""

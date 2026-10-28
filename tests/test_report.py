@@ -1,7 +1,11 @@
-"""Kiểm tra lifemate.run.report: bảng văn bản dựng từ index.csv và metrics.jsonl (không phụ thuộc thư viện vẽ).
+"""Test `lifemate.run.report`: bảng văn bản dựng từ `index.csv` và `metrics.jsonl`, không cần thư viện vẽ.
 
-Cách kiểm tra: ghi index.csv bằng `append_index` và metrics.jsonl bằng `MetricsLogger` vào `tmp_path`, rồi đọc lại
-qua `runs_table`, `train_report` và `main`. Không cần dữ liệu cuộc thi hay tokenizer.
+Cách hoạt động:
+- Ghi `index.csv` bằng `append_index` và `metrics.jsonl` bằng `MetricsLogger` vào `tmp_path`, rồi đọc lại qua
+  `runs_table`, `train_report` và `main`.
+
+Lưu ý:
+- Không cần dữ liệu cuộc thi hay tokenizer.
 """
 
 from pathlib import Path
@@ -14,7 +18,7 @@ from lifemate.train.common import MetricsLogger
 
 
 def test_runs_table_newest_first(tmp_path: Path) -> None:
-    """Bảo vệ: các dòng của index hiện theo thứ tự mới nhất trước, đúng các cột đã chọn."""
+    """Bảng run hiện run mới nhất trước, đúng các cột đã chọn, và `limit` cắt đúng số dòng."""
     idx = tmp_path / "index.csv"
     append_index(
         idx, {"run": "a", "date": "d1", "git_commit": "c", "model": "m", "split": "train", "n": 3, "score": 10.0}
@@ -31,7 +35,7 @@ def test_runs_table_newest_first(tmp_path: Path) -> None:
 
 
 def test_train_report_best_and_png_skip(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """Bảo vệ: tìm đúng các cột số, báo bước eval tốt nhất, thiếu matplotlib không bị coi là lỗi."""
+    """Báo cáo train tìm đúng các cột số, báo step eval tốt nhất, và thiếu matplotlib không bị coi là lỗi."""
     work = tmp_path / "w"
     log = MetricsLogger(work / "sft" / "metrics.jsonl")
     log.log({"step": 1, "epoch": 0.1, "loss": 2.0})

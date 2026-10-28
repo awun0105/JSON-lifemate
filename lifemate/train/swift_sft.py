@@ -1,27 +1,31 @@
-"""SFT cho LLM bằng ms-swift (`swift sft`), trainer của trưởng nhóm (ThanhDanh1510/ZaloAI2026 docs/llm_finetuning.md).
+"""SFT cho LLM bằng ms-swift (`swift sft`), trainer do trưởng nhóm chọn (ThanhDanh1510/ZaloAI2026
+docs/llm_finetuning.md).
 
-Nội dung: xuất dòng SFT sang định dạng ms-swift, kiểm tra template, dựng argv cho `swift sft`, chạy tiến trình con
-và đọc các checkpoint đã ghi.
+Nội dung chính:
+- `export_rows`: xuất dòng SFT sang định dạng ms-swift.
+- `check_template`, `compare_encodings`, `pick_check_rows`: kiểm tra template train và template lúc phục vụ khớp
+  nhau.
+- `swift_argv`: dựng tham số cho `swift sft`.
+- `train`: chạy cả quy trình trong tiến trình con.
+- `checkpoints`, `best_k`, `latest`, `write_metrics`: đọc các checkpoint và log đã ghi.
 
-Module thay cho trainer Unsloth từng nằm trong `sft.train` (vẫn giữ ở đó dưới dạng chú thích). Phần vẫn do dự án
-tự làm: các dòng SFT (`sft_data`), chọn checkpoint theo điểm agent, merge và registry (`llm_pipeline`).
-
-Luồng dữ liệu của `train`:
-1. `export_rows` chép dòng train và val_unseen, chỉ giữ `messages` (kèm cờ `loss` từng lượt).
+Cách hoạt động (hàm `train`):
+1. `export_rows` chép dòng train và `val_unseen`, chỉ giữ `messages` (kèm cờ `loss` của từng lượt).
 2. `check_template` mã hoá một số dòng mẫu theo cả hai cách và dừng nếu khác nhau.
-3. `swift_argv` dựng tham số; nếu đã có checkpoint thì nối tiếp từ checkpoint mới nhất.
-4. `runner` gọi `swift sft`; sau đó `checkpoints`/`best_k`/`latest` đọc kết quả từ trainer_state.json.
+3. `swift_argv` dựng tham số; nếu đã có checkpoint thì chạy tiếp từ checkpoint mới nhất.
+4. `runner` gọi `swift sft`; sau đó `checkpoints`, `best_k`, `latest` đọc kết quả từ `trainer_state.json`.
 
-An toàn train/serve: ms-swift dựng hội thoại bằng template riêng (`qwen3_nothinking` cho
-Qwen3-4B-Instruct-2507), còn vLLM phục vụ bằng chat template của tokenizer. `check_template` mã hoá các dòng mẫu
-theo cả hai cách trước khi train và dừng ở điểm khác biệt đầu tiên về input ids hoặc nhãn loss. Đo trên 60 dòng thật
-(25 dòng có phục hồi lỗi) với ms-swift 4.6.0: giống hệt nhau.
-
-Checkpoint: `swift sft` ghi `<out>/swift/checkpoint-<step>/` (adapter PEFT + trainer_state.json). Chỉ truyền một
-file val là val_unseen, vì ms-swift gộp nhiều file val thành một loss duy nhất; do đó `eval_loss` của ms-swift
-chính là `eval_unseen_loss` của dự án.
-
-Các gói nặng (ms-swift, torch, transformers) chỉ được import bên trong hàm cần dùng.
+Lưu ý:
+- Module này thay cho trainer Unsloth từng nằm trong `sft.train` (vẫn giữ ở đó dưới dạng chú thích). Phần dự án
+  vẫn tự làm: dựng dòng SFT (`sft_data`), chọn checkpoint theo điểm agent, merge và registry (`llm_pipeline`).
+- Khớp giữa train và serve: ms-swift dựng hội thoại bằng template riêng (`qwen3_nothinking` cho
+  Qwen3-4B-Instruct-2507), còn vLLM phục vụ bằng chat template của tokenizer. `check_template` mã hoá các dòng mẫu
+  theo cả hai cách trước khi train và dừng ở chỗ khác đầu tiên về input ids hoặc nhãn loss. Đo trên 60 dòng thật
+  (25 dòng có phục hồi lỗi) với ms-swift 4.6.0: giống hệt nhau.
+- Checkpoint: `swift sft` ghi `<out>/swift/checkpoint-<step>/` (adapter PEFT + `trainer_state.json`). Chỉ truyền
+  một file val là `val_unseen`, vì ms-swift gộp nhiều file val thành một loss duy nhất. Do đó `eval_loss` của
+  ms-swift chính là `eval_unseen_loss` của dự án.
+- Các gói nặng (ms-swift, torch, transformers) chỉ được import bên trong hàm cần dùng.
 """
 
 from __future__ import annotations
@@ -42,22 +46,26 @@ from lifemate.train.sft import LLMTrainConfig, build_labels, read_jsonl, templat
 
 log = structlog.get_logger(__name__)
 
-SWIFT_VERSION = "4.6.0"  # ops/requirements/train.txt; tên tham số bên dưới đã đối chiếu với phiên bản này
+SWIFT_VERSION = "4.6.0"  # khớp ops/requirements/train.txt; tên tham số bên dưới đã đối chiếu với phiên bản này
 CKPT_GLOB = "checkpoint-*"
 N_TEMPLATE_CHECK = 20
 
+# Runner(lệnh, thư mục làm việc) -> mã thoát; test thay bằng hàm giả để không chạy `swift` thật.
 Runner = Callable[[Sequence[str], Path], int]
 
 
 class TemplateMismatchError(RuntimeError):
-    """ms-swift và chat template lúc phục vụ mã hoá một dòng khác nhau: dữ liệu train sẽ lệch so với lúc chạy."""
+    """Lỗi khi ms-swift và chat template lúc phục vụ mã hoá một dòng khác nhau: dữ liệu train sẽ lệch với lúc chạy."""
 
 
 @dataclass(frozen=True, slots=True)
 class SwiftCheckpoint:
     """Một thư mục `checkpoint-<step>` do `swift sft` ghi ra.
 
-    `eval_loss` là loss trên val_unseen được ghi đúng tại bước đó, hoặc None nếu bước đó không có lượt eval.
+    Thuộc tính:
+        path: thư mục checkpoint.
+        step: step lúc lưu.
+        eval_loss: loss trên `val_unseen` ghi đúng tại step đó; `None` nếu step đó không có lần eval.
     """
 
     path: Path
@@ -66,9 +74,16 @@ class SwiftCheckpoint:
 
 
 def export_rows(src: Path, dst: Path) -> int:
-    """Chép các dòng `sft_data`, chỉ giữ `messages` (kèm cờ `loss` của từng lượt); trả về số dòng.
+    """Chép các dòng của `sft_data`, chỉ giữ `messages` (kèm cờ `loss` của từng lượt).
 
     Các khoá khác (id, metadata) bị bỏ để ms-swift không hiểu nhầm thành cột dữ liệu.
+
+    Tham số:
+        src: file jsonl nguồn.
+        dst: file jsonl đích; thư mục cha được tạo nếu chưa có.
+
+    Trả về:
+        Số dòng đã chép.
     """
     rows = read_jsonl(src)
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -80,7 +95,7 @@ def export_rows(src: Path, dst: Path) -> int:
 
 
 def pick_check_rows(rows: Sequence[Mapping[str, Any]], n: int = N_TEMPLATE_CHECK) -> list[Mapping[str, Any]]:
-    """Lấy tối đa `n` dòng: mọi dòng phục hồi lỗi trước (có `loss: false`), sau đó các dòng còn lại theo thứ tự.
+    """Chọn tối đa `n` dòng để kiểm tra template: mọi dòng phục hồi lỗi (có `loss: false`) trước, rồi các dòng khác.
 
     Dòng phục hồi lỗi được ưu tiên vì cờ `loss: false` là chỗ dễ lệch nhãn nhất giữa hai template.
     """
@@ -92,14 +107,21 @@ def pick_check_rows(rows: Sequence[Mapping[str, Any]], n: int = N_TEMPLATE_CHECK
 def compare_encodings(
     row_id: str, ours: tuple[list[int], list[int]], theirs: tuple[list[int], list[int]], decode: Callable[..., str]
 ) -> None:
-    """Ném TemplateMismatchError tại token đầu tiên mà input ids hoặc nhãn khác nhau.
+    """So hai cách mã hoá một dòng và báo lỗi tại token đầu tiên mà input ids hoặc nhãn khác nhau.
 
-    `ours` và `theirs` là cặp (input_ids, labels); thông báo lỗi kèm đoạn văn bản giải mã quanh vị trí lệch.
+    Tham số:
+        row_id: id dòng, để ghi vào thông báo lỗi.
+        ours: cặp (input_ids, labels) của dự án.
+        theirs: cặp (input_ids, labels) của ms-swift.
+        decode: hàm giải mã id thành văn bản, để in đoạn quanh chỗ lệch.
+
+    Lỗi:
+        TemplateMismatchError: khi hai cách mã hoá khác nhau.
     """
     for what, a, b in (("input_ids", ours[0], theirs[0]), ("labels", ours[1], theirs[1])):
         if a == b:
             continue
-        # Vị trí lệch đầu tiên; nếu một dãy là tiền tố của dãy kia thì lệch tại độ dài ngắn hơn.
+        # Vị trí lệch đầu tiên; nếu một dãy là phần đầu của dãy kia thì lệch tại độ dài của dãy ngắn hơn.
         i = next((k for k in range(min(len(a), len(b))) if a[k] != b[k]), min(len(a), len(b)))
         context = decode(theirs[0][max(0, i - 12) : i + 12])
         raise TemplateMismatchError(
@@ -108,10 +130,20 @@ def compare_encodings(
 
 
 def check_template(cfg: LLMTrainConfig, rows: Sequence[Mapping[str, Any]]) -> int:
-    """Mã hoá `rows` bằng template train của ms-swift và bằng chat template lúc phục vụ; ném lỗi nếu có khác biệt.
+    """Mã hoá `rows` bằng template train của ms-swift và bằng chat template lúc phục vụ, báo lỗi nếu khác nhau.
 
     Phía dự án dùng `build_labels` (chat template của tokenizer, giống vLLM); phía ms-swift dùng
-    `get_template(...).encode` ở chế độ train. Trả về số dòng đã kiểm tra.
+    `get_template(...).encode` ở chế độ train.
+
+    Tham số:
+        cfg: config train LLM.
+        rows: các dòng SFT; chỉ một phần được kiểm tra (xem `pick_check_rows`).
+
+    Trả về:
+        Số dòng đã kiểm tra.
+
+    Lỗi:
+        TemplateMismatchError: khi có dòng mã hoá khác nhau.
     """
     swift_model = importlib.import_module("swift.model")
     swift_template = importlib.import_module("swift.template")
@@ -138,9 +170,20 @@ def swift_argv(
     dtype: str,
     resume_from: Path | None = None,
 ) -> list[str]:
-    """Dựng danh sách tham số của `swift sft` cho một lần chạy (tên theo ms-swift 4.6.0).
+    """Dựng danh sách tham số của `swift sft` cho một lần chạy (tên tham số theo ms-swift 4.6.0).
 
-    Thêm tham số revision, lượng tử hoá nf4 (bitsandbytes) và `--resume_from_checkpoint` khi cấu hình yêu cầu.
+    Thêm tham số revision, lượng tử hoá nf4 (bitsandbytes) và `--resume_from_checkpoint` khi config yêu cầu.
+
+    Tham số:
+        cfg: config train LLM.
+        train_file: file train đã xuất.
+        val_file: file `val_unseen` đã xuất.
+        out_dir: thư mục ghi checkpoint.
+        dtype: dtype train (`bfloat16` hoặc `float16`).
+        resume_from: checkpoint để chạy tiếp; `None` là train từ đầu.
+
+    Trả về:
+        Danh sách tham số, chưa gồm `swift sft`.
     """
     lora, tr = cfg.lora, cfg.train
     argv = [
@@ -186,9 +229,9 @@ def swift_argv(
 
 
 def checkpoints(swift_dir: Path) -> list[SwiftCheckpoint]:
-    """Liệt kê checkpoint trong `swift_dir` theo thứ tự bước, kèm eval loss được ghi tại đúng bước đó.
+    """Liệt kê checkpoint trong `swift_dir` theo thứ tự step, kèm eval loss ghi tại đúng step đó.
 
-    Thư mục chưa có trainer_state.json (đang ghi dở) bị bỏ qua.
+    Thư mục chưa có `trainer_state.json` (đang ghi dở) bị bỏ qua.
     """
     out: list[SwiftCheckpoint] = []
     for d in swift_dir.glob(CKPT_GLOB):
@@ -197,30 +240,36 @@ def checkpoints(swift_dir: Path) -> list[SwiftCheckpoint]:
             continue
         step = int(d.name.rsplit("-", 1)[1])
         history = json.loads(state.read_text(encoding="utf-8")).get("log_history", [])
-        # Chỉ lấy eval_loss ghi tại đúng bước của checkpoint, không lấy loss của bước khác.
+        # Chỉ lấy `eval_loss` ghi tại đúng step của checkpoint, không lấy loss của step khác.
         losses = [h["eval_loss"] for h in history if "eval_loss" in h and int(h.get("step", -1)) == step]
         out.append(SwiftCheckpoint(d, step, float(losses[-1]) if losses else None))
     return sorted(out, key=lambda c: c.step)
 
 
 def best_k(swift_dir: Path, k: int) -> list[SwiftCheckpoint]:
-    """Lấy tối đa `k` checkpoint có eval loss thấp nhất (bằng nhau thì bước sớm hơn đứng trước)."""
+    """Trả về tối đa `k` checkpoint có eval loss thấp nhất; bằng nhau thì step sớm hơn đứng trước."""
     scored = [c for c in checkpoints(swift_dir) if c.eval_loss is not None]
     return sorted(scored, key=lambda c: (float(c.eval_loss or 0.0), c.step))[:k]
 
 
 def latest(swift_dir: Path) -> SwiftCheckpoint | None:
-    """Checkpoint có bước cao nhất (để chạy tiếp một lần train bị ngắt)."""
+    """Trả về checkpoint có step cao nhất (để chạy tiếp một lần train bị ngắt), hoặc `None` khi chưa có."""
     ckpts = checkpoints(swift_dir)
     return ckpts[-1] if ckpts else None
 
 
 def write_metrics(swift_dir: Path, out: Path) -> int:
-    """Ghi `metrics.jsonl` (định dạng của MetricsLogger) từ log_history của checkpoint mới nhất; trả số dòng.
+    """Ghi `metrics.jsonl` (định dạng của `MetricsLogger`) từ `log_history` của checkpoint mới nhất.
 
-    ms-swift không ghi `metrics.jsonl`, nhưng `lifemate.run.report train` và bước register của pipeline đọc file
-    này. `eval_loss` được đổi tên thành `eval_unseen_loss`, vì tập val duy nhất truyền cho ms-swift là val_unseen.
-    Không có checkpoint nào thì không ghi gì và trả 0.
+    ms-swift không ghi `metrics.jsonl`, nhưng `lifemate.run.report train` và bước register của pipeline đọc file này.
+    `eval_loss` được đổi tên thành `eval_unseen_loss`, vì tập val duy nhất truyền cho ms-swift là `val_unseen`.
+
+    Tham số:
+        swift_dir: thư mục checkpoint của ms-swift.
+        out: file `metrics.jsonl` đích.
+
+    Trả về:
+        Số dòng đã ghi; 0 và không ghi gì khi chưa có checkpoint nào.
     """
     last = latest(swift_dir)
     if last is None:
@@ -233,12 +282,12 @@ def write_metrics(swift_dir: Path, out: Path) -> int:
 
 
 def _subprocess_runner(cmd: Sequence[str], cwd: Path) -> int:
-    """Chạy lệnh trong `cwd` và trả về mã thoát (không ném lỗi khi mã khác 0)."""
+    """Chạy lệnh trong `cwd` và trả về mã thoát; không ném lỗi khi mã khác 0."""
     return subprocess.run(list(cmd), cwd=cwd, check=False).returncode
 
 
 def _gpu_dtype() -> str:
-    """Chọn bfloat16 nếu GPU hỗ trợ, ngược lại float16."""
+    """Chọn bfloat16 nếu GPU hỗ trợ, không thì float16."""
     torch = importlib.import_module("torch")
     return "bfloat16" if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else "float16"
 
@@ -253,10 +302,25 @@ def train(
     dtype: str | None = None,
     check: Callable[[LLMTrainConfig, Sequence[Mapping[str, Any]]], int] = check_template,
 ) -> Path:
-    """Xuất dữ liệu, kiểm tra template, chạy `swift sft`; trả về thư mục chứa các `checkpoint-<step>`.
+    """Xuất dữ liệu, kiểm tra template, chạy `swift sft`.
 
-    Khi `resume` bật và đã có checkpoint, lần chạy nối tiếp từ checkpoint mới nhất. `runner`, `dtype` và `check`
-    cho phép test thay thế tiến trình con, GPU và bước kiểm tra template. Ném RuntimeError khi `swift sft` lỗi.
+    Khi `resume` bật và đã có checkpoint, lần chạy nối tiếp từ checkpoint mới nhất.
+
+    Tham số:
+        cfg: config train LLM.
+        repo_root: thư mục gốc repo.
+        out_dir: thư mục làm việc của job train.
+        resume: `True` để chạy tiếp từ checkpoint mới nhất nếu có.
+        runner: hàm chạy tiến trình con; test thay bằng hàm giả.
+        dtype: dtype train; `None` thì chọn theo GPU.
+        check: hàm kiểm tra template; test có thể thay.
+
+    Trả về:
+        Thư mục chứa các `checkpoint-<step>`.
+
+    Lỗi:
+        ConfigError: khi chưa chọn `base.model`.
+        RuntimeError: khi `swift sft` kết thúc với mã khác 0.
     """
     if not cfg.base.model:
         raise ConfigError("base.model: required to train")
@@ -279,6 +343,6 @@ def train(
     code = runner(["swift", "sft", *argv], repo_root)
     if code != 0:
         raise RuntimeError(f"swift sft failed with exit code {code}")
-    # Đường loss cho `make report-train` và cho artifacts/models/<tên>/metrics.jsonl ở bước register.
+    # Đường loss cho `make report-train` và cho `artifacts/models/<tên>/metrics.jsonl` ở bước register.
     write_metrics(swift_dir, out_dir / "metrics.jsonl")
     return swift_dir

@@ -1,6 +1,7 @@
-"""Kiểm thử lifemate.eval.asr_tune: dò từng bước, hàm mục tiêu, lựa chọn theo engine, không đo lại cấu hình trùng.
+"""Test `lifemate.eval.asr_tune`: dò từng bước, hàm mục tiêu, lựa chọn theo engine, không đo lại config trùng.
 
-Runner giả trả báo cáo dựng từ generate_kwargs, không cần GPU, mô hình hay dữ liệu cuộc thi.
+Lưu ý:
+- Runner giả trả báo cáo dựng từ `generate_kwargs`, nên không cần GPU, model hay dữ liệu cuộc thi.
 """
 
 from __future__ import annotations
@@ -14,14 +15,14 @@ from lifemate.eval import asr_tune
 
 
 def _report(miss: float, empty: int = 0, p95: float = 1.0, wer: float = 0.3) -> dict[str, Any]:
-    """Báo cáo eval_asr tối thiểu cho hàm mục tiêu (100 câu)."""
+    """Tạo báo cáo `eval_asr` tối thiểu (100 câu) đủ cho hàm mục tiêu."""
     return {"entity_miss_rate": miss, "n_empty": empty, "n_utterances": 100, "p95_s": p95, "wer_nonum": wer, "wer": wer}
 
 
 def test_objective_and_supported() -> None:
     """Hàm mục tiêu cộng bỏ sót thực thể với tỉ lệ câu rỗng; p95 quá ngưỡng xếp sau; lần đo lỗi đứng cuối."""
     assert asr_tune.objective(_report(0.3, empty=10), 6.0) == (0.0, 0.4, 0.3)
-    # Vượt ngưỡng thời gian: xếp sau cấu hình đạt ngưỡng dù chính xác hơn, nhưng vẫn so được với nhau.
+    # Vượt ngưỡng thời gian: xếp sau config đạt ngưỡng dù chính xác hơn, nhưng vẫn so được với nhau.
     slow_good, slow_bad = asr_tune.objective(_report(0.1, p95=7.0), 6.0), asr_tune.objective(_report(0.2, p95=7.0), 6.0)
     assert asr_tune.objective(_report(0.3), 6.0) < slow_good < slow_bad
     assert asr_tune.objective(None, 6.0) == (math.inf, math.inf, math.inf)
@@ -36,14 +37,16 @@ def test_objective_and_supported() -> None:
 
 
 def test_tune_picks_per_stage_and_reuses_runs(tmp_path: Path, repo_root: Path) -> None:
-    """Mỗi bước giữ lựa chọn tốt nhất; cấu hình trùng (lựa chọn 'giữ nguyên') không đo lại; PhoWhisper bỏ lựa chọn
-    chỉ faster-whisper có. Config sinh ra có [asr] giống nhau giữa hai mô hình trừ engine/model/revision."""
+    """Mỗi bước giữ lựa chọn tốt nhất, config trùng không đo lại, và PhoWhisper bỏ lựa chọn chỉ faster-whisper có.
+
+    Config sinh ra có bảng `[asr]` giống nhau giữa hai model, trừ engine, model và revision.
+    """
     with open(repo_root / "configs" / "v0.toml", "rb") as f:
         base = tomllib.load(f)
     calls: list[Path] = []
 
     def runner(cfg: Path, ids: str, out: Path, hyps: Path) -> dict[str, Any]:
-        """Beam 5 và câu mồi ngắn tốt hơn; câu mồi của lead sinh nhiều câu rỗng."""
+        """Runner giả: beam 5 và câu mồi ngắn tốt hơn; câu mồi của trưởng nhóm sinh nhiều câu rỗng."""
         calls.append(cfg)
         gk = tomllib.loads(cfg.read_text(encoding="utf-8"))["asr"]["generate_kwargs"]
         miss = 0.4 - 0.1 * (gk["beam_size"] == 5) - 0.05 * (gk.get("initial_prompt") == asr_tune.SHORT_PROMPT)
@@ -54,7 +57,7 @@ def test_tune_picks_per_stage_and_reuses_runs(tmp_path: Path, repo_root: Path) -
     assert [p["chosen"] for p in res["path"]] == ["beam5", "short", "off", "none"]
     assert res["best_generate_kwargs"]["initial_prompt"] == asr_tune.SHORT_PROMPT
     assert not {r["option"] for r in res["runs"]} & {"hotwords", "vad", "temp_fallback"}
-    # greedy, beam5, lead, short, antirepeat on: 5 lần đo; các lựa chọn 'giữ nguyên' dùng lại kết quả.
+    # greedy, beam5, lead, short, antirepeat on: 5 lần đo; các lựa chọn "giữ nguyên" dùng lại kết quả.
     assert len(calls) == 5
     v3 = asr_tune.tune("large-v3", base, "ids.txt", tmp_path / "v3", runner, 6.0)
     assert {r["option"] for r in v3["runs"]} >= {"hotwords", "vad", "temp_fallback"}
@@ -73,7 +76,7 @@ def test_tune_picks_per_stage_and_reuses_runs(tmp_path: Path, repo_root: Path) -
 
 
 def test_preflight_runs_each_supported_option_once(tmp_path: Path, repo_root: Path) -> None:
-    """Chạy thử: mỗi lựa chọn engine hỗ trợ được đo một lần trên n mẫu; lựa chọn lỗi được đánh dấu FAIL."""
+    """Chạy thử đo mỗi lựa chọn engine hỗ trợ một lần trên n mẫu; lựa chọn lỗi được đánh dấu FAIL."""
     with open(repo_root / "configs" / "v0.toml", "rb") as f:
         base = tomllib.load(f)
     ids = tmp_path / "ids.txt"
@@ -81,7 +84,7 @@ def test_preflight_runs_each_supported_option_once(tmp_path: Path, repo_root: Pa
     seen_ids: list[str] = []
 
     def runner(cfg: Path, ids_file: str, out: Path, hyps: Path) -> dict[str, Any] | None:
-        """Beam 5 lỗi (giả lập), còn lại thành công."""
+        """Runner giả: beam 5 lỗi, các lựa chọn khác thành công."""
         seen_ids.append(Path(ids_file).read_text(encoding="utf-8"))
         gk = tomllib.loads(cfg.read_text(encoding="utf-8"))["asr"]["generate_kwargs"]
         return None if gk["beam_size"] == 5 else _report(0.3)

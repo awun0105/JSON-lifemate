@@ -1,16 +1,21 @@
-"""Tài liệu tool dạng gọn, sinh từ catalog (SPEC 4.5).
+"""Sinh phần mô tả tool dạng gọn từ catalog để chèn vào system prompt (SPEC 4.5).
 
-Nội dung: hằng `ASK_TOOL`, lớp `CatalogIndex` (chỉ mục catalog) và hàm `render_tools` sinh phần mô tả tool
-chèn vào system prompt tại chỗ `{tool_docs}`.
+Nội dung chính:
+- `ASK_TOOL`: tên tool hỏi lại người dùng, `sys.ask_missing_info`.
+- `CatalogIndex`: chỉ mục catalog, tra tool theo tên để lấy spec, loại và app.
+- `render_tools`: sinh văn bản mô tả các tool được phép, chèn vào chỗ `{tool_docs}` của system prompt.
 
-Cách xây dựng:
-- Catalog được lập chỉ mục một lần cho cả lượt chạy: tên tool -> spec, loại (read/write/meta), app; thứ tự
-  app và tool giữ đúng như trong catalog để văn bản sinh ra luôn ổn định.
-- Mỗi app thành một khối `##`, mỗi tool một dòng tiêu đề, một dòng mô tả và một dòng tham số rút gọn
-  (kiểu, ràng buộc, `x-ref`, `x-match`, `x-one-of`). Các chuỗi tiếng Việt trong đây là một phần prompt.
-- Kết quả được cache theo (index, tập tool, cờ bỏ mô tả tham số); `CatalogIndex` băm theo định danh đối
-  tượng để dùng được làm khóa cache.
-- Cờ `drop_param_descriptions` phục vụ nấc thu gọn prompt thứ 2 trong `prompt.py`.
+Cách hoạt động:
+- Catalog được lập chỉ mục một lần cho cả lần chạy. Thứ tự app và tool giữ đúng như trong catalog, nên văn bản
+  sinh ra luôn giống nhau.
+- Mỗi app thành một khối `##`. Mỗi tool có ba dòng: tiêu đề, mô tả, và tham số rút gọn (kiểu, ràng buộc,
+  `x-ref`, `x-match`, `x-one-of`).
+- Kết quả được cache theo bộ (index, tập tool, cờ bỏ mô tả tham số). `CatalogIndex` băm theo định danh đối
+  tượng để làm được khoá cache.
+
+Lưu ý:
+- Các chuỗi tiếng Việt trong file này là một phần của prompt; sửa chúng là đổi prompt.
+- Cờ `drop_param_descriptions` dùng cho mức rút gọn prompt thứ 2 trong `prompt.py`.
 """
 
 from __future__ import annotations
@@ -29,10 +34,12 @@ ASK_TOOL = "sys.ask_missing_info"
 
 
 class CatalogIndex:
-    """Catalog được lập chỉ mục một lần mỗi lượt chạy: tên tool -> spec, loại, app; app theo thứ tự catalog.
+    """Chỉ mục catalog, lập một lần cho mỗi lần chạy: tên tool tới spec, loại và app.
 
-    Args:
-        catalog: dict catalog có khóa `apps`, mỗi app có `id` và danh sách `tools` (mỗi tool có `name`).
+    Các app giữ đúng thứ tự trong catalog.
+
+    Tham số:
+        catalog: dict có khoá `apps`; mỗi app có `id` và danh sách `tools`, mỗi tool có `name`.
     """
 
     def __init__(self, catalog: Mapping[str, Any]) -> None:
@@ -46,53 +53,56 @@ class CatalogIndex:
                 name = tool["name"]
                 self._tools[name] = tool
                 self._app_of[name] = app["id"]
-                # Vị trí toàn cục của tool trong catalog, dùng để sắp xếp tập tool được phép.
+                # Vị trí của tool trong toàn catalog, dùng để sắp xếp tập tool được phép.
                 self._order[name] = len(self._order)
 
-    # Băm và so sánh theo định danh: index chứa dict (không băm được) nhưng cần làm khóa cho lru_cache.
+    # Băm và so sánh theo định danh đối tượng: index chứa dict nên không băm được theo nội dung, nhưng vẫn cần làm
+    # khoá cho `lru_cache`.
     def __hash__(self) -> int:
+        """Băm theo định danh đối tượng."""
         return id(self)
 
     def __eq__(self, other: object) -> bool:
+        """Chỉ bằng chính đối tượng này (so sánh theo định danh)."""
         return self is other
 
     @property
     def apps(self) -> tuple[str, ...]:
-        """Các id app theo thứ tự catalog."""
+        """Các id app theo thứ tự trong catalog."""
         return tuple(self._apps)
 
     def app_spec(self, app: str) -> dict[str, Any]:
-        """Mục catalog của một app; ném KeyError khi app không có."""
+        """Trả về mục catalog của app `app`; báo `KeyError` khi không có app đó."""
         return self._apps[app]
 
     def has_tool(self, name: str) -> bool:
-        """True khi `name` có trong catalog."""
+        """Trả về `True` khi `name` có trong catalog."""
         return name in self._tools
 
     def tool_spec(self, name: str) -> dict[str, Any]:
-        """Mục catalog của một tool; ném KeyError khi tool không có."""
+        """Trả về mục catalog của tool `name`; báo `KeyError` khi không có tool đó."""
         return self._tools[name]
 
     def tool_kind(self, name: str) -> str:
-        """Loại tool: `read`, `write` hoặc `meta`."""
+        """Trả về loại của tool: `read`, `write` hoặc `meta`."""
         return str(self._tools[name]["kind"])
 
     def app_of(self, name: str) -> str:
-        """Id app sở hữu tool; với tool lạ thì lấy phần tiền tố trước dấu chấm đầu tiên."""
+        """Trả về id app chứa tool `name`; tool không có trong catalog thì lấy phần trước dấu chấm đầu tiên."""
         return self._app_of.get(name, name.split(".", 1)[0])
 
     def tool_kinds(self) -> dict[str, str]:
-        """Ánh xạ tên tool -> loại cho mọi tool trong catalog."""
+        """Trả về dict tên tool tới loại tool, cho mọi tool trong catalog."""
         return {n: str(t["kind"]) for n, t in self._tools.items()}
 
     def allowed_tools(self, installed_apps: Mapping[str, Any]) -> tuple[str, ...]:
-        """Các tool đã cài và có trong catalog, theo thứ tự catalog, cộng thêm `sys.ask_missing_info`.
+        """Liệt kê các tool đã cài và có trong catalog, cộng thêm `sys.ask_missing_info`.
 
-        Args:
-            installed_apps: `context.installed_apps` của mẫu, mỗi app có danh sách `tools`.
+        Tham số:
+            installed_apps: `context.installed_apps` của mẫu; mỗi app có danh sách `tools`.
 
-        Returns:
-            Tuple tên tool. Tool đã cài nhưng không có trong catalog bị bỏ qua và ghi cảnh báo.
+        Trả về:
+            Tuple tên tool theo thứ tự catalog. Tool đã cài nhưng không có trong catalog bị bỏ qua và ghi cảnh báo.
         """
         wanted = {ASK_TOOL}
         for app, entry in installed_apps.items():
@@ -101,12 +111,12 @@ class CatalogIndex:
                     wanted.add(name)
                 else:
                     log.warning("installed_tool_not_in_catalog", app=app, tool=name)
-        # Tool không có trong `_order` (ví dụ ASK_TOOL khi catalog thiếu) được xếp cuối.
+        # Tool không có trong `_order` (ví dụ `ASK_TOOL` khi catalog không khai báo) được xếp cuối.
         return tuple(sorted(wanted, key=lambda n: self._order.get(n, len(self._order))))
 
 
 def _type_text(prop: Mapping[str, Any]) -> str:
-    """Kiểu rút gọn của một thuộc tính JSON schema: enum `a|b`, `array<...>`, `object{...}` hoặc tên kiểu."""
+    """Viết gọn kiểu của một thuộc tính JSON schema: enum `a|b`, `array<...>`, `object{...}` hoặc tên kiểu."""
     if "enum" in prop:
         return "|".join(v if isinstance(v, str) else canonical_json(v) for v in prop["enum"])
     typ = prop.get("type", "any")
@@ -114,7 +124,7 @@ def _type_text(prop: Mapping[str, Any]) -> str:
         items = prop.get("items")
         return f"array<{_type_text(items)}>" if isinstance(items, Mapping) else "array"
     if typ == "object" and prop.get("properties"):
-        # Thuộc tính không bắt buộc được đánh dấu `?`, giống quy ước ở dòng tham số.
+        # Thuộc tính không bắt buộc có dấu `?`, giống quy ước ở dòng tham số.
         required = set(prop.get("required", ()))
         inner = ", ".join(f"{n}{'' if n in required else '?'}: {_type_text(p)}" for n, p in prop["properties"].items())
         return f"object{{{inner}}}"
@@ -122,7 +132,17 @@ def _type_text(prop: Mapping[str, Any]) -> str:
 
 
 def _param_text(name: str, prop: Mapping[str, Any], required: bool, drop_description: bool) -> str:
-    """Mô tả một tham số trên một dòng: tên, kiểu, mô tả (trừ khi bị bỏ) và các ràng buộc."""
+    """Mô tả một tham số trên một dòng: tên, kiểu, mô tả (trừ khi bị bỏ) và các ràng buộc.
+
+    Tham số:
+        name: tên tham số.
+        prop: JSON schema của tham số.
+        required: `False` thì thêm dấu `?` sau tên.
+        drop_description: `True` thì bỏ phần mô tả.
+
+    Trả về:
+        Một dòng văn bản, các phần cách nhau bằng dấu cách.
+    """
     parts = [f"{name}{'' if required else '?'}: {_type_text(prop)}"]
     if prop.get("description") and not drop_description:
         parts.append(f"({prop['description']})")
@@ -148,7 +168,7 @@ def _param_text(name: str, prop: Mapping[str, Any], required: bool, drop_descrip
 
 
 def _tool_text(tool: Mapping[str, Any], drop_description: bool) -> str:
-    """Khối mô tả một tool: dòng tiêu đề, mô tả, dòng tham số và nhóm `x-one-of` nếu có."""
+    """Sinh khối mô tả một tool: dòng tiêu đề, mô tả, dòng tham số và nhóm `x-one-of` nếu có."""
     head = f"- {tool['name']} [{tool['kind']}]"
     if tool.get("returns"):
         head += f" → {tool['returns']}"
@@ -171,12 +191,12 @@ def _tool_text(tool: Mapping[str, Any], drop_description: bool) -> str:
 
 @functools.lru_cache(maxsize=256)
 def _render_cached(index: CatalogIndex, allowed: frozenset[str], drop_param_descriptions: bool) -> str:
-    """Bản có cache của `render_tools`; khóa là (index, tập tool, cờ bỏ mô tả tham số)."""
+    """Bản có cache của `render_tools`; khoá cache là bộ (index, tập tool, cờ bỏ mô tả tham số)."""
     blocks: list[str] = []
     for app_id in index.apps:
         app = index.app_spec(app_id)
         tools = [t for t in app["tools"] if t["name"] in allowed]
-        # App không có tool nào được phép thì không xuất hiện trong prompt.
+        # App không có tool nào được phép thì không đưa vào prompt.
         if not tools:
             continue
         head = f"## {app_id} ({app.get('name_vi', app_id)})"
@@ -187,11 +207,14 @@ def _render_cached(index: CatalogIndex, allowed: frozenset[str], drop_param_desc
 
 
 def render_tools(index: CatalogIndex, allowed: Iterable[str], *, drop_param_descriptions: bool = False) -> str:
-    """Sinh tài liệu của các tool được phép, mỗi app một khối `##` theo thứ tự catalog (có cache).
+    """Sinh mô tả của các tool được phép, mỗi app một khối `##` theo thứ tự catalog; kết quả có cache.
 
-    Args:
+    Tham số:
         index: chỉ mục catalog.
-        allowed: tên các tool được phép; thứ tự không quan trọng vì được đổi thành frozenset.
-        drop_param_descriptions: True để bỏ mô tả tham số (nấc thu gọn prompt thứ 2).
+        allowed: tên các tool được phép; thứ tự không quan trọng vì sẽ đổi thành frozenset.
+        drop_param_descriptions: `True` để bỏ mô tả tham số (mức rút gọn prompt thứ 2).
+
+    Trả về:
+        Văn bản markdown, các khối app cách nhau một dòng trống.
     """
     return _render_cached(index, frozenset(allowed), drop_param_descriptions)

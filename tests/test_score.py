@@ -1,8 +1,12 @@
-"""T17: kiểm tra phép so khớp đối số có kiểu và chế độ canon trong lifemate/eval/score.py, cùng điểm kiểm chứng.
+"""T17: test phép so khớp tham số có xét kiểu và chế độ canon trong `lifemate/eval/score.py`, cùng điểm kiểm chứng.
 
-Cách kiểm tra: gọi trực tiếp `values_equal`; riêng `test_score_match_modes` chạy script chấm điểm bằng subprocess
-trên file gold và file toàn `[]`. Test đó mang marker `data` (cần gói dữ liệu cuộc thi, thiếu thì skip qua fixture
-`data_root`). Không cần tokenizer.
+Cách hoạt động:
+- Gọi trực tiếp `values_equal`.
+- Riêng `test_score_match_modes` chạy script chấm điểm bằng subprocess trên file gold và file toàn `[]`.
+
+Lưu ý:
+- `test_score_match_modes` mang marker `data`: cần gói dữ liệu cuộc thi, thiếu thì skip qua fixture `data_root`.
+- Không cần tokenizer.
 """
 
 from __future__ import annotations
@@ -20,7 +24,7 @@ SCORE = ["-m", "lifemate.eval.score"]
 
 
 def _load_score():
-    """Nạp module lifemate.eval.score để test gọi các hàm bên trong."""
+    """Nạp module `lifemate.eval.score` để test gọi các hàm bên trong."""
     import lifemate.eval.score as mod
 
     return mod
@@ -31,7 +35,7 @@ score = _load_score()
 
 @pytest.fixture
 def data_root() -> Path:
-    """Trả thư mục dữ liệu mặc định của script chấm điểm; skip nếu thiếu gói dữ liệu cuộc thi."""
+    """Trả về thư mục dữ liệu mặc định của script chấm điểm; skip nếu thiếu gói dữ liệu cuộc thi."""
     root = score.DEFAULT_ROOT
     if not (root / "train" / "train.jsonl").exists():
         pytest.skip("competition data package is absent")
@@ -40,7 +44,7 @@ def data_root() -> Path:
 
 @pytest.mark.parametrize("canon", [False, True])
 def test_bool_never_equals_number(canon):
-    """Bảo vệ: bool không bao giờ bằng số (True khác 1, 0 khác False) ở cả hai chế độ."""
+    """bool không bao giờ bằng số (True khác 1, 0 khác False) ở cả hai chế độ."""
     assert not score.values_equal(True, 1, canon)
     assert not score.values_equal(0, False, canon)
     assert score.values_equal(True, True, canon)
@@ -48,21 +52,21 @@ def test_bool_never_equals_number(canon):
 
 @pytest.mark.parametrize("canon", [False, True])
 def test_int_equals_float(canon):
-    """Bảo vệ: số nguyên bằng số thực cùng giá trị, nhưng chuỗi '1' khác số 1."""
+    """Số nguyên bằng số thực cùng giá trị, nhưng chuỗi '1' khác số 1."""
     assert score.values_equal(1, 1.0, canon)
     assert not score.values_equal(1, 1.5, canon)
     assert not score.values_equal("1", 1, canon)
 
 
 def test_string_case_strict_vs_canon():
-    """Bảo vệ: chế độ strict phân biệt hoa thường; canon bỏ qua hoa thường và khoảng trắng."""
+    """Chế độ strict phân biệt hoa thường; canon bỏ qua hoa thường và khoảng trắng."""
     assert not score.values_equal("Phòng Khách", "phòng khách")
     assert score.values_equal("Phòng Khách", "phòng khách", canon=True)
     assert score.values_equal("700 cm", "700cm", canon=True)
 
 
 def test_recursive_containers():
-    """Bảo vệ: so khớp đệ quy trong list và dict, độ dài khác nhau thì không bằng."""
+    """So khớp đệ quy trong list và dict; độ dài khác nhau thì không bằng."""
     assert score.values_equal([1, {"a": 2.0}], [1.0, {"a": 2}])
     assert not score.values_equal([True], [1])
     assert not score.values_equal({"a": "X"}, {"a": "x"})
@@ -71,14 +75,14 @@ def test_recursive_containers():
 
 
 def _run(*args: str) -> str:
-    """Chạy script chấm điểm với các đối số đã cho và trả stdout."""
+    """Chạy script chấm điểm với các tham số đã cho và trả về stdout."""
     out = subprocess.run([sys.executable, *SCORE, *args], capture_output=True, text=True, check=True, cwd=REPO)
     return out.stdout
 
 
 @pytest.mark.data
 def test_score_match_modes(data_root, tmp_path):
-    """Bảo vệ: file gold đạt 100 ở cả strict và canon; file toàn [] đạt đúng 7.18 (điểm của các mẫu ngoài phạm vi)."""
+    """File gold đạt 100 ở cả strict và canon; file toàn [] đạt đúng 7.18 (điểm của các mẫu ngoài phạm vi)."""
     gold = tmp_path / "gold.jsonl"
     _run("--root", str(data_root), "--make-gold", str(gold))
     out = _run(str(gold), "--root", str(data_root), "--match", "both")

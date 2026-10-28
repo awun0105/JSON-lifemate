@@ -1,14 +1,21 @@
-"""Chuỗi guard được kiểm tra trước mỗi lời gọi tool (SPEC 4.9).
+"""Chuỗi guard kiểm tra mỗi lời gọi tool trước khi gửi tới env (SPEC 4.9).
 
-Nội dung: bốn guard G1-G4, lớp `GuardChain` và hàm `build_guard_chain` dựng chuỗi từ cấu hình.
+Nội dung chính:
+- `AllowedToolGuard` (G1): chặn tool không được phép.
+- `SchemaGuard` (G2): chặn tham số mà `env.validate` từ chối.
+- `DuplicateWriteGuard` (G3): cảnh báo khi một lời gọi `write` bị lặp lại y hệt.
+- `AfterAskGuard` (G4): dừng nếu đã hỏi lại người dùng; mặc định không bật.
+- `GuardChain`: chạy các guard theo thứ tự và trả về quyết định cuối.
+- `GUARD_REGISTRY`, `build_guard_chain`: dựng chuỗi guard từ tên trong `[agent].guards`.
 
-Cách xây dựng:
-- Mẫu Chain of Responsibility: guard chạy theo thứ tự cấu hình, dừng ở kết quả BLOCK hoặc STOP đầu tiên;
-  các kết quả WARN được gom lại và trả về cùng quyết định.
-- BLOCK không gửi lời gọi tới env: vòng lặp agent đưa thông báo lỗi (tiếng Việt) lại cho mô hình và tiêu
-  một lần thử lại. WARN vẫn cho lời gọi đi qua, chỉ ghi mã lỗi.
-- Thông báo trong `GuardResult` là văn bản mô hình đọc được, nên viết bằng tiếng Việt.
-- Guard được đăng ký theo tên trong `GUARD_REGISTRY` để chọn qua `[agent].guards`.
+Cách hoạt động:
+- Dùng mẫu Chain of Responsibility: các guard chạy theo thứ tự trong config và dừng ở kết quả BLOCK hoặc STOP
+  đầu tiên. Các kết quả WARN gặp trên đường được gom lại và trả về cùng quyết định.
+- BLOCK: lời gọi không được gửi tới env. Vòng lặp agent đưa thông báo lỗi lại cho model và tính một lần thử lại.
+- WARN: lời gọi vẫn được gửi đi, chỉ ghi thêm mã lỗi.
+
+Lưu ý:
+- Thông báo trong `GuardResult` được đưa thẳng cho model đọc, nên viết bằng tiếng Việt.
 """
 
 from __future__ import annotations
@@ -24,10 +31,10 @@ PASS = GuardResult(verdict=GuardVerdict.PASS, code=None, message=None)
 
 
 class AllowedToolGuard:
-    """G1: tool phải nằm trong tập tool được phép của mẫu."""
+    """G1: tool được gọi phải nằm trong tập tool được phép của mẫu."""
 
     def check(self, action: Action, ctx: GuardContext) -> GuardResult:
-        """BLOCK với mã `unknown_tool` khi tên tool không được phép (không có hoặc app chưa cài)."""
+        """Trả về BLOCK với mã `unknown_tool` khi tool không tồn tại hoặc app chưa cài, ngược lại trả về PASS."""
         if action.name in ctx.allowed:
             return PASS
         return GuardResult(
@@ -36,10 +43,10 @@ class AllowedToolGuard:
 
 
 class SchemaGuard:
-    """G2: `env.validate` phải chấp nhận các tham số."""
+    """G2: tham số của lời gọi phải được `env.validate` chấp nhận."""
 
     def check(self, action: Action, ctx: GuardContext) -> GuardResult:
-        """BLOCK với mã `invalid_args`, kèm nguyên văn lỗi từ bộ kiểm tra của env."""
+        """Trả về BLOCK với mã `invalid_args` kèm nguyên văn lỗi từ `env.validate`, hoặc PASS khi tham số hợp lệ."""
         verdict = ctx.env.validate(action.name or "", action.arguments or {})
         if verdict.get("ok"):
             return PASS
@@ -50,11 +57,11 @@ class DuplicateWriteGuard:
     """G3: cảnh báo (không bao giờ chặn) khi một lời gọi `write` bị lặp lại y hệt."""
 
     def check(self, action: Action, ctx: GuardContext) -> GuardResult:
-        """WARN với mã `duplicate_write` khi cùng lời gọi write đã được thực hiện trước đó."""
-        # Chỉ xét tool loại write: gọi lại tool read giống hệt là vô hại.
+        """Trả về WARN với mã `duplicate_write` khi cùng lời gọi `write` đã chạy trước đó, ngược lại PASS."""
+        # Chỉ xét tool loại `write`: gọi lại y hệt một tool `read` không gây hại gì.
         if ctx.tool_kind.get(action.name or "") != "write":
             return PASS
-        # So sánh qua JSON chuẩn hóa để thứ tự khóa trong arguments không ảnh hưởng kết quả.
+        # So sánh qua JSON chuẩn tắc, để thứ tự khoá trong `arguments` không ảnh hưởng kết quả.
         key = canonical_json(action.arguments or {})
         for prev in ctx.calls_so_far:
             if prev.name == action.name and canonical_json(prev.arguments or {}) == key:
@@ -65,31 +72,35 @@ class DuplicateWriteGuard:
 
 
 class AfterAskGuard:
-    """G4 (không bật mặc định): không gọi thêm tool nào sau `sys.ask_missing_info`."""
+    """G4 (mặc định không bật): không gọi thêm tool nào sau `sys.ask_missing_info`."""
 
     def check(self, action: Action, ctx: GuardContext) -> GuardResult:
-        """STOP khi đã có một lời gọi hỏi lại người dùng."""
+        """Trả về STOP khi trước đó đã có lời gọi hỏi lại người dùng, ngược lại PASS."""
         if any(prev.name == ASK_TOOL for prev in ctx.calls_so_far):
             return GuardResult(GuardVerdict.STOP, None, "đã hỏi lại người dùng")
         return PASS
 
 
 class GuardChain:
-    """Chain of Responsibility: chạy các guard theo thứ tự, dừng ở BLOCK hoặc STOP đầu tiên.
+    """Chạy các guard theo thứ tự và dừng ở kết quả BLOCK hoặc STOP đầu tiên.
 
-    Args:
-        guards: danh sách guard, được giữ dưới dạng tuple bất biến.
+    Tham số:
+        guards: danh sách guard theo thứ tự chạy; được lưu thành tuple để không bị sửa.
     """
 
     def __init__(self, guards: Sequence[Guard]) -> None:
         self.guards: tuple[Guard, ...] = tuple(guards)
 
     def check(self, action: Action, ctx: GuardContext) -> tuple[GuardResult, list[GuardResult]]:
-        """Kiểm tra một hành động qua cả chuỗi.
+        """Kiểm tra một `Action` qua cả chuỗi guard.
 
-        Returns:
-            Cặp (kết quả quyết định, danh sách WARN gặp trên đường). Kết quả quyết định là PASS khi không
-            guard nào chặn hay dừng.
+        Tham số:
+            action: hành động LLM muốn thực hiện.
+            ctx: thông tin guard được phép xem.
+
+        Trả về:
+            Cặp (kết quả quyết định, danh sách WARN gặp trên đường). Kết quả quyết định là PASS khi không guard nào
+            chặn hay dừng.
         """
         warnings: list[GuardResult] = []
         for guard in self.guards:
@@ -110,10 +121,16 @@ GUARD_REGISTRY: dict[str, type] = {
 
 
 def build_guard_chain(names: Sequence[str]) -> GuardChain:
-    """Tạo các guard có tên trong `[agent].guards`, đúng thứ tự cấu hình.
+    """Tạo chuỗi guard từ các tên trong `[agent].guards`, giữ đúng thứ tự trong config.
 
-    Raises:
-        ConfigError: khi có tên guard không nằm trong `GUARD_REGISTRY`.
+    Tham số:
+        names: tên guard, mỗi tên là một khoá của `GUARD_REGISTRY`.
+
+    Trả về:
+        `GuardChain` chứa các guard đã tạo.
+
+    Lỗi:
+        ConfigError: khi có tên không nằm trong `GUARD_REGISTRY`.
     """
     guards: list[Guard] = []
     for name in names:

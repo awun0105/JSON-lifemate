@@ -1,11 +1,23 @@
 """Báo cáo dạng văn bản từ các file mà mọi lần chạy agent và job huấn luyện đều đã ghi (SPEC 4.4, 6.2.6).
 
-    python -m lifemate.run.report runs  [artifacts/runs/index.csv]         # one line per agent run, newest first
-    python -m lifemate.run.report train <work dir> [--png out]   # loss / eval curves from metrics.jsonl
+Cách dùng:
+    python -m lifemate.run.report runs  [artifacts/runs/index.csv]   # mỗi run agent một dòng, mới nhất trước
+    python -m lifemate.run.report train <work dir> [--png out]       # đường loss / eval từ metrics.jsonl
 
-Không phụ thuộc thư viện vẽ: bảng là văn bản thuần; `--png` chỉ vẽ bằng matplotlib khi thư viện này đã cài.
-Lệnh `runs` đọc index.csv và in run mới nhất trước; lệnh `train` tìm metrics.jsonl trong thư mục làm việc, in bảng
-các cột số, dòng tốt nhất của từng loss và tiến độ pipeline nếu có. Dòng đầu docstring này cũng là mô tả của CLI.
+Nội dung chính:
+- `runs_table`: bảng các run agent từ `index.csv`.
+- `train_report`: báo cáo một thư mục train từ `metrics.jsonl`.
+- `format_table`, `train_table`, `best_rows`, `plot_png`: hàm phụ dựng bảng, chọn dòng tốt nhất, vẽ biểu đồ.
+- `main`: CLI với hai lệnh con `runs` và `train`.
+
+Cách hoạt động:
+- Lệnh `runs` đọc `index.csv` và in run mới nhất trước.
+- Lệnh `train` tìm `metrics.jsonl` trong thư mục làm việc, in bảng các cột số, dòng tốt nhất của từng loss, và
+  tiến độ pipeline nếu có.
+
+Lưu ý:
+- Không cần thư viện vẽ: bảng là văn bản thuần; `--png` chỉ vẽ khi đã cài matplotlib.
+- Dòng đầu của docstring này cũng là mô tả của CLI (`--help`).
 """
 
 from __future__ import annotations
@@ -18,12 +30,12 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-# Các khóa số không phải metric, không đưa thành cột
+# Các khoá dạng số nhưng không phải metric, không đưa thành cột.
 NUMERIC_SKIP = frozenset({"step", "epoch", "time"})
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    """Mọi dòng của file JSONL (bỏ qua dòng trống)."""
+    """Đọc mọi dòng của file JSONL, bỏ qua dòng trống."""
     rows: list[dict[str, Any]] = []
     with open(path, encoding="utf-8") as f:
         for line in f:
@@ -33,16 +45,24 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def format_table(headers: Sequence[str], rows: Iterable[Sequence[Any]]) -> str:
-    """Bảng văn bản độ rộng cố định; số thực hiển thị 4 chữ số thập phân."""
+    """Dựng bảng văn bản với các cột căn đều; số thực hiển thị 4 chữ số thập phân.
+
+    Tham số:
+        headers: tên các cột.
+        rows: các dòng, mỗi dòng có số ô bằng số cột.
+
+    Trả về:
+        Bảng gồm dòng tiêu đề, dòng gạch ngang và các dòng dữ liệu.
+    """
 
     def cell(v: Any) -> str:
-        """Định dạng một ô: float 4 chữ số thập phân, None thành chuỗi rỗng."""
+        """Định dạng một ô: float lấy 4 chữ số thập phân, `None` thành chuỗi rỗng."""
         if isinstance(v, float):
             return f"{v:.4f}"
         return "" if v is None else str(v)
 
     body = [[cell(v) for v in r] for r in rows]
-    # Độ rộng mỗi cột = độ dài lớn nhất giữa tiêu đề và mọi ô của cột đó
+    # Độ rộng mỗi cột = độ dài lớn nhất giữa tiêu đề và mọi ô của cột đó.
     widths = [max(len(h), *(len(r[i]) for r in body)) if body else len(h) for i, h in enumerate(headers)]
     line = "  ".join(h.ljust(w) for h, w in zip(headers, widths, strict=True))
     out = [line, "  ".join("-" * w for w in widths)]
@@ -51,7 +71,14 @@ def format_table(headers: Sequence[str], rows: Iterable[Sequence[Any]]) -> str:
 
 
 def runs_table(index_csv: Path, limit: int | None = None) -> str:
-    """Bảng artifacts/runs/index.csv dạng văn bản, run mới nhất trước (index.csv ghi nối đuôi)."""
+    """Dựng bảng văn bản từ `artifacts/runs/index.csv`, run mới nhất trước.
+
+    `index.csv` được ghi nối đuôi, nên chỉ cần đảo ngược thứ tự dòng.
+
+    Tham số:
+        index_csv: đường dẫn `index.csv`.
+        limit: số run tối đa cần in; `None` là in hết.
+    """
     with open(index_csv, encoding="utf-8", newline="") as f:
         rows = list(csv.DictReader(f))
     rows.reverse()
@@ -62,7 +89,10 @@ def runs_table(index_csv: Path, limit: int | None = None) -> str:
 
 
 def metric_columns(rows: Sequence[Mapping[str, Any]]) -> list[str]:
-    """Các khóa metric dạng số theo thứ tự xuất hiện đầu tiên (trừ step/epoch/time; bool không tính là số)."""
+    """Liệt kê các khoá metric dạng số theo thứ tự xuất hiện đầu tiên.
+
+    Bỏ qua `step`, `epoch`, `time`; giá trị bool không tính là số.
+    """
     cols: list[str] = []
     for r in rows:
         for k, v in r.items():
@@ -72,24 +102,37 @@ def metric_columns(rows: Sequence[Mapping[str, Any]]) -> list[str]:
 
 
 def train_table(rows: Sequence[Mapping[str, Any]], every: int = 1) -> str:
-    """metrics.jsonl dạng văn bản: mỗi bước đã ghi một dòng (lấy mỗi bước thứ n, luôn giữ dòng cuối), mọi cột số."""
+    """Dựng bảng từ các dòng `metrics.jsonl`, gồm mọi cột số.
+
+    Tham số:
+        rows: các dòng đã đọc.
+        every: chỉ lấy mỗi dòng thứ n; dòng cuối luôn được giữ.
+    """
     cols = metric_columns(rows)
     picked = [r for i, r in enumerate(rows) if i % max(1, every) == 0 or i == len(rows) - 1]
     return format_table(["step", *cols], [[r.get("step", ""), *(r.get(c) for c in cols)] for r in picked])
 
 
 def best_rows(rows: Sequence[Mapping[str, Any]], metric: str) -> list[Mapping[str, Any]]:
-    """Các dòng có `metric`, giá trị nhỏ nhất trước."""
+    """Trả về các dòng có `metric`, sắp giá trị nhỏ nhất trước."""
     have = [r for r in rows if isinstance(r.get(metric), int | float)]
     return sorted(have, key=lambda r: float(r[metric]))
 
 
 def plot_png(rows: Sequence[Mapping[str, Any]], out: Path) -> bool:
-    """Vẽ mọi metric số theo step ra file PNG; trả False khi thiếu matplotlib."""
+    """Vẽ mọi metric số theo step ra file PNG.
+
+    Tham số:
+        rows: các dòng `metrics.jsonl`.
+        out: file PNG đích; thư mục cha được tạo nếu chưa có.
+
+    Trả về:
+        `True` khi đã vẽ, `False` khi chưa cài matplotlib.
+    """
     try:
         import matplotlib
 
-        # Backend Agg không cần màn hình, chạy được trên máy chủ
+        # Backend Agg không cần màn hình, nên chạy được trên máy chủ.
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
@@ -111,9 +154,20 @@ def plot_png(rows: Sequence[Mapping[str, Any]], out: Path) -> bool:
 
 
 def train_report(work_dir: Path, *, every: int, png: Path | None) -> str:
-    """Báo cáo cho một thư mục làm việc huấn luyện (`<work>/sft`, `<work>/asr` hoặc thư mục chứa metrics.jsonl).
+    """Tạo báo cáo cho một thư mục train.
 
-    Báo FileNotFoundError khi không tìm thấy metrics.jsonl ở vị trí nào.
+    `metrics.jsonl` được tìm lần lượt trong `work_dir`, `work_dir/sft` và `work_dir/asr`.
+
+    Tham số:
+        work_dir: thư mục làm việc của job train.
+        every: chỉ in mỗi dòng thứ n của bảng.
+        png: file PNG để vẽ đường cong; `None` thì không vẽ.
+
+    Trả về:
+        Văn bản báo cáo.
+
+    Lỗi:
+        FileNotFoundError: khi không tìm thấy `metrics.jsonl` ở vị trí nào.
     """
     candidates = [work_dir / "metrics.jsonl", work_dir / "sft" / "metrics.jsonl", work_dir / "asr" / "metrics.jsonl"]
     path = next((p for p in candidates if p.is_file()), None)
@@ -134,7 +188,7 @@ def train_report(work_dir: Path, *, every: int, png: Path | None) -> str:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Điểm vào CLI với hai lệnh con `runs` và `train`; trả mã thoát 0."""
+    """Chạy CLI với hai lệnh con `runs` và `train`; trả về mã thoát 0."""
     ap = argparse.ArgumentParser(prog="lifemate.run.report", description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("runs", help="table of agent runs from artifacts/runs/index.csv")

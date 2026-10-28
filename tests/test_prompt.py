@@ -1,7 +1,9 @@
-"""T6, T7, T14, T24: kiểm tra ghép prompt, app held-out, hội thoại chỉ nối thêm và các mức rút gọn (SPEC 4.6).
+"""T6, T7, T14, T24: test ghép prompt, giấu app held-out, hội thoại chỉ nối thêm và các mức rút gọn (SPEC 4.6).
 
-Dùng catalog tổng hợp `CATALOG`, template ngắn `TEMPLATE` và `WhitespaceTokenCounter` từ `tests/fakes.py`
-thay cho tokenizer thật. Không cần dữ liệu cuộc thi hay tokenizer.
+Lưu ý:
+- Dùng catalog tổng hợp `CATALOG`, template ngắn `TEMPLATE` và `WhitespaceTokenCounter` từ `tests/fakes.py` thay
+  cho tokenizer thật.
+- Không cần dữ liệu cuộc thi hay tokenizer.
 """
 
 from __future__ import annotations
@@ -73,12 +75,12 @@ CONTEXT = {
 
 
 def _user(text: str) -> Turn:
-    """Tạo lượt người dùng có văn bản gốc `text`."""
+    """Tạo lượt user có văn bản gốc `text`."""
     return Turn("user", "a.wav", text, None, (), ())
 
 
 def _asst(text: str, name: str, result: dict[str, Any]) -> Turn:
-    """Tạo lượt trợ lý có một tool call `name` và kết quả `result`."""
+    """Tạo lượt assistant có một lời gọi tool `name` và kết quả `result`."""
     return Turn("assistant", None, None, text, ({"name": name, "arguments": {"k": 1}},), (result,))
 
 
@@ -88,7 +90,7 @@ def _sample(sid: str, history: tuple[Turn, ...] = (), label: dict[str, Any] | No
 
 
 def _transcript(sample: Sample) -> Transcript:
-    """Tạo transcript vàng: dùng nguyên văn bản gốc của câu cuối và các lượt user."""
+    """Tạo transcript gold: dùng nguyên văn bản gốc của câu cuối và các lượt user."""
     return Transcript(
         final=sample.audio_text or "",
         history=tuple(t.audio_text if t.role == "user" else None for t in sample.history),
@@ -110,12 +112,12 @@ def _builder(max_model_len: int = 100_000, held_out: frozenset[str] = frozenset(
 
 
 def _all_text(conv: Conversation) -> str:
-    """Nối nội dung mọi message để tìm chuỗi."""
+    """Nối nội dung mọi tin nhắn để tìm chuỗi."""
     return "\n".join(m["content"] for m in conv.messages)
 
 
 def test_render_blocks() -> None:
-    """Khối ngữ cảnh không lộ installed_apps; khối lịch sử dùng transcript ASR và cắt kết quả tool."""
+    """Khối ngữ cảnh không lộ `installed_apps`; khối lịch sử dùng transcript ASR và cắt kết quả tool."""
     ctx = render_context(CONTEXT)
     assert ctx.startswith("# Ngữ cảnh\n")
     assert "location: 10.5, 106.7" in ctx and "user_profile.city: Huế" in ctx
@@ -129,7 +131,7 @@ def test_render_blocks() -> None:
 
 
 def test_prompt_no_label() -> None:
-    """T6: nhãn không bao giờ lọt vào các message."""
+    """T6: nhãn không bao giờ lọt vào các tin nhắn."""
     label = {"tool_calls": [{"name": "alarm.delete", "arguments": {"alarm_id": SENTINEL}}], "note": SENTINEL}
     sample = _sample("s1", (_user("hỏi"), _asst("đáp", "alarm.list", {"ok": True})), label)
     conv, level = _builder().start(sample, _transcript(sample))
@@ -139,7 +141,7 @@ def test_prompt_no_label() -> None:
 
 
 def test_held_out_stripped() -> None:
-    """T7: train_mode bỏ tài liệu của app held-out; lịch sử có gọi app held-out thì báo `HeldOutLeak`."""
+    """T7: train mode bỏ mô tả của app held-out; lịch sử có gọi app held-out thì báo `HeldOutLeak`."""
     builder = _builder(held_out=frozenset({"medication"}))
     sample = _sample("s2")
     conv, _ = builder.start(sample, _transcript(sample), train_mode=True)
@@ -156,7 +158,7 @@ def test_held_out_stripped() -> None:
 
 
 def test_conversation_append_only() -> None:
-    """T14: message cũ không bao giờ đổi; phần quy tắc đầu prompt giống hệt từng byte giữa các sample."""
+    """T14: tin nhắn cũ không bao giờ đổi, và phần quy tắc đầu prompt giống hệt từng byte giữa các mẫu."""
     builder = _builder()
     a = _sample("a")
     b = _sample("b", (_user("x"), _asst("y", "alarm.list", {"ok": True})))
@@ -175,7 +177,7 @@ def test_conversation_append_only() -> None:
         conv_a.append_user(f'KẾT QUẢ: {{"ok":true,"i":{i}}}')
         assert isinstance(conv_a.messages, tuple)
         assert conv_a.messages[: len(before)] == before
-        # Message cũ phải là cùng đối tượng, không phải bản sao.
+        # Tin nhắn cũ phải là cùng đối tượng, không phải bản sao.
         assert all(x is y for x, y in zip(before, conv_a.messages, strict=False))
         assert conv_a.prompt_tokens() == counter.count(list(conv_a.messages))
     for snap in snapshots:
@@ -183,7 +185,7 @@ def test_conversation_append_only() -> None:
 
 
 def test_reconcile() -> None:
-    """`reconcile` thay số token ước lượng bằng số thật từ backend và trả True khi có chênh lệch."""
+    """`reconcile` thay số token ước lượng bằng số thật từ backend và trả `True` khi có chênh lệch."""
     conv = Conversation([{"role": "user", "content": "a b c"}], WhitespaceTokenCounter())
     assert conv.prompt_tokens() == 7
     assert conv.reconcile(7) is False
@@ -193,7 +195,7 @@ def test_reconcile() -> None:
 
 
 def _long_sample() -> Sample:
-    """Tạo sample 4 cặp lượt với kết quả tool dài để buộc phải rút gọn prompt."""
+    """Tạo mẫu có 4 cặp lượt với kết quả tool dài, để buộc phải rút gọn prompt."""
     turns: list[Turn] = []
     for i in range(4):
         turns.append(_user(f"lượt {i} " + "nói " * 5))
@@ -202,7 +204,7 @@ def _long_sample() -> Sample:
 
 
 def test_prompt_shrink_levels() -> None:
-    """T24: áp dụng lần lượt mức 1 -> 2 -> 3, dừng ở mức đầu tiên vừa giới hạn; luôn giữ quy tắc và câu cuối."""
+    """T24: áp lần lượt mức 1, 2, 3, dừng ở mức đầu tiên vừa giới hạn; luôn giữ phần quy tắc và câu cuối."""
     sample = _long_sample()
     tr = _transcript(sample)
     conv0, got = _builder().start(sample, tr)
@@ -210,13 +212,13 @@ def test_prompt_shrink_levels() -> None:
     full = conv0.prompt_tokens()
 
     def run(max_len: int) -> tuple[Conversation, int]:
-        """Dựng prompt với giới hạn `max_len`, kiểm tra quy tắc và câu cuối vẫn còn."""
+        """Dựng prompt với giới hạn `max_len` và kiểm tra phần quy tắc, câu cuối vẫn còn."""
         conv, level = _builder(max_model_len=max_len).start(sample, tr)
         assert conv.messages[0]["content"].startswith(_builder().rules_prefix)
         assert conv.messages[1]["content"].endswith("# Yêu cầu hiện tại\nyêu cầu cuối")
         return conv, level
 
-    # 50 là max_tokens dành cho đầu ra: vừa đủ chỗ thì không rút gọn, thiếu 1 token thì sang mức 1.
+    # 50 là `max_tokens` dành cho đầu ra: vừa đủ chỗ thì không rút gọn, thiếu 1 token thì sang mức 1.
     assert run(full + 50)[1] == 0
     conv1, lvl = run(full + 49)
     assert lvl == 1 and LONG_DESC in conv1.messages[0]["content"]
@@ -230,7 +232,7 @@ def test_prompt_shrink_levels() -> None:
     assert "lượt 0" not in user and "lượt 3" in user and "trả lời 3" in user
     assert conv3.prompt_tokens() + 50 <= t2 + 49
 
-    # Giới hạn quá nhỏ: dừng ở mức 3 dù vẫn vượt, chỉ giữ lượt gần nhất.
+    # Giới hạn quá nhỏ: dừng ở mức 3 dù vẫn vượt, chỉ giữ các lượt gần nhất.
     conv_x, lvl = run(10)
     assert lvl == 3 and conv_x.prompt_tokens() + 50 > 10
     user = conv_x.messages[1]["content"]
@@ -238,7 +240,7 @@ def test_prompt_shrink_levels() -> None:
 
 
 def test_render_calendar_weekdays_and_weeks() -> None:
-    """Bắt các lỗi ngày tháng từ lần chạy smoke: tên thứ, 'mai', và ranh giới tuần bắt đầu từ thứ Hai."""
+    """Lịch ghi đúng tên thứ, "mai" và ranh giới tuần từ thứ Hai (các lỗi ngày tháng từng gặp khi chạy smoke)."""
     lines = render_calendar("2026-11-28T07:10:00+07:00")  # thứ Bảy
     assert lines[0] == "Lịch (bây giờ là thứ Bảy 2026-11-28 07:10):"
     assert "  2026-11-27 thứ Sáu (tuần này, hôm qua)" in lines

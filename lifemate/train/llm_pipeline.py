@@ -1,19 +1,28 @@
-"""Một lệnh: dữ liệu SFT → train → 2 checkpoint tốt nhất → merge → eval agent → chọn → đăng ký (SPEC 6.2.3, 6.2.6).
+"""Chạy cả quy trình fine-tune LLM bằng một lệnh, từ dữ liệu SFT tới đăng ký model (SPEC 6.2.3, 6.2.6).
 
-Nội dung: `PipelineContext`, bảy hàm stage, các hàm đọc/ghi registry, xuất TOML cho run config và CLI.
+Nội dung chính:
+- `PipelineContext`: đường dẫn và tuỳ chọn dùng chung cho mọi stage.
+- `stage_data`, `stage_train`, `stage_select`, `stage_merge`, `stage_eval`, `stage_choose`, `stage_register`:
+  bảy stage của pipeline.
+- `run_pipeline`: chạy một đoạn stage liên tiếp và lưu tiến độ.
+- `read_registry`, `append_registry`, `default_name`: đọc, ghi registry model và đặt tên model.
+- `run_config_for`: xuất config chạy (TOML) trỏ tới model đã merge.
+- `parse_args`, `make_context`, `main`: CLI.
 
-Cách dựng: mỗi stage là một hàm nhận `PipelineContext` và dict trạng thái, ghi kết quả vào khoá trùng tên stage.
-Thứ tự cố định data→train→select→merge→eval→choose→register:
-- data: gọi `sft_data` cho train, eval_seen, eval_unseen (augment chỉ áp dụng cho train).
-- train: LoRA SFT bằng `swift_sft.train`, tự nối tiếp từ checkpoint mới nhất.
-- select: 2 checkpoint có eval_unseen loss thấp nhất.
-- merge: gộp adapter vào base bf16.
-- eval: chạy agent thật trên val_seen và val_unseen với từng model đã merge.
-- choose: điểm val_unseen cao nhất, hoà thì xét val_seen.
-- register: ghi artifacts/models/<name>/ và thêm một dòng vào registry.csv.
+Cách hoạt động:
+Mỗi stage là một hàm nhận `PipelineContext` và dict trạng thái, ghi kết quả vào khoá trùng tên stage. Thứ tự cố
+định là data -> train -> select -> merge -> eval -> choose -> register:
+1. data: gọi `sft_data` cho train, eval_seen, eval_unseen (augment chỉ áp dụng cho train).
+2. train: LoRA SFT bằng `swift_sft.train`, tự chạy tiếp từ checkpoint mới nhất.
+3. select: lấy 2 checkpoint có eval_unseen loss thấp nhất.
+4. merge: gộp adapter vào base model bf16.
+5. eval: chạy agent thật trên `val_seen` và `val_unseen` với từng model đã merge.
+6. choose: chọn model có điểm `val_unseen` cao nhất, hoà thì xét `val_seen`.
+7. register: ghi `artifacts/models/<name>/` và thêm một dòng vào `registry.csv`.
 
-Tiến độ lưu trong `<work>/pipeline_progress.json` sau mỗi stage nên `--from-stage` chạy tiếp được. Stage train và
-merge cần gói GPU và không chạy trong test.
+Lưu ý:
+- Tiến độ được lưu vào `<work>/pipeline_progress.json` sau mỗi stage, nên `--from-stage` chạy tiếp được.
+- Stage train và merge cần extra GPU; test không chạy hai stage này.
 """
 
 from __future__ import annotations
@@ -50,7 +59,18 @@ N_CANDIDATES = 2
 
 @dataclass(frozen=True, slots=True)
 class PipelineContext:
-    """Đường dẫn và tuỳ chọn dùng chung cho mọi stage."""
+    """Đường dẫn và tuỳ chọn dùng chung cho mọi stage.
+
+    Thuộc tính:
+        repo_root: thư mục gốc repo.
+        config_path: đường dẫn file config train.
+        cfg: config train đã đọc.
+        env: tên profile môi trường.
+        name: tên model.
+        work_dir: thư mục làm việc của pipeline.
+        limit: số id mỗi tập val khi chấm bằng agent.
+        data_split: split chứa id train và val.
+    """
 
     repo_root: Path
     config_path: Path
@@ -63,24 +83,24 @@ class PipelineContext:
 
     @property
     def state_path(self) -> Path:
-        """Nơi lưu kết quả các stage."""
+        """File lưu kết quả các stage."""
         return self.work_dir / "pipeline_progress.json"
 
     @property
     def model_dir(self) -> Path:
-        """`artifacts/models/<name>/` (nằm trong git: cấu hình và điểm số, không bao giờ chứa trọng số)."""
+        """Thư mục `artifacts/models/<name>/`, nằm trong git: chỉ chứa config và điểm số, không chứa trọng số."""
         return self.repo_root / "artifacts" / "models" / self.name
 
 
 def load_state(ctx: PipelineContext) -> dict[str, Any]:
-    """Kết quả các stage đã chạy tới hiện tại (dict rỗng nếu chưa có file tiến độ)."""
+    """Đọc kết quả các stage đã chạy tới giờ; trả về dict rỗng nếu chưa có file tiến độ."""
     if not ctx.state_path.is_file():
         return {}
     return dict(json.loads(ctx.state_path.read_text(encoding="utf-8")))
 
 
 def save_state(ctx: PipelineContext, state: Mapping[str, Any]) -> None:
-    """Ghi kết quả các stage theo cách nguyên tử (không để lại file ghi dở)."""
+    """Ghi kết quả các stage theo cách nguyên tử, không để lại file ghi dở."""
     write_json_atomic(ctx.state_path, dict(state))
 
 
@@ -90,9 +110,17 @@ def data_version(cfg: sft.LLMTrainConfig) -> str:
 
 
 def default_name(cfg: sft.LLMTrainConfig, registry: Path) -> str:
-    """Tạo tên `ft-<base>-sft<v>-r<nn>` với số lần chạy còn trống tiếp theo trong registry (SPEC 6.2.6).
+    """Tạo tên model `ft-<base>-sft<v>-r<nn>`, với `<nn>` là số lần chạy còn trống tiếp theo trong registry (SPEC
+    6.2.6).
 
-    `<base>` là tên model bỏ ký tự ngoài a-z0-9, `<v>` là phần số của phiên bản dữ liệu.
+    `<base>` là tên model đã bỏ ký tự ngoài a-z0-9; `<v>` là phần số của phiên bản dữ liệu.
+
+    Tham số:
+        cfg: config train LLM.
+        registry: file `registry.csv`.
+
+    Trả về:
+        Tên model chưa có trong registry.
     """
     base = re.sub(r"[^a-z0-9]+", "", cfg.base.model.rsplit("/", 1)[-1].lower()) or "base"
     version = re.sub(r"\D", "", data_version(cfg)) or "0"
@@ -105,7 +133,7 @@ def default_name(cfg: sft.LLMTrainConfig, registry: Path) -> str:
 
 
 def read_registry(path: Path) -> list[dict[str, str]]:
-    """Đọc các dòng của artifacts/models/registry.csv (danh sách rỗng nếu chưa có file)."""
+    """Đọc các dòng của `artifacts/models/registry.csv`; trả về danh sách rỗng nếu chưa có file."""
     if not path.is_file():
         return []
     with open(path, encoding="utf-8", newline="") as f:
@@ -113,7 +141,7 @@ def read_registry(path: Path) -> list[dict[str, str]]:
 
 
 def append_registry(path: Path, row: Mapping[str, Any]) -> None:
-    """Thêm một dòng (ghi header khi file mới hoặc rỗng); cột thiếu được để trống."""
+    """Thêm một dòng vào registry; ghi dòng tiêu đề khi file mới hoặc rỗng, cột thiếu để trống."""
     new = not path.is_file() or path.stat().st_size == 0
     with open(path, "a", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=REGISTRY_FIELDS)
@@ -122,14 +150,14 @@ def append_registry(path: Path, row: Mapping[str, Any]) -> None:
         w.writerow({k: row.get(k, "") for k in REGISTRY_FIELDS})
 
 
-# ---------------------------------------------------------------- stages
+# ---------------------------------------------------------------- Các stage
 
 
 def stage_data(ctx: PipelineContext, state: dict[str, Any]) -> None:
     """Tạo các file SFT train, eval_seen và eval_unseen.
 
-    Mỗi file gọi `sft_data.run` với argv tương ứng; hai file eval có `--allow-eval`. Ghi sha256 và số dòng
-    của từng file vào `state["data"]`.
+    Mỗi file gọi `sft_data.run` với argv tương ứng; hai file eval có thêm `--allow-eval`. Sha256 và số dòng của
+    từng file được ghi vào `state["data"]`.
     """
     jobs = [
         (ctx.cfg.data.train, "configs/splits/train.txt", False),
@@ -152,9 +180,9 @@ def stage_data(ctx: PipelineContext, state: dict[str, Any]) -> None:
 
 
 def stage_train(ctx: PipelineContext, state: dict[str, Any]) -> None:
-    """LoRA SFT bằng ms-swift; chạy tiếp từ checkpoint mới nhất nếu lần trước bị ngắt."""
+    """LoRA SFT bằng ms-swift; nếu lần trước bị ngắt thì chạy tiếp từ checkpoint mới nhất."""
     out = ctx.work_dir / "sft"
-    # Unsloth trainer (before ms-swift):
+    # Trainer Unsloth (trước khi chuyển sang ms-swift):
     # latest = CheckpointManager(out / "checkpoints").latest()
     # sft.train(ctx.cfg, repo_root=ctx.repo_root, out_dir=out, resume_from=latest.path if latest else None)
     swift_dir = swift_sft.train(ctx.cfg, repo_root=ctx.repo_root, out_dir=out)
@@ -162,8 +190,14 @@ def stage_train(ctx: PipelineContext, state: dict[str, Any]) -> None:
 
 
 def stage_select(ctx: PipelineContext, state: dict[str, Any]) -> None:
-    """Chọn 2 checkpoint có eval_unseen loss thấp nhất (eval_loss của ms-swift, file val duy nhất là val_unseen)."""
-    # Unsloth trainer (before ms-swift):
+    """Chọn 2 checkpoint có eval_unseen loss thấp nhất.
+
+    Loss lấy từ `eval_loss` của ms-swift; file val duy nhất truyền cho ms-swift là `val_unseen`.
+
+    Lỗi:
+        RuntimeError: khi không có checkpoint nào có eval loss.
+    """
+    # Trainer Unsloth (trước khi chuyển sang ms-swift):
     # mgr = CheckpointManager(ctx.work_dir / "sft" / "checkpoints", metric_name=sft.EVAL_METRIC)
     # best = mgr.best_k(N_CANDIDATES)
     swift_dir = ctx.work_dir / "sft" / "swift"
@@ -184,7 +218,18 @@ def stage_merge(ctx: PipelineContext, state: dict[str, Any]) -> None:
 
 
 def run_config_for(ctx: PipelineContext, model_dir: str, out: Path) -> Path:
-    """Tạo bản sao run config với `[llm].model` trỏ tới model đã merge (revision để trống vì là thư mục cục bộ)."""
+    """Tạo bản sao config chạy với `[llm].model` trỏ tới model đã merge.
+
+    `revision` để trống vì model là thư mục trên máy.
+
+    Tham số:
+        ctx: context của pipeline.
+        model_dir: thư mục model đã merge.
+        out: file TOML đích.
+
+    Trả về:
+        `out`.
+    """
     with open(abs_path(ctx.cfg.base.run_config, ctx.repo_root), "rb") as f:
         raw = tomllib.load(f)
     raw["llm"]["model"] = model_dir
@@ -194,16 +239,17 @@ def run_config_for(ctx: PipelineContext, model_dir: str, out: Path) -> Path:
     return out
 
 
+# Runner(lệnh, thư mục làm việc) -> mã thoát; test thay bằng hàm giả để không chạy tiến trình con thật.
 Runner = Callable[[Sequence[str], Path], int]
 
 
 def _subprocess_runner(cmd: Sequence[str], cwd: Path) -> int:
-    """Chạy lệnh trong `cwd` và trả về mã thoát (không ném lỗi khi mã khác 0)."""
+    """Chạy lệnh trong `cwd` và trả về mã thoát; không ném lỗi khi mã khác 0."""
     return subprocess.run(list(cmd), cwd=cwd, check=False).returncode
 
 
 def eval_command(ctx: PipelineContext, run_config: Path, split_ids: str, run_dir: Path) -> list[str]:
-    """Lệnh `python -m lifemate.run.cli` trên một file id val, kèm `--limit` và nguồn chữ `base.eval_transcripts`."""
+    """Dựng lệnh `python -m lifemate.run.cli` trên một file id val, kèm `--limit` và nguồn chữ của config."""
     return [
         sys.executable,
         "-m",
@@ -226,7 +272,7 @@ def eval_command(ctx: PipelineContext, run_config: Path, split_ids: str, run_dir
 
 
 def read_run_score(run_dir: Path) -> float | None:
-    """Đọc `score.total` từ summary.json của một lần chạy (None nếu thiếu file hoặc thiếu điểm)."""
+    """Đọc `score.total` từ `summary.json` của một run; trả về `None` nếu thiếu file hoặc thiếu điểm."""
     summary = run_dir / "summary.json"
     if not summary.is_file():
         return None
@@ -235,9 +281,17 @@ def read_run_score(run_dir: Path) -> float | None:
 
 
 def stage_eval(ctx: PipelineContext, state: dict[str, Any], runner: Runner = _subprocess_runner) -> None:
-    """Chạy agent thật với từng ứng viên đã merge trên val_seen và val_unseen (`--limit`).
+    """Chạy agent thật với từng ứng viên đã merge trên `val_seen` và `val_unseen` (giới hạn bởi `--limit`).
 
-    Mỗi ứng viên có run config riêng; lệnh thất bại thì ném RuntimeError. `runner` cho phép test thay tiến trình con.
+    Mỗi ứng viên có config chạy riêng.
+
+    Tham số:
+        ctx: context của pipeline.
+        state: trạng thái pipeline; đọc `state["merge"]`, ghi `state["eval"]`.
+        runner: hàm chạy tiến trình con; test thay bằng hàm giả.
+
+    Lỗi:
+        RuntimeError: khi một lệnh chấm thất bại.
     """
     results = []
     for cand in state["merge"]:
@@ -256,9 +310,14 @@ def stage_eval(ctx: PipelineContext, state: dict[str, Any], runner: Runner = _su
 
 
 def choose(candidates: Sequence[Mapping[str, Any]]) -> Mapping[str, Any]:
-    """Chọn ứng viên có điểm val_unseen cao nhất; hoà thì xét val_seen (SPEC 6.2.3 mục 3)."""
+    """Chọn ứng viên có điểm `val_unseen` cao nhất; hoà thì xét `val_seen` (SPEC 6.2.3 mục 3).
+
+    Lỗi:
+        ValueError: khi không có ứng viên nào.
+    """
 
     def key(c: Mapping[str, Any]) -> tuple[float, float]:
+        """Khoá so sánh: (điểm `val_unseen`, điểm `val_seen`)."""
         # Điểm thiếu (None) được tính là 0.
         return (float(c.get("val_unseen") or 0.0), float(c.get("val_seen") or 0.0))
 
@@ -268,14 +327,14 @@ def choose(candidates: Sequence[Mapping[str, Any]]) -> Mapping[str, Any]:
 
 
 def stage_choose(ctx: PipelineContext, state: dict[str, Any]) -> None:
-    """Chọn checkpoint giữ lại."""
+    """Chọn checkpoint giữ lại trong các ứng viên đã chấm."""
     state["choose"] = dict(choose(state["eval"]))
 
 
 def stage_register(ctx: PipelineContext, state: dict[str, Any]) -> None:
-    """Ghi artifacts/models/<name>/{train_config.json, eval.json, metrics.jsonl}; thêm một dòng vào registry.
+    """Ghi `artifacts/models/<name>/{train_config.json, eval.json, metrics.jsonl}` và thêm một dòng vào registry.
 
-    train_config.json kèm sha256 của mọi file dữ liệu có thật trong cấu hình.
+    `train_config.json` kèm sha256 của mọi file dữ liệu có thật trong config.
     """
     chosen = state["choose"]
     ctx.model_dir.mkdir(parents=True, exist_ok=True)
@@ -327,14 +386,23 @@ STAGE_FUNCS: dict[str, Callable[[PipelineContext, dict[str, Any]], None]] = {
 
 
 def run_pipeline(ctx: PipelineContext, *, from_stage: str = STAGES[0], to_stage: str = STAGES[-1]) -> dict[str, Any]:
-    """Chạy các stage từ `from_stage` tới `to_stage` theo thứ tự, lưu trạng thái sau mỗi stage."""
+    """Chạy các stage từ `from_stage` tới `to_stage` theo thứ tự, lưu trạng thái sau mỗi stage.
+
+    Tham số:
+        ctx: context của pipeline.
+        from_stage: stage bắt đầu.
+        to_stage: stage kết thúc (tính cả stage này).
+
+    Trả về:
+        Trạng thái sau stage cuối.
+    """
     first, last = STAGES.index(from_stage), STAGES.index(to_stage)
     state = load_state(ctx)
     state.setdefault("name", ctx.name)
     for stage in STAGES[first : last + 1]:
         log.info("pipeline_stage_start", stage=stage, name=ctx.name)
         STAGE_FUNCS[stage](ctx, state)
-        # Đưa stage vừa xong xuống cuối danh sách done, không lặp lại khi chạy lại.
+        # Đưa stage vừa xong xuống cuối danh sách `done`, để chạy lại không sinh tên trùng.
         state["done"] = [*[s for s in state.get("done", []) if s != stage], stage]
         save_state(ctx, state)
     return state
@@ -354,7 +422,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def make_context(args: argparse.Namespace, repo_root: Path = REPO_ROOT) -> PipelineContext:
-    """Tạo context từ tham số dòng lệnh; thư mục làm việc là `<runs_dir>/train/<name>` của profile env."""
+    """Tạo context từ tham số dòng lệnh; thư mục làm việc là `<runs_dir>/train/<name>` của profile môi trường."""
     config_path = abs_path(args.config, repo_root)
     cfg = sft.load_llm_train_config(config_path)
     name = args.name or default_name(cfg, repo_root / "artifacts" / "models" / "registry.csv")
@@ -363,7 +431,7 @@ def make_context(args: argparse.Namespace, repo_root: Path = REPO_ROOT) -> Pipel
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Điểm vào của CLI."""
+    """Chạy CLI pipeline LLM và in các stage đã xong; trả về mã thoát 0."""
     args = parse_args(argv)
     ctx = make_context(args)
     state = run_pipeline(ctx, from_stage=args.from_stage, to_stage=args.to_stage)

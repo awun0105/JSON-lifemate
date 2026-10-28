@@ -1,7 +1,15 @@
-"""Kiểm tra Runner cô lập ngoại lệ theo từng mẫu (SPEC 4.11; T11) và hàm đọc điểm `parse_score`.
+"""Test `Runner` cô lập lỗi theo từng mẫu (SPEC 4.11; T11) và hàm đọc điểm `parse_score`.
 
-Cách kiểm tra: dùng `FakeLLM`, `FakeEnv` (qua `FakeLoader`), `FlakyTranscriber` cố ý lỗi ở một mẫu và `RunStore`
-trong `tmp_path`; bước chấm điểm bên ngoài được thay bằng lambda. Không cần dữ liệu cuộc thi hay tokenizer.
+Nội dung chính:
+- `FakeLoader`: thay `ZaicLoader`, mở `FakeEnv`.
+- `FlakyTranscriber`: transcriber cố ý lỗi ở một mẫu.
+
+Cách hoạt động:
+- Dùng `FakeLLM`, `FakeEnv` (qua `FakeLoader`), `FlakyTranscriber` và `RunStore` trong `tmp_path`. Bước chấm điểm
+  bên ngoài được thay bằng lambda.
+
+Lưu ý:
+- Không cần dữ liệu cuộc thi hay tokenizer.
 """
 
 from __future__ import annotations
@@ -20,7 +28,7 @@ from tests.test_guards import make_env
 
 
 class FakeLoader:
-    """Bản thay thế ZaicLoader, mở FakeEnv và kiểm tra mỗi mẫu chỉ mở môi trường một lần."""
+    """Bản thay `ZaicLoader`: mở `FakeEnv` và kiểm tra mỗi mẫu chỉ mở env một lần."""
 
     def __init__(self) -> None:
         self.root = Path("unused")
@@ -28,14 +36,14 @@ class FakeLoader:
         self.envs: dict[str, FakeEnv] = {}
 
     def open_env(self, sample_id: str) -> FakeEnv:
-        """Tạo FakeEnv mới cho mẫu; báo lỗi nếu mẫu đã được mở trước đó."""
+        """Tạo `FakeEnv` mới cho mẫu; báo lỗi nếu mẫu đã được mở trước đó."""
         assert sample_id not in self.envs
         self.envs[sample_id] = make_env()
         return self.envs[sample_id]
 
 
 class FlakyTranscriber(GoldTranscriber):
-    """Transcriber trả transcript chuẩn, riêng mẫu `bad` thì ném RuntimeError."""
+    """Transcriber trả transcript chuẩn, riêng mẫu `bad` thì ném `RuntimeError`."""
 
     def __init__(self, bad: str) -> None:
         self.bad = bad
@@ -48,7 +56,7 @@ class FlakyTranscriber(GoldTranscriber):
 
 
 def test_exception_isolated(tmp_path: Path) -> None:
-    """T11: transcriber lỗi ở s2 không dừng lượt chạy; s2 có dòng ngoại lệ trong trace và trong submission."""
+    """T11: transcriber lỗi ở s2 không dừng lần chạy; s2 vẫn có dòng ngoại lệ trong trace và dòng trong submission."""
     samples = [sample(f"s{i}", GOLD) for i in (1, 2, 3)]
     agent = make_agent(FakeLLM(samples))
     agent.transcriber = FlakyTranscriber("s2")
@@ -56,7 +64,7 @@ def test_exception_isolated(tmp_path: Path) -> None:
     loader = FakeLoader()
     runner = Runner(agent, loader, store, repo_root=tmp_path, index_csv=tmp_path / "index.csv")
     checked: list[Path] = []
-    # Thay bước kiểm tra submission bằng lambda ghi lại đường dẫn, tránh chạy script bên ngoài.
+    # Thay bước kiểm tra submission bằng lambda ghi lại đường dẫn, để khỏi chạy script bên ngoài.
     runner._check = lambda sub: checked.append(sub) or sub  # type: ignore[method-assign]
     out = runner.run(samples, ids_file=None, split_has_labels=False, config_record={"x": 1})
     assert checked == [out.submission] and out.score is None
@@ -65,7 +73,7 @@ def test_exception_isolated(tmp_path: Path) -> None:
     sub = out.submission
     rows = {r["id"]: r for r in map(json.loads, sub.read_text(encoding="utf-8").splitlines())}
     assert set(rows) == {"s1", "s2", "s3"}
-    # Mẫu lỗi vẫn có dòng submission: không tool call, state_hash của môi trường chưa đổi.
+    # Mẫu lỗi vẫn có dòng submission: không có lời gọi tool, `state_hash` là của môi trường chưa đổi.
     assert rows["s2"] == {"id": "s2", "tool_calls": [], "state_hash": FakeEnv(set()).get_state_hash()}
     assert rows["s1"]["tool_calls"] == GOLD
     trace = {r["id"]: r for r in store.records()}
@@ -75,7 +83,7 @@ def test_exception_isolated(tmp_path: Path) -> None:
 
 
 def test_parse_score() -> None:
-    """Bảo vệ: đọc đúng điểm tổng, điểm theo chế độ khớp và theo loại câu trả lời; văn bản lạ trả None."""
+    """Đọc đúng điểm tổng, điểm theo chế độ so khớp và theo loại câu trả lời; văn bản lạ trả `None`."""
     # Mẫu đầu ra của script chấm điểm.
     text = "Final score [strict]: 100.00  (N = 5)\nFinal score [canon]: 99.50  (N = 5)\n\n== Score by answer type\n"
     text += "execute                3   100.00    100.0  1.000  1.000\n"

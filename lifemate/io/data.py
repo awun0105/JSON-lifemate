@@ -1,10 +1,17 @@
-"""Đọc mẫu dữ liệu cuộc thi từ `<root>/<split>/<split>.jsonl` (SPEC 4.2).
+"""Đọc mẫu dữ liệu cuộc thi từ file `<root>/<split>/<split>.jsonl` (SPEC 4.2).
 
-Nội dung file: `load_split` đọc một split thành danh sách `Sample`, `read_ids` đọc file danh sách id.
+Nội dung chính:
+- `load_split`: đọc một split thành danh sách `Sample`.
+- `read_ids`: đọc file danh sách id, mỗi dòng một id.
 
-Cách xây dựng: mỗi dòng JSON được đổi thành dataclass bất biến (`Sample`, `Turn`) ngay khi đọc, nên các tầng
-sau không phải làm việc với dict thô. Khóa bắt buộc thiếu thì báo KeyError ngay; khóa tùy chọn (`audio_text`,
-`history`, `label`...) thiếu thì nhận None hoặc tuple rỗng. Thứ tự mẫu giữ đúng thứ tự trong file.
+Cách hoạt động:
+- Mỗi dòng JSON được đổi ngay thành dataclass bất biến (`Sample`, `Turn`), nên các tầng sau không phải làm việc
+  với dict thô.
+- Thứ tự mẫu giữ đúng thứ tự trong file.
+
+Lưu ý:
+- Thiếu khoá bắt buộc thì báo `KeyError` ngay. Thiếu khoá tuỳ chọn (`audio_text`, `history`, `label`...) thì
+  nhận `None` hoặc tuple rỗng.
 """
 
 from __future__ import annotations
@@ -18,7 +25,7 @@ from lifemate.core.types import Sample, Turn
 
 
 def _turn(raw: dict[str, Any]) -> Turn:
-    """Đổi một lượt hội thoại thô thành `Turn`; báo ValueError khi role không phải user hoặc assistant."""
+    """Đổi một lượt hội thoại thô thành `Turn`; báo `ValueError` khi role không phải `user` hay `assistant`."""
     role = raw["role"]
     if role not in ("user", "assistant"):
         raise ValueError(f"unknown turn role: {role!r}")
@@ -51,9 +58,13 @@ def load_split(root: Path, split: str, ids: Sequence[str] | None = None) -> list
     Tham số:
         root: thư mục dữ liệu.
         split: tên split.
-        ids: danh sách id cần giữ; None là giữ tất cả.
+        ids: các id cần giữ; `None` là giữ tất cả.
 
-    Báo ValueError khi `ids` có id không thuộc split. Kết quả vẫn theo thứ tự file, không theo thứ tự `ids`.
+    Trả về:
+        Danh sách `Sample` theo thứ tự trong file, không theo thứ tự của `ids`.
+
+    Lỗi:
+        ValueError: khi `ids` có id không thuộc split.
     """
     path = Path(root) / split / f"{split}.jsonl"
     samples: list[Sample] = []
@@ -71,5 +82,5 @@ def load_split(root: Path, split: str, ids: Sequence[str] | None = None) -> list
 
 
 def read_ids(path: Path) -> list[str]:
-    """Đọc file mỗi dòng một id; bỏ qua dòng trống và khoảng trắng hai đầu."""
+    """Đọc file mỗi dòng một id; bỏ dòng trống và khoảng trắng hai đầu."""
     return [ln.strip() for ln in Path(path).read_text(encoding="utf-8").splitlines() if ln.strip()]

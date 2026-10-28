@@ -1,15 +1,18 @@
-"""Phát hiện GPU, phiên bản mã nguồn và phiên bản thư viện; chọn dtype (SPEC 4.16).
+"""Dò GPU, phiên bản mã nguồn và phiên bản thư viện của máy đang chạy, rồi chọn dtype phù hợp (SPEC 4.16).
 
-Nội dung file:
-- `EnvInfo`: các thông tin về máy và mã nguồn của một lượt chạy, được ghi kèm kết quả để tái lập.
-- `detect`: gom thông tin GPU (qua torch), phiên bản mã (git hoặc file VERSION) và phiên bản các gói chính.
+Nội dung chính:
+- `EnvInfo`: thông tin máy và mã nguồn của một lần chạy, ghi kèm kết quả để chạy lại được.
+- `detect`: gom thông tin GPU (qua `torch`), phiên bản mã (git hoặc file `VERSION`) và phiên bản các gói chính.
+- `code_version`: lấy commit hiện tại và cho biết cây làm việc có thay đổi chưa commit hay không.
 - `resolve_dtype`: đổi dtype trong config (`auto`, `float16`, `bfloat16`) thành dtype thật theo GPU.
 
-Cách xây dựng:
-- Mọi phép dò đều chịu lỗi: thiếu torch, không có CUDA, không có git hay gói chưa cài đều trả về None hoặc bỏ qua,
-  không làm hỏng lượt chạy.
-- bfloat16 chỉ dùng được từ compute capability 8.0 (Ampere) trở lên; `auto` chọn theo ngưỡng này, còn yêu cầu
-  bfloat16 tường minh trên GPU cũ thì báo lỗi sớm.
+Cách hoạt động:
+- Mọi bước dò đều chịu được lỗi. Thiếu `torch`, không có CUDA, không có git hay gói chưa cài thì trả về `None`
+  hoặc bỏ qua, không làm hỏng lần chạy.
+
+Lưu ý:
+- bfloat16 chỉ chạy được trên GPU có compute capability từ 8.0 (Ampere) trở lên. `auto` chọn dtype theo ngưỡng
+  này. Config ghi rõ bfloat16 mà GPU cũ hơn thì báo lỗi ngay từ đầu.
 """
 
 from __future__ import annotations
@@ -26,15 +29,21 @@ from lifemate.core.config import ConfigError
 log = structlog.get_logger(__name__)
 
 _PACKAGES = ("vllm", "torch", "transformers", "lifemate")
-# Compute capability tối thiểu hỗ trợ bfloat16 (sm80, Ampere).
+# Compute capability thấp nhất hỗ trợ bfloat16 (sm80, đời Ampere).
 _BF16_MIN_CC = (8, 0)
 
 
 @dataclass(frozen=True, slots=True)
 class EnvInfo:
-    """Thông tin về máy và mã nguồn của một lượt chạy.
+    """Thông tin máy và mã nguồn của một lần chạy.
 
-    Các trường GPU là None khi không có GPU CUDA; `code_dirty` là None khi không xác định được qua git.
+    Thuộc tính:
+        gpu_name: tên GPU số 0; `None` khi không có GPU CUDA.
+        compute_capability: cặp (major, minor) của GPU; `None` khi không có GPU CUDA.
+        gpu_mem_gb: tổng bộ nhớ GPU, đơn vị GB; `None` khi không có GPU CUDA.
+        code_version: commit git hoặc nội dung file `VERSION`; `"unknown"` khi không xác định được.
+        code_dirty: `True` khi có thay đổi chưa commit; `None` khi không xác định được qua git.
+        packages: tên gói tới phiên bản, chỉ gồm các gói đã cài.
     """
 
     gpu_name: str | None
@@ -46,7 +55,7 @@ class EnvInfo:
 
 
 def _gpu() -> tuple[str | None, tuple[int, int] | None, float | None]:
-    """Trả về (tên, compute capability, bộ nhớ GB) của GPU số 0, hoặc ba giá trị None khi không có GPU."""
+    """Trả về (tên, compute capability, bộ nhớ GB) của GPU số 0, hoặc ba giá trị `None` khi không có GPU."""
     try:
         import torch  # extra: gpu (đi kèm vllm)
     except ImportError:
@@ -58,10 +67,17 @@ def _gpu() -> tuple[str | None, tuple[int, int] | None, float | None]:
 
 
 def code_version(repo_root: Path) -> tuple[str, bool | None]:
-    """Trả về (phiên bản, dirty) lấy từ git, nếu không được thì từ file VERSION, cuối cùng là ("unknown", None).
+    """Lấy phiên bản mã nguồn và trạng thái dirty của repo tại `repo_root`.
 
-    `dirty` là True khi cây làm việc có thay đổi chưa commit. File VERSION dùng cho bản sao không có `.git`
-    (ví dụ mã được tải lên dưới dạng dataset), khi đó `dirty` là None.
+    Thứ tự thử: git, rồi file `VERSION`, cuối cùng trả về `("unknown", None)`. File `VERSION` dành cho bản sao
+    không có `.git`, ví dụ mã được tải lên Kaggle dưới dạng dataset.
+
+    Tham số:
+        repo_root: thư mục gốc của repo.
+
+    Trả về:
+        Cặp `(phiên bản, dirty)`. `dirty` là `True` khi cây làm việc có thay đổi chưa commit, `None` khi phiên
+        bản lấy từ file `VERSION` hoặc không xác định được.
     """
     if (repo_root / ".git").exists():
         try:
@@ -73,7 +89,7 @@ def code_version(repo_root: Path) -> tuple[str, bool | None]:
             ).stdout
             return head, bool(status.strip())
         except (OSError, subprocess.CalledProcessError):
-            # Không có lệnh git hoặc repo hỏng: chuyển sang file VERSION.
+            # Máy không có lệnh git hoặc repo hỏng: thử file `VERSION` bên dưới.
             pass
     version_file = repo_root / "VERSION"
     if version_file.is_file():
@@ -83,7 +99,7 @@ def code_version(repo_root: Path) -> tuple[str, bool | None]:
 
 
 def _packages() -> dict[str, str]:
-    """Phiên bản các gói trong `_PACKAGES`; gói chưa cài thì bỏ qua."""
+    """Trả về phiên bản các gói trong `_PACKAGES`, bỏ qua gói chưa cài."""
     out: dict[str, str] = {}
     for name in _PACKAGES:
         try:
@@ -101,14 +117,19 @@ def detect(repo_root: Path) -> EnvInfo:
 
 
 def resolve_dtype(cfg_dtype: str, info: EnvInfo) -> str:
-    """Đổi dtype trong config thành dtype thật: auto → bfloat16 trên sm80+, ngược lại float16.
+    """Đổi dtype trong config thành dtype thật: `auto` thành bfloat16 trên GPU sm80 trở lên, còn lại là float16.
+
+    Khi máy không có GPU, giá trị ghi rõ trong config được giữ nguyên vì không có gì để kiểm tra.
 
     Tham số:
         cfg_dtype: giá trị `llm.dtype` trong config.
-        info: thông tin máy, dùng compute capability của GPU.
+        info: thông tin máy; chỉ dùng compute capability của GPU.
 
-    Báo `ConfigError` khi yêu cầu bfloat16 trên GPU dưới sm80. Khi không có GPU, giá trị tường minh được giữ
-    nguyên vì không có gì để kiểm tra.
+    Trả về:
+        Tên dtype: `"bfloat16"`, `"float16"` hoặc giá trị gốc trong config.
+
+    Lỗi:
+        ConfigError: khi config yêu cầu bfloat16 trên GPU dưới sm80.
     """
     cc = info.compute_capability
     supports_bf16 = cc is not None and cc >= _BF16_MIN_CC

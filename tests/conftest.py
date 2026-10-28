@@ -1,6 +1,8 @@
 """Fixture dùng chung cho toàn bộ test.
 
-Cung cấp gốc repo và gốc dữ liệu cuộc thi. Fixture `data_root` tự bỏ qua (skip) test khi thiếu gói dữ liệu.
+Nội dung chính:
+- `repo_root`: thư mục gốc repo.
+- `data_root`: thư mục dữ liệu cuộc thi; tự skip test khi thiếu gói dữ liệu.
 """
 
 from pathlib import Path
@@ -18,7 +20,7 @@ def repo_root() -> Path:
 
 @pytest.fixture
 def data_root(repo_root: Path) -> Path:
-    """Trả về thư mục dữ liệu cuộc thi; bỏ qua test khi thiếu gói dữ liệu."""
+    """Trả về thư mục dữ liệu cuộc thi; skip test khi thiếu gói dữ liệu."""
     root = repo_root / "data" / "train+public_test"
     if not root.is_dir():
         pytest.skip(f"data package missing: {root}")

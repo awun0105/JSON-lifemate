@@ -1,9 +1,23 @@
-"""Khung huấn luyện dùng chung: seed, checkpoint, metrics, train_config.json, mục TOML chặt chẽ (SPEC 6.5).
+"""Khung train dùng chung cho mọi trainer (LLM, ASR): seed, checkpoint, metrics, `train_config.json`, đọc TOML chặt
+(SPEC 6.5).
 
-Cách xây dựng: mọi trainer (LLM, ASR) dùng chung các khối này. `CheckpointManager` ghi checkpoint vào thư mục tạm
-rồi đổi tên nguyên tử, kèm trạng thái RNG để chạy tiếp tái lập được; `MetricsLogger` ghi jsonl từng dòng;
-`write_train_config` lưu config, EnvInfo và sha256 dữ liệu; `build_section`/`load_toml` từ chối khóa lạ hoặc thiếu.
-numpy và torch là tùy chọn, thiếu thì bỏ qua phần tương ứng.
+Nội dung chính:
+- `seed_everything`: đặt seed cho Python, NumPy, PyTorch và bật chế độ tất định.
+- `capture_rng`, `restore_rng`: lưu và khôi phục trạng thái bộ sinh số ngẫu nhiên (RNG).
+- `CheckpointManager`, `CheckpointInfo`: lưu, liệt kê, dọn và nạp checkpoint.
+- `MetricsLogger`: ghi metrics ra `metrics.jsonl`, mỗi dòng một bản ghi.
+- `write_train_config`, `write_json_atomic`, `sha256_file`: ghi config của job train và băm file dữ liệu.
+- `build_section`, `load_toml`: đọc config TOML, từ chối khoá lạ hoặc thiếu.
+- `abs_path`, `read_held_out`: tiện ích đường dẫn và đọc danh sách app held-out.
+
+Cách hoạt động:
+- `CheckpointManager` ghi checkpoint vào thư mục tạm rồi đổi tên nguyên tử, kèm trạng thái RNG, để chạy tiếp
+  (resume) ra đúng kết quả như chạy liền một mạch.
+- `MetricsLogger` ghi jsonl từng dòng và flush ngay.
+- `write_train_config` lưu config, `EnvInfo` và sha256 của dữ liệu để truy vết job.
+
+Lưu ý:
+- numpy và torch là tuỳ chọn; thiếu gói nào thì bỏ qua phần tương ứng.
 """
 
 from __future__ import annotations
@@ -40,7 +54,7 @@ _T = TypeVar("_T")
 
 
 def _optional_module(name: str) -> ModuleType | None:
-    """Import gói tùy chọn (numpy, torch từ gói phụ `gpu`/train) hoặc trả về None."""
+    """Import gói tuỳ chọn (numpy, torch từ extra `gpu` hoặc gói train); không có thì trả về `None`."""
     try:
         return importlib.import_module(name)
     except ImportError:
@@ -48,7 +62,13 @@ def _optional_module(name: str) -> ModuleType | None:
 
 
 def seed_everything(seed: int, *, deterministic: bool = True) -> None:
-    """Đặt seed cho Python, NumPy và PyTorch (CPU và CUDA); bật thuật toán tất định của PyTorch khi có thể."""
+    """Đặt seed cho Python, NumPy và PyTorch (CPU và CUDA).
+
+    Tham số:
+        seed: giá trị seed.
+        deterministic: `True` để bật thuật toán tất định của PyTorch khi có thể (chậm hơn nhưng chạy lại ra cùng
+            kết quả).
+    """
     os.environ["PYTHONHASHSEED"] = str(seed)
     random.seed(seed)
     np = _optional_module("numpy")
@@ -61,9 +81,10 @@ def seed_everything(seed: int, *, deterministic: bool = True) -> None:
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
     if deterministic:
-        # cuBLAS cần biến này để phép nhân ma trận tất định.
+        # cuBLAS cần biến này thì phép nhân ma trận mới tất định.
         os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
         try:
+            # `warn_only=True`: phép tính không có bản tất định chỉ cảnh báo, không làm hỏng job.
             torch.use_deterministic_algorithms(True, warn_only=True)
         except (AttributeError, RuntimeError, TypeError) as exc:
             log.warning("deterministic_algorithms_unavailable", error=str(exc))
@@ -73,7 +94,7 @@ def seed_everything(seed: int, *, deterministic: bool = True) -> None:
 
 
 def _to_json(obj: Any) -> Any:
-    """Chuyển tuple và mảng numpy thành list, đệ quy."""
+    """Chuyển đệ quy tuple và mảng numpy thành list, để ghi được ra JSON."""
     if isinstance(obj, tuple | list):
         return [_to_json(x) for x in obj]
     if hasattr(obj, "tolist"):
@@ -82,14 +103,14 @@ def _to_json(obj: Any) -> Any:
 
 
 def _to_tuple(obj: Any) -> Any:
-    """Ngược của `_to_json` cho list: list lồng nhau thành tuple (random.setstate cần tuple)."""
+    """Ngược của `_to_json` cho list: list lồng nhau thành tuple, vì `random.setstate` cần tuple."""
     if isinstance(obj, list):
         return tuple(_to_tuple(x) for x in obj)
     return obj
 
 
 def capture_rng() -> dict[str, Any]:
-    """Trạng thái RNG của Python và NumPy ở dạng tuần tự hóa JSON được."""
+    """Lấy trạng thái RNG của Python và NumPy ở dạng ghi được ra JSON."""
     state: dict[str, Any] = {"python": _to_json(random.getstate())}
     np = _optional_module("numpy")
     if np is not None:
@@ -98,18 +119,18 @@ def capture_rng() -> dict[str, Any]:
 
 
 def restore_rng(state: Mapping[str, Any]) -> None:
-    """Ngược của `capture_rng`."""
+    """Khôi phục trạng thái RNG đã lấy bằng `capture_rng`."""
     if "python" in state:
         random.setstate(_to_tuple(state["python"]))
     np = _optional_module("numpy")
     if np is not None and "numpy" in state:
-        # Dựng lại tuple trạng thái của NumPy với đúng kiểu từng phần.
+        # Dựng lại tuple trạng thái của NumPy, ép đúng kiểu cho từng phần (JSON làm mất kiểu gốc).
         name, keys, pos, has_gauss, cached = state["numpy"]
         np.random.set_state((name, np.asarray(keys, dtype=np.uint32), int(pos), int(has_gauss), float(cached)))
 
 
 def _save_torch_rng(path: Path) -> None:
-    """Lưu RNG của torch (CPU, CUDA nếu có) vào file nhị phân; không có torch thì bỏ qua."""
+    """Lưu RNG của torch (CPU, và CUDA nếu có) vào file nhị phân; không có torch thì bỏ qua."""
     torch = _optional_module("torch")
     if torch is None:
         return
@@ -120,7 +141,7 @@ def _save_torch_rng(path: Path) -> None:
 
 
 def _load_torch_rng(path: Path) -> None:
-    """Khôi phục RNG của torch từ file; thiếu torch hoặc file thì bỏ qua."""
+    """Khôi phục RNG của torch từ file; thiếu torch hoặc thiếu file thì bỏ qua."""
     torch = _optional_module("torch")
     if torch is None or not path.is_file():
         return
@@ -132,7 +153,13 @@ def _load_torch_rng(path: Path) -> None:
 
 @dataclass(frozen=True, slots=True)
 class CheckpointInfo:
-    """Một checkpoint đã lưu: đường dẫn, step và metric (có thể None)."""
+    """Một checkpoint đã lưu.
+
+    Thuộc tính:
+        path: thư mục checkpoint.
+        step: step lúc lưu.
+        metric: giá trị metric lúc lưu; `None` khi không đo.
+    """
 
     path: Path
     step: int
@@ -140,7 +167,20 @@ class CheckpointInfo:
 
 
 class CheckpointManager:
-    """Thư mục chứa các `ckpt-<step>` kèm `ckpt_meta.json`; giữ N bản mới nhất cộng N bản tốt nhất theo một metric."""
+    """Quản lý thư mục chứa các checkpoint `ckpt-<step>`, mỗi checkpoint có file `ckpt_meta.json`.
+
+    Giữ lại `keep_last` bản mới nhất cộng `keep_best` bản tốt nhất theo một metric; các bản khác bị xoá.
+
+    Tham số:
+        directory: thư mục chứa checkpoint; được tạo nếu chưa có.
+        keep_last: số bản mới nhất cần giữ, tối thiểu 1.
+        keep_best: số bản tốt nhất cần giữ.
+        metric_name: tên metric dùng để xếp hạng.
+        lower_is_better: `True` khi metric càng nhỏ càng tốt (ví dụ loss).
+
+    Lỗi:
+        ValueError: khi `keep_last < 1`, vì chạy tiếp cần checkpoint mới nhất.
+    """
 
     def __init__(
         self,
@@ -161,13 +201,23 @@ class CheckpointManager:
         self.directory.mkdir(parents=True, exist_ok=True)
 
     def _path(self, step: int) -> Path:
-        """Thư mục của `step`, đệm 8 chữ số để sắp theo tên cũng đúng thứ tự."""
+        """Trả về thư mục của `step`; số step đệm đủ 8 chữ số để sắp theo tên cũng đúng thứ tự."""
         return self.directory / f"{CKPT_PREFIX}{step:08d}"
 
     def save(self, step: int, metric: float | None, save_fn: Callable[[Path], None]) -> CheckpointInfo:
-        """Ghi trọng số qua `save_fn(tmp_dir)`, rồi RNG và step vào ckpt_meta.json; đổi tên nguyên tử; dọn bớt.
+        """Lưu một checkpoint mới rồi dọn bớt các bản cũ.
 
-        ckpt_meta.json được ghi cuối cùng và fsync, nên thư mục thiếu file này là checkpoint dở dang.
+        Các bước: ghi trọng số qua `save_fn(tmp_dir)`, ghi RNG và step vào `ckpt_meta.json`, đổi tên thư mục tạm thành
+        thư mục chính, rồi gọi `prune`. `ckpt_meta.json` được ghi cuối cùng và fsync, nên thư mục nào thiếu file này là
+        checkpoint dở dang.
+
+        Tham số:
+            step: step hiện tại.
+            metric: giá trị metric; `None` khi không đo.
+            save_fn: hàm ghi trọng số vào thư mục được truyền vào.
+
+        Trả về:
+            `CheckpointInfo` của checkpoint vừa lưu.
         """
         final = self._path(step)
         tmp = self.directory / f".tmp-{final.name}"
@@ -187,6 +237,7 @@ class CheckpointManager:
             f.write(json.dumps(state))
             f.flush()
             os.fsync(f.fileno())
+        # Lưu lại cùng step (ví dụ sau khi chạy tiếp) thì thay bản cũ.
         if final.exists():
             shutil.rmtree(final)
         os.replace(tmp, final)
@@ -195,7 +246,7 @@ class CheckpointManager:
         return CheckpointInfo(final, step, metric)
 
     def all(self) -> list[CheckpointInfo]:
-        """Các checkpoint hoàn chỉnh (có ckpt_meta.json), sắp theo step."""
+        """Liệt kê các checkpoint hoàn chỉnh (có `ckpt_meta.json`), sắp theo step."""
         out: list[CheckpointInfo] = []
         for d in self.directory.glob(f"{CKPT_PREFIX}*"):
             state_file = d / STATE_FILE
@@ -207,23 +258,30 @@ class CheckpointManager:
         return sorted(out, key=lambda c: c.step)
 
     def latest(self) -> CheckpointInfo | None:
-        """Checkpoint có step cao nhất."""
+        """Trả về checkpoint có step cao nhất, hoặc `None` khi chưa có."""
         ckpts = self.all()
         return ckpts[-1] if ckpts else None
 
     def best_k(self, k: int) -> list[CheckpointInfo]:
-        """Tối đa `k` checkpoint có metric, tốt nhất trước (bằng nhau thì step sớm hơn trước)."""
+        """Trả về tối đa `k` checkpoint có metric, tốt nhất trước; bằng nhau thì step sớm hơn đứng trước."""
         scored = [c for c in self.all() if c.metric is not None]
+        # Đổi dấu khi metric càng lớn càng tốt, để luôn sắp tăng dần.
         sign = 1.0 if self.lower_is_better else -1.0
         return sorted(scored, key=lambda c: (sign * float(c.metric or 0.0), c.step))[:k]
 
     def best(self) -> CheckpointInfo | None:
-        """Checkpoint tốt nhất theo metric."""
+        """Trả về checkpoint tốt nhất theo metric, hoặc `None` khi chưa có bản nào có metric."""
         top = self.best_k(1)
         return top[0] if top else None
 
     def prune(self) -> list[Path]:
-        """Xóa checkpoint không thuộc `keep_last` bản mới nhất lẫn `keep_best` bản tốt nhất; dọn thư mục tạm sót lại."""
+        """Xoá checkpoint không thuộc `keep_last` bản mới nhất và không thuộc `keep_best` bản tốt nhất.
+
+        Đồng thời dọn các thư mục tạm còn sót từ lần lưu bị ngắt.
+
+        Trả về:
+            Đường dẫn các checkpoint đã xoá.
+        """
         ckpts = self.all()
         keep = {c.path for c in ckpts[-self.keep_last :]} | {c.path for c in self.best_k(self.keep_best)}
         removed = [c.path for c in ckpts if c.path not in keep]
@@ -234,7 +292,15 @@ class CheckpointManager:
         return removed
 
     def load(self, path: Path, load_fn: Callable[[Path], None] | None = None) -> CheckpointInfo:
-        """Gọi `load_fn(path)`, khôi phục trạng thái RNG, trả về step và metric của checkpoint."""
+        """Nạp một checkpoint: gọi `load_fn(path)` rồi khôi phục trạng thái RNG.
+
+        Tham số:
+            path: thư mục checkpoint.
+            load_fn: hàm nạp trọng số; `None` thì chỉ khôi phục RNG.
+
+        Trả về:
+            `CheckpointInfo` với step và metric của checkpoint.
+        """
         path = Path(path)
         state = json.loads((path / STATE_FILE).read_text(encoding="utf-8"))
         if load_fn is not None:
@@ -246,21 +312,28 @@ class CheckpointManager:
 
 
 class MetricsLogger:
-    """Ghi nối một đối tượng JSON mỗi dòng vào metrics.jsonl và flush từng dòng."""
+    """Ghi nối mỗi bản ghi thành một dòng JSON vào `metrics.jsonl`, flush ngay từng dòng.
+
+    Tham số:
+        path: file `metrics.jsonl`; thư mục cha được tạo nếu chưa có.
+
+    Thuộc tính:
+        path: như tham số cùng tên.
+    """
 
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def log(self, record: Mapping[str, Any]) -> None:
-        """Ghi nối `record` kèm trường `time` theo đồng hồ thực."""
+        """Ghi nối `record`, kèm trường `time` theo đồng hồ thực."""
         row = {"time": time.time(), **record}
         with open(self.path, "a", encoding="utf-8") as f:
             f.write(canonical_json(row) + "\n")
             f.flush()
 
     def read(self) -> list[dict[str, Any]]:
-        """Mọi dòng đã ghi đến thời điểm hiện tại."""
+        """Đọc mọi dòng đã ghi tới thời điểm hiện tại; trả về danh sách rỗng khi file chưa có."""
         if not self.path.is_file():
             return []
         with open(self.path, encoding="utf-8") as f:
@@ -268,7 +341,7 @@ class MetricsLogger:
 
 
 def sha256_file(path: Path) -> str:
-    """sha256 dạng hex của một file, đọc theo từng khối."""
+    """Tính sha256 dạng hex của một file, đọc theo từng khối 1 MB."""
     h = hashlib.sha256()
     with open(path, "rb") as f:
         while chunk := f.read(_HASH_CHUNK):
@@ -279,7 +352,17 @@ def sha256_file(path: Path) -> str:
 def write_train_config(
     path: Path, config: Mapping[str, Any], env_info: EnvInfo, data_sha256: Mapping[str, str], **extra: Any
 ) -> None:
-    """Ghi train_config.json: config, EnvInfo, sha256 dữ liệu và các trường thêm (checkpoint, loss, seed)."""
+    """Ghi `train_config.json`: config, `EnvInfo`, sha256 dữ liệu và các trường thêm (checkpoint, loss, seed).
+
+    File được ghi qua file `.tmp` rồi `os.replace`, nên không bao giờ thấy file ghi dở.
+
+    Tham số:
+        path: file đích.
+        config: config của job train.
+        env_info: thông tin máy.
+        data_sha256: tên file dữ liệu tới sha256.
+        extra: các trường thêm, ghi ở cấp cao nhất.
+    """
     payload = {
         "config": dict(config),
         "env_info": dataclasses.asdict(env_info),
@@ -294,7 +377,7 @@ def write_train_config(
 
 
 def write_json_atomic(path: Path, obj: Any) -> None:
-    """Ghi JSON thụt lề qua file tạm rồi đổi tên."""
+    """Ghi JSON có thụt lề qua file tạm rồi đổi tên."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -303,27 +386,43 @@ def write_json_atomic(path: Path, obj: Any) -> None:
 
 
 def abs_path(path: str | Path, repo_root: Path) -> Path:
-    """Mở rộng `~`; đường dẫn tương đối tính từ gốc repo (cùng quy tắc với lifemate.run.cli)."""
+    """Mở rộng `~` và tính đường dẫn tương đối từ thư mục gốc repo (cùng quy tắc với `lifemate.run.cli`)."""
     p = Path(path).expanduser()
     return p if p.is_absolute() else repo_root / p
 
 
 def build_section(cls: type[_T], section: str, raw: Any) -> _T:
-    """Tạo dataclass từ một bảng TOML; khóa lạ hoặc thiếu gây ConfigError (giống lifemate.core.config)."""
+    """Tạo dataclass từ một bảng TOML, giống `lifemate.core.config`.
+
+    Tham số:
+        cls: lớp dataclass cần tạo.
+        section: tên mục, dùng trong thông báo lỗi.
+        raw: giá trị đọc từ TOML.
+
+    Trả về:
+        Đối tượng `cls`.
+
+    Lỗi:
+        ConfigError: khi `raw` không phải bảng, có khoá lạ hoặc thiếu khoá.
+    """
     if not isinstance(raw, dict):
         raise ConfigError(f"[{section}] must be a table")
     names = {f.name for f in fields(cls)}  # type: ignore[arg-type]
     for key in raw:
         if key not in names:
             raise ConfigError(f"unknown key {section}.{key}")
-    # Báo khóa thiếu đầu tiên theo thứ tự chữ cái để thông báo lỗi ổn định.
+    # Báo khoá thiếu đầu tiên theo thứ tự chữ cái, để thông báo lỗi luôn giống nhau.
     for name in sorted(names - set(raw)):
         raise ConfigError(f"missing key {section}.{name}")
     return cls(**raw)
 
 
 def load_toml(path: Path, sections: Sequence[str]) -> dict[str, Any]:
-    """Đọc TOML và yêu cầu cấp cao nhất có đúng các mục `sections`."""
+    """Đọc file TOML và yêu cầu cấp cao nhất có đúng các mục trong `sections`.
+
+    Lỗi:
+        ConfigError: khi có mục lạ hoặc thiếu mục.
+    """
     with open(path, "rb") as f:
         raw = tomllib.load(f)
     for key in raw:
@@ -336,10 +435,13 @@ def load_toml(path: Path, sections: Sequence[str]) -> dict[str, Any]:
 
 
 def read_held_out(repo_root: Path) -> frozenset[str]:
-    """Đọc `held_out_apps` từ configs/splits/meta.json.
+    """Đọc `held_out_apps` từ `configs/splits/meta.json`.
 
-    File bị git bỏ qua, nên bản clone mới phải chạy `make splits` trước; thiếu file là lỗi, không bao giờ trả về
-    tập rỗng (vì như vậy sẽ rò rỉ schema của các app giữ lại).
+    File này bị git bỏ qua, nên bản clone mới phải chạy `make splits` trước. Thiếu file là lỗi, không bao giờ trả về
+    tập rỗng, vì như vậy sẽ để lộ schema của các app held-out vào dữ liệu train.
+
+    Lỗi:
+        FileNotFoundError: khi không có `configs/splits/meta.json`.
     """
     meta = repo_root / "configs" / "splits" / "meta.json"
     if not meta.is_file():

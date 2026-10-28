@@ -1,7 +1,12 @@
-"""Kiểm tra tiện ích train dùng chung: seed_everything, CheckpointManager, MetricsLogger, write_train_config (SPEC 6.5).
+"""Test tiện ích train dùng chung: `seed_everything`, `CheckpointManager`, `MetricsLogger`, `write_train_config` (SPEC
+6.5).
 
-Các test chạy trên thư mục tạm `tmp_path` với hàm ghi trọng số giả (`_writer`), không cần GPU, tokenizer hay dữ liệu
-cuộc thi. Hai test cuối đọc file cấu hình thật trong `configs/train/` qua fixture `repo_root`.
+Cách hoạt động:
+- Các test chạy trên thư mục tạm `tmp_path` với hàm ghi trọng số giả (`_writer`).
+- Hai test cuối đọc file config thật trong `configs/train/` qua fixture `repo_root`.
+
+Lưu ý:
+- Không cần GPU, tokenizer hay dữ liệu cuộc thi.
 """
 
 from __future__ import annotations
@@ -26,7 +31,7 @@ from lifemate.train.sft import load_llm_train_config
 
 
 def _draw() -> tuple[list[float], list[float]]:
-    """Rút 5 số từ `random` và 5 số từ numpy để so sánh trạng thái RNG."""
+    """Rút 5 số từ `random` và 5 số từ numpy, để so sánh trạng thái RNG."""
     return [random.random() for _ in range(5)], np.random.rand(5).tolist()
 
 
@@ -56,7 +61,7 @@ def test_checkpoint_round_trip_restores_step_and_rng(tmp_path: Path) -> None:
     seed_everything(7)
     mgr.save(10, 1.0, _writer("w10"))
     expected = _draw()  # dãy số ngẫu nhiên ngay sau lúc lưu
-    _draw()  # đẩy RNG đi tiếp để load phải khôi phục trạng thái cũ
+    _draw()  # đẩy RNG đi tiếp, để `load` buộc phải khôi phục trạng thái cũ
     loaded: list[str] = []
     info = mgr.load(mgr.latest().path, lambda d: loaded.append((d / "weights.txt").read_text()))  # type: ignore[union-attr]
     assert info.step == 10 and info.metric == 1.0
@@ -65,7 +70,7 @@ def test_checkpoint_round_trip_restores_step_and_rng(tmp_path: Path) -> None:
 
 
 def test_checkpoint_latest_best_and_prune(tmp_path: Path) -> None:
-    """Giữ đúng keep_last bản mới nhất cộng keep_best bản tốt nhất, xóa phần còn lại và không để sót thư mục tạm."""
+    """Giữ đúng `keep_last` bản mới nhất cộng `keep_best` bản tốt nhất, xoá phần còn lại và không sót thư mục tạm."""
     mgr = CheckpointManager(tmp_path / "ck", keep_last=2, keep_best=1)
     for step, loss in [(100, 0.9), (200, 0.5), (300, 0.7), (400, 0.8)]:
         mgr.save(step, loss, _writer(str(step)))
@@ -79,18 +84,18 @@ def test_checkpoint_latest_best_and_prune(tmp_path: Path) -> None:
 
 
 def test_checkpoint_higher_is_better_and_no_metric(tmp_path: Path) -> None:
-    """Với lower_is_better=False, metric lớn hơn là tốt hơn; checkpoint không có metric không được tính là tốt nhất."""
+    """Với `lower_is_better=False`, metric lớn hơn là tốt hơn; checkpoint không có metric không được coi là tốt nhất."""
     mgr = CheckpointManager(tmp_path / "ck", keep_last=1, keep_best=1, lower_is_better=False)
     mgr.save(1, 0.2, _writer("a"))
     mgr.save(2, 0.9, _writer("b"))
     mgr.save(3, None, _writer("c"))
     assert mgr.best().step == 2  # type: ignore[union-attr]
-    # Bản 3 không có metric vẫn được giữ làm bản mới nhất; bản 1 bị xóa.
+    # Bản 3 không có metric vẫn được giữ vì là bản mới nhất; bản 1 bị xoá.
     assert [c.step for c in mgr.all()] == [2, 3]
 
 
 def test_metrics_logger_appends(tmp_path: Path) -> None:
-    """MetricsLogger ghi nối từng dòng và tự thêm trường `time`."""
+    """`MetricsLogger` ghi nối từng dòng và tự thêm trường `time`."""
     m = MetricsLogger(tmp_path / "m" / "metrics.jsonl")
     m.log({"step": 1, "loss": 2.0})
     m.log({"step": 2, "eval_unseen_loss": 1.5})
@@ -99,7 +104,7 @@ def test_metrics_logger_appends(tmp_path: Path) -> None:
 
 
 def test_write_train_config(tmp_path: Path) -> None:
-    """train_config.json ghi lại phiên bản mã, sha256 dữ liệu và tên checkpoint."""
+    """`train_config.json` ghi lại phiên bản mã, sha256 dữ liệu và tên checkpoint."""
     data = tmp_path / "d.jsonl"
     data.write_text("x\n", encoding="utf-8")
     info = EnvInfo(None, None, None, "abc", False, {"lifemate": "0.1.0"})
@@ -111,19 +116,19 @@ def test_write_train_config(tmp_path: Path) -> None:
 
 
 def test_llm_train_config_strict(tmp_path: Path, repo_root: Path) -> None:
-    """Đọc đúng llm_v1.toml và từ chối khóa không khai báo (lora.rank)."""
+    """Đọc đúng `llm_v1.toml` và từ chối khoá không khai báo (`lora.rank`)."""
     cfg = load_llm_train_config(repo_root / "configs" / "train" / "llm_v1.toml")
     assert cfg.base.model == "Qwen/Qwen3-4B-Instruct-2507" and cfg.lora.r == 32 and cfg.train.max_len == 10240
     bad = tmp_path / "bad.toml"
     text = (repo_root / "configs" / "train" / "llm_v1.toml").read_text(encoding="utf-8")
-    # Thêm khóa lạ `rank` vào bảng [lora]: bộ đọc cấu hình nghiêm ngặt phải báo lỗi.
+    # Thêm khoá lạ `rank` vào bảng `[lora]`: bộ đọc config chặt phải báo lỗi.
     bad.write_text(text.replace("r = 32", "r = 32\nrank = 3"), encoding="utf-8")
     with pytest.raises(ConfigError, match=r"lora\.rank"):
         load_llm_train_config(bad)
 
 
 def test_asr_train_config(repo_root: Path) -> None:
-    """Đọc đúng asr_v1.toml; hàm wer chuẩn hóa văn bản trước khi tính."""
+    """Đọc đúng `asr_v1.toml`; hàm `wer` chuẩn hoá văn bản trước khi tính."""
     from lifemate.train.asr import load_asr_train_config, wer
 
     cfg = load_asr_train_config(repo_root / "configs" / "train" / "asr_v1.toml")

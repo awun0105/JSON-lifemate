@@ -1,7 +1,14 @@
-"""Kiểm thử vòng lặp Agent từ đầu đến cuối bằng FakeLLM / FakeEnv (SPEC 4.10; T5, T10 ở mức Agent).
+"""Test vòng lặp `Agent` từ đầu đến cuối bằng `FakeLLM` và `FakeEnv` (SPEC 4.10; T5, T10 ở mức Agent).
 
-FakeLLM phát lại nhãn gold của mẫu, FakeClock điều khiển thời gian, WhitespaceTokenCounter thay tokenizer.
-Không cần dữ liệu cuộc thi hay tokenizer thật.
+Nội dung chính:
+- `Recorder`: observer giả ghi lại thứ tự sự kiện.
+- `make_agent`: dựng `Agent` với các thành phần giả.
+
+Cách hoạt động:
+- `FakeLLM` phát lại nhãn gold của mẫu, `FakeClock` điều khiển thời gian, `WhitespaceTokenCounter` thay tokenizer.
+
+Lưu ý:
+- Không cần dữ liệu cuộc thi hay tokenizer thật.
 """
 
 from __future__ import annotations
@@ -37,7 +44,7 @@ def sample(sid: str, calls: list[dict[str, Any]]) -> Sample:
 
 
 class Recorder:
-    """Observer giả: ghi thứ tự sự kiện start/step/stop và các bước."""
+    """Observer giả: ghi thứ tự sự kiện start/step/stop và lưu các bước."""
 
     def __init__(self) -> None:
         self.events: list[str] = []
@@ -58,7 +65,7 @@ class Recorder:
 
 
 def make_agent(llm: FakeLLM, observer: Recorder | None = None, cfg: Any = AGENT_CFG) -> Agent:
-    """Dựng Agent với GoldTranscriber, chuỗi guard theo cấu hình và bộ đếm token giả."""
+    """Dựng `Agent` với `GoldTranscriber`, chuỗi guard theo config và bộ đếm token giả."""
     prompts = PromptBuilder(
         TEMPLATE,
         INDEX,
@@ -75,7 +82,7 @@ GOLD = [{"name": "alarm.list", "arguments": {}}, {"name": "alarm.delete", "argum
 
 
 def test_replay_two_calls_done() -> None:
-    """Bảo vệ luồng chuẩn: hai lời gọi rồi `done`, đủ sự kiện observer, đủ thời gian và số token."""
+    """Luồng chuẩn: hai lời gọi rồi `done`, đủ sự kiện observer, đủ số liệu thời gian và số token."""
     s = sample("s1", GOLD)
     rec = Recorder()
     env = make_env()
@@ -90,7 +97,7 @@ def test_replay_two_calls_done() -> None:
 
 
 def test_ask_stops_even_if_llm_has_more() -> None:
-    """Bảo vệ quy tắc: gọi tool hỏi lại thông tin thì dừng ngay, kể cả khi LLM còn lời gọi phía sau."""
+    """Gọi tool hỏi lại thông tin thì dừng ngay, kể cả khi LLM còn lời gọi phía sau."""
     calls = [{"name": ASK_TOOL, "arguments": {"question": "báo thức nào?"}}, GOLD[1]]
     s = sample("s2", calls)
     env = make_env()
@@ -100,7 +107,7 @@ def test_ask_stops_even_if_llm_has_more() -> None:
 
 
 def test_parse_error_then_recovery() -> None:
-    """Bảo vệ: hai đầu ra hỏng JSON được thử lại rồi phục hồi; mã lỗi PARSE_ERROR chỉ ghi một lần."""
+    """Hai đầu ra JSON hỏng được thử lại rồi phục hồi; mã lỗi `PARSE_ERROR` chỉ ghi một lần."""
     s = sample("s3", GOLD)
     llm = FakeLLM([s], broken_outputs={"s3": ["không phải json", "{oops"]})
     res = make_agent(llm).run(s, make_env(), clock=FakeClock())
@@ -110,7 +117,7 @@ def test_parse_error_then_recovery() -> None:
 
 
 def test_parse_error_exhausts_retries() -> None:
-    """Bảo vệ: hỏng JSON liên tục làm hết lượt thử thì dừng với PARSE_ERROR, không có lời gọi nào."""
+    """JSON hỏng liên tục làm hết lượt thử lại thì dừng với `PARSE_ERROR`, không có lời gọi nào."""
     s = sample("s4", GOLD)
     llm = FakeLLM([s], broken_outputs={"s4": ["x", "y", "z"]})
     res = make_agent(llm).run(s, make_env(), clock=FakeClock())
@@ -118,7 +125,7 @@ def test_parse_error_exhausts_retries() -> None:
 
 
 def test_blocked_call_never_reaches_env() -> None:
-    """Bảo vệ: lời gọi bị guard chặn (tool lạ, thiếu tham số) không bao giờ tới môi trường."""
+    """Lời gọi bị guard chặn (tool lạ, thiếu tham số) không bao giờ tới môi trường."""
     calls = [{"name": "bank.pay", "arguments": {}}, {"name": "alarm.delete", "arguments": {}}, GOLD[0]]
     s = sample("s5", calls)
     env = make_env()
@@ -130,14 +137,14 @@ def test_blocked_call_never_reaches_env() -> None:
 
 
 def test_blocks_exhaust_retries() -> None:
-    """Bảo vệ: bị chặn liên tục làm hết lượt thử thì dừng với RETRIES_EXHAUSTED."""
+    """Bị chặn liên tục làm hết lượt thử lại thì dừng với `RETRIES_EXHAUSTED`."""
     s = sample("s6", [{"name": "bank.pay", "arguments": {}}] * 3)
     res = make_agent(FakeLLM([s])).run(s, make_env(), clock=FakeClock())
     assert res.stop_reason is StopReason.RETRIES_EXHAUSTED and res.tool_calls == ()
 
 
 def test_duplicate_write_proceeds() -> None:
-    """Bảo vệ: lệnh ghi trùng chỉ bị cảnh báo (WARN), vẫn được thực thi."""
+    """Lệnh ghi trùng chỉ bị cảnh báo (WARN) và vẫn được thực thi."""
     s = sample("s7", [GOLD[1], GOLD[1]])
     res = make_agent(FakeLLM([s])).run(s, make_env(), clock=FakeClock())
     assert list(res.tool_calls) == [GOLD[1], GOLD[1]]
@@ -146,8 +153,10 @@ def test_duplicate_write_proceeds() -> None:
 
 
 def test_timeout_at_agent_level() -> None:
-    """T10: mỗi bước 5 s, hạn chót 29 s -> 5 bước xong (25 s), bước thứ 6 bắt đầu và bị cắt ở 29 s;
-    5 lời gọi đã thực hiện được giữ lại và vẫn có kết quả trả về."""
+    """T10: mỗi bước 5 giây, hạn giờ 29 giây: 5 bước xong (25 giây), bước thứ 6 bắt đầu và bị cắt ở 29 giây.
+
+    5 lời gọi đã thực hiện được giữ lại và mẫu vẫn có kết quả trả về.
+    """
     calls = [{"name": "notes.search", "arguments": {"q": str(i)}} for i in range(8)]
     s = sample("s8", calls)
     clock = FakeClock()
@@ -160,17 +169,17 @@ def test_timeout_at_agent_level() -> None:
 
 
 def test_context_overflow_stops() -> None:
-    """Bảo vệ: prompt vượt `max_model_len` thì dừng với CONTEXT_OVERFLOW trước khi chạy bước nào."""
+    """Prompt vượt `max_model_len` thì dừng với `CONTEXT_OVERFLOW` trước khi chạy bước nào."""
     s = sample("s9", GOLD)
     agent = make_agent(FakeLLM([s]))
-    # Thu nhỏ cửa sổ ngữ cảnh để prompt đầu tiên đã không vừa.
+    # Thu nhỏ context để ngay prompt đầu tiên đã không vừa.
     agent.llm_cfg = dataclasses.replace(LLM, max_model_len=150)
     res = agent.run(s, make_env(), clock=FakeClock())
     assert res.stop_reason is StopReason.CONTEXT_OVERFLOW and res.steps == ()
 
 
 def test_null_observer_default() -> None:
-    """Bảo vệ: không truyền observer thì Agent dùng NullObserver."""
+    """Không truyền observer thì `Agent` dùng `NullObserver`."""
     s = sample("s10", GOLD)
     agent = make_agent(FakeLLM([s]))
     assert isinstance(agent.observer, NullObserver)

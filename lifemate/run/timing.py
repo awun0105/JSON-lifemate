@@ -1,7 +1,16 @@
-"""Lớp bọc đo thời gian cho backend LLM và transcriber (SPEC 4.0, mẫu Decorator).
+"""Lớp bọc đo thời gian cho backend LLM và transcriber, theo mẫu Decorator (SPEC 4.0).
 
-Hai lớp bọc giữ nguyên giao diện của đối tượng bên trong và chỉ ghi thời gian thực (wall clock) của mỗi lần gọi;
-thời gian được ghi trong `finally`, nên lần gọi lỗi vẫn được tính. Lời gọi `warmup` không được tính.
+Nội dung chính:
+- `TimedLLM`: bọc một `LLMBackend`, ghi thời gian từng lần `generate`.
+- `TimedTranscriber`: bọc một `Transcriber`, cộng dồn thời gian và số lần `transcribe`.
+
+Cách hoạt động:
+- Hai lớp bọc giữ nguyên giao diện của đối tượng bên trong, chỉ ghi thêm thời gian thực (wall clock) của mỗi
+  lần gọi.
+- Thời gian được ghi trong `finally`, nên lần gọi bị lỗi vẫn được tính.
+
+Lưu ý:
+- Lời gọi `warmup` không được tính vào thời gian.
 """
 
 from __future__ import annotations
@@ -14,7 +23,15 @@ from lifemate.core.types import Generation, LLMBackend, Sample, Transcriber, Tra
 
 
 class TimedLLM:
-    """Bọc một LLMBackend; ghi số giây thực của mọi lần gọi `generate`."""
+    """Bọc một `LLMBackend` và ghi số giây thực của mọi lần gọi `generate`.
+
+    Tham số:
+        inner: backend LLM được bọc.
+
+    Thuộc tính:
+        inner: như tham số cùng tên.
+        durations: thời gian của từng lần `generate`, tính bằng giây.
+    """
 
     def __init__(self, inner: LLMBackend) -> None:
         self.inner = inner
@@ -22,12 +39,12 @@ class TimedLLM:
 
     @property
     def calls(self) -> int:
-        """Số lần gọi generate."""
+        """Số lần đã gọi `generate`."""
         return len(self.durations)
 
     @property
     def seconds(self) -> float:
-        """Tổng số giây của các lần generate."""
+        """Tổng số giây của các lần gọi `generate`."""
         return sum(self.durations)
 
     def generate(
@@ -38,7 +55,7 @@ class TimedLLM:
         sample_id: str,
         time_left_s: float | None = None,
     ) -> Generation:
-        """Chuyển lời gọi xuống đối tượng bên trong và đo thời gian."""
+        """Chuyển lời gọi xuống backend bên trong và ghi lại thời gian chạy."""
         t0 = time.perf_counter()
         try:
             return self.inner.generate(messages, schema, sample_id=sample_id, time_left_s=time_left_s)
@@ -46,14 +63,21 @@ class TimedLLM:
             self.durations.append(time.perf_counter() - t0)
 
     def warmup(self) -> None:
-        """Chuyển lời gọi xuống (không ghi vào `durations`)."""
+        """Chuyển lời gọi xuống backend bên trong; không ghi vào `durations`."""
         self.inner.warmup()
 
 
 class TimedTranscriber:
-    """Bọc một Transcriber; cộng dồn số giây và số lần gọi `transcribe`.
+    """Bọc một `Transcriber`, cộng dồn số giây và số lần gọi `transcribe`.
 
-    `source` lấy từ thuộc tính của đối tượng bên trong; khi thiếu thì suy ra "gold" hoặc "asr" theo kiểu.
+    Tham số:
+        inner: transcriber được bọc.
+
+    Thuộc tính:
+        inner: như tham số cùng tên.
+        calls: số lần đã gọi `transcribe`.
+        seconds: tổng số giây của các lần gọi `transcribe`.
+        source: lấy từ thuộc tính `source` của `inner`; không có thì suy ra `"gold"` hoặc `"asr"` theo kiểu.
     """
 
     def __init__(self, inner: Transcriber) -> None:
@@ -63,7 +87,7 @@ class TimedTranscriber:
         self.source: str = str(getattr(inner, "source", "gold" if isinstance(inner, GoldTranscriber) else "asr"))
 
     def transcribe(self, sample: Sample) -> Transcript:
-        """Chuyển lời gọi xuống đối tượng bên trong và đo thời gian."""
+        """Chuyển lời gọi xuống transcriber bên trong và ghi lại thời gian chạy."""
         t0 = time.perf_counter()
         try:
             return self.inner.transcribe(sample)
@@ -72,5 +96,5 @@ class TimedTranscriber:
             self.seconds += time.perf_counter() - t0
 
     def warmup(self) -> None:
-        """Chuyển lời gọi xuống đối tượng bên trong."""
+        """Chuyển lời gọi xuống transcriber bên trong."""
         self.inner.warmup()

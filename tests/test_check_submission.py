@@ -1,7 +1,11 @@
-"""Kiểm thử check_submission trên tập train thật (SPEC 4.11 B3; T25).
+"""Test `check_submission` trên tập train thật (SPEC 4.11 B3; T25).
 
-Cả file mang marker `data`: dùng fixture `data_root`, tự bỏ qua khi thiếu dữ liệu cuộc thi.
-File submission được dựng trong `tmp_path` với các lỗi cài sẵn. Không cần tokenizer.
+Cách hoạt động:
+- File submission được dựng trong `tmp_path`, cài sẵn từng loại lỗi.
+
+Lưu ý:
+- Cả file mang marker `data`: dùng fixture `data_root`, tự skip khi thiếu dữ liệu cuộc thi.
+- Không cần tokenizer.
 """
 
 from __future__ import annotations
@@ -18,7 +22,7 @@ pytestmark = pytest.mark.data
 
 
 def test_check_submission_flags_each_problem(data_root: Path, tmp_path: Path) -> None:
-    """Bảo vệ: thiếu id, id trùng, dòng JSON hỏng và lời gọi thiếu tham số bắt buộc đều được báo riêng."""
+    """Thiếu id, id trùng, dòng JSON hỏng và lời gọi thiếu tham số bắt buộc đều được báo riêng."""
     samples = [s for s in load_split(data_root, "train") if (s.label or {}).get("tool_calls")][:5]
     rows = [{"id": s.id, "tool_calls": (s.label or {})["tool_calls"], "state_hash": ""} for s in samples]
     missing = rows.pop(4)["id"]

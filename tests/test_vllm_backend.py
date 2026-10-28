@@ -1,8 +1,16 @@
-"""Kiểm tra VLLMBackend mà không cần vLLM hay GPU thật.
+"""Test `VLLMBackend` mà không cần vLLM hay GPU thật.
 
-Nội dung: biến môi trường, tham số sampling và structured output, fallback API cũ, warmup, và cơ chế hủy request khi
-hết thời gian theo từng mẫu. Cách kiểm tra: module `vllm` giả cài vào `sys.modules` qua fixture `fake_vllm`, engine giả
-(`FakeEngine`, `FakeLLMEngine`, `FakeTokenizer`) truyền qua `engine_factory`. Không cần dữ liệu cuộc thi hay tokenizer.
+Nội dung chính:
+- Biến môi trường, tham số sampling và structured output.
+- Quay về API cũ khi vLLM không hỗ trợ API mới.
+- Warmup và cơ chế huỷ request khi hết thời gian của mẫu.
+
+Cách hoạt động:
+- Module `vllm` giả được cài vào `sys.modules` qua fixture `fake_vllm`.
+- Engine giả (`FakeEngine`, `FakeLLMEngine`, `FakeTokenizer`) được truyền qua `engine_factory`.
+
+Lưu ý:
+- Không cần dữ liệu cuộc thi hay tokenizer.
 """
 
 import os
@@ -33,21 +41,21 @@ SCHEMA = {"type": "object"}
 
 
 class _Params:
-    """SamplingParams giả, chỉ lưu lại các đối số."""
+    """`SamplingParams` giả, chỉ lưu lại các tham số."""
 
     def __init__(self, **kw: Any) -> None:
         self.kw = kw
 
 
 class _Structured:
-    """StructuredOutputsParams giả (API vLLM mới), lưu schema JSON."""
+    """`StructuredOutputsParams` giả (API vLLM mới), lưu JSON schema."""
 
     def __init__(self, *, json: Any) -> None:
         self.json = json
 
 
 class _Guided(_Structured):
-    """GuidedDecodingParams giả (API vLLM cũ)."""
+    """`GuidedDecodingParams` giả (API vLLM cũ)."""
 
     pass
 
@@ -67,7 +75,7 @@ def _fake_vllm(*, new_api: bool) -> tuple[types.ModuleType, types.ModuleType]:
 
 @pytest.fixture
 def fake_vllm(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Cài vllm giả vào sys.modules và xóa VLLM_BATCH_INVARIANT, HF_TOKEN trong lúc chạy test."""
+    """Cài vllm giả vào `sys.modules` và xoá `VLLM_BATCH_INVARIANT`, `HF_TOKEN` trong lúc chạy test."""
     vllm, sp = _fake_vllm(new_api=True)
     monkeypatch.setitem(sys.modules, "vllm", vllm)
     monkeypatch.setitem(sys.modules, "vllm.sampling_params", sp)
@@ -84,19 +92,19 @@ def _output(text: str, prompt_ids: list[int], token_ids: list[int]) -> Any:
 
 
 class FakeTokenizer:
-    """Tokenizer giả, ghi lại đối số của apply_chat_template."""
+    """Tokenizer giả, ghi lại tham số của `apply_chat_template`."""
 
     def __init__(self) -> None:
         self.kwargs: dict[str, Any] = {}
 
     def apply_chat_template(self, messages: list[dict[str, Any]], **kw: Any) -> str:
-        """Ghép nội dung các message bằng dấu | và lưu đối số."""
+        """Nối nội dung các tin nhắn bằng dấu | và lưu tham số."""
         self.kwargs = kw
         return "|".join(str(m.get("content")) for m in messages)
 
 
 class FakeLLMEngine:
-    """Engine chạy theo bước: mỗi step() mất `step_s` giây; request xong sau `n_steps` bước."""
+    """Engine giả chạy theo bước: mỗi `step()` mất `step_s` giây; request xong sau `n_steps` bước."""
 
     def __init__(self, *, step_s: float = 0.0, n_steps: int = 2) -> None:
         self.step_s, self.n_steps = step_s, n_steps
@@ -105,17 +113,21 @@ class FakeLLMEngine:
         self._left = 0
 
     def add_request(self, rid: str, prompt: str, params: Any) -> None:
+        """Ghi request và đặt số bước còn lại về `n_steps`."""
         self.added.append((rid, prompt, params))
         self._left = self.n_steps
 
     def has_unfinished_requests(self) -> bool:
+        """Trả về `True` khi request còn bước chưa chạy."""
         return self._left > 0
 
     def abort_request(self, rids: list[str]) -> None:
+        """Ghi các request bị huỷ và kết thúc request đang chạy."""
         self.aborted += rids
         self._left = 0
 
     def step(self) -> list[Any]:
+        """Ngủ `step_s` giây, giảm số bước còn lại và trả đầu ra của request mới nhất."""
         import time as _t
 
         _t.sleep(self.step_s)
@@ -126,7 +138,7 @@ class FakeLLMEngine:
 
 
 class FakeEngine:
-    """LLM giả của vLLM, ghi lại đối số khởi tạo và đối số mỗi lần chat."""
+    """`LLM` giả của vLLM, ghi lại tham số khởi tạo và tham số mỗi lần chat."""
 
     def __init__(self, *, reject_template_kwargs: bool = False, **init_kw: Any) -> None:
         self.init_kw = init_kw
@@ -136,10 +148,11 @@ class FakeEngine:
         self.llm_engine = FakeLLMEngine()
 
     def get_tokenizer(self) -> FakeTokenizer:
+        """Trả về tokenizer giả."""
         return self.tokenizer
 
     def chat(self, messages: list[dict[str, Any]], **kw: Any) -> list[Any]:
-        """Trả đầu ra cố định; khi `reject` bật thì từ chối chat_template_kwargs như vLLM cũ."""
+        """Trả đầu ra cố định; khi `reject` bật thì từ chối `chat_template_kwargs` như vLLM cũ."""
         self.calls.append(kw)
         if self.reject and "chat_template_kwargs" in kw:
             raise TypeError("unexpected keyword enable_thinking")
@@ -147,11 +160,12 @@ class FakeEngine:
 
 
 def _backend(cfg: LLMConfig = CFG, **kw: Any) -> tuple[VLLMBackend, FakeEngine]:
-    """Tạo VLLMBackend với FakeEngine và trả về cả backend lẫn engine."""
+    """Tạo `VLLMBackend` với `FakeEngine`, trả về cả backend lẫn engine."""
     holder: dict[str, FakeEngine] = {}
     reject = kw.pop("reject", False)
 
     def factory(**init_kw: Any) -> FakeEngine:
+        """Tạo `FakeEngine` với tham số backend truyền vào và giữ lại để test đọc."""
         holder["e"] = FakeEngine(reject_template_kwargs=reject, **init_kw)
         return holder["e"]
 
@@ -160,7 +174,7 @@ def _backend(cfg: LLMConfig = CFG, **kw: Any) -> tuple[VLLMBackend, FakeEngine]:
 
 
 def test_env_var_only_when_batch_invariant(fake_vllm: None) -> None:
-    """Bảo vệ: VLLM_BATCH_INVARIANT chỉ đặt khi bật batch_invariant; HF token qua biến môi trường, không vào engine."""
+    """`VLLM_BATCH_INVARIANT` chỉ đặt khi bật `batch_invariant`; HF token đi qua biến môi trường, không vào engine."""
     b, eng = _backend(hf_cache="/c", hf_token="secret")
     assert "VLLM_BATCH_INVARIANT" not in os.environ
     assert os.environ["HF_TOKEN"] == "secret"
@@ -172,14 +186,14 @@ def test_env_var_only_when_batch_invariant(fake_vllm: None) -> None:
 
 
 def test_batch_invariant_on_sm75_raises(fake_vllm: None) -> None:
-    """Bảo vệ: batch_invariant trên GPU sm75 báo ConfigError và không đặt biến môi trường."""
+    """Bật `batch_invariant` trên GPU sm75 thì báo `ConfigError` và không đặt biến môi trường."""
     with pytest.raises(ConfigError):
         _backend(replace(CFG, batch_invariant=True), compute_capability=(7, 5))
     assert "VLLM_BATCH_INVARIANT" not in os.environ
 
 
 def test_generate_counts_and_params(fake_vllm: None) -> None:
-    """Bảo vệ: đếm token đúng, tham số sampling tất định và schema đi qua structured_outputs."""
+    """Đếm token đúng, tham số sampling tất định, và schema đi qua `structured_outputs`."""
     b, eng = _backend()
     g = b.generate([{"role": "user", "content": "hi"}], SCHEMA, sample_id="x")
     assert g.text == '{"action":"done"}' and g.prompt_tokens == 4 and g.completion_tokens == 2
@@ -192,7 +206,7 @@ def test_generate_counts_and_params(fake_vllm: None) -> None:
 
 
 def test_structured_kwargs_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Bảo vệ: vLLM cũ không có StructuredOutputsParams thì dùng guided_decoding."""
+    """vLLM cũ không có `StructuredOutputsParams` thì dùng `guided_decoding`."""
     vllm, sp = _fake_vllm(new_api=False)
     monkeypatch.setitem(sys.modules, "vllm", vllm)
     monkeypatch.setitem(sys.modules, "vllm.sampling_params", sp)
@@ -201,7 +215,7 @@ def test_structured_kwargs_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_template_kwargs_typeerror_fallback_sticks(fake_vllm: None) -> None:
-    """Bảo vệ: vLLM từ chối chat_template_kwargs thì bỏ đối số đó và giữ nguyên cho các lần sau."""
+    """vLLM từ chối `chat_template_kwargs` thì bỏ tham số đó, và giữ nguyên cách này cho các lần sau."""
     b, eng = _backend(reject=True)
     b.generate([], SCHEMA, sample_id="a")
     b.generate([], SCHEMA, sample_id="b")
@@ -209,17 +223,17 @@ def test_template_kwargs_typeerror_fallback_sticks(fake_vllm: None) -> None:
 
 
 def test_warmup_runs(fake_vllm: None) -> None:
-    """Bảo vệ: warmup chạy đúng số lần cấu hình và ghi lại thời gian."""
+    """Warmup chạy đúng số lần trong config và ghi lại thời gian."""
     b, eng = _backend(replace(CFG, warmup_runs=3))
     b.warmup()
-    # warmup đi cùng đường engine hủy được như mẫu thật, nên biên dịch đúng phần mẫu thật sẽ chạy
+    # warmup đi qua cùng đường engine huỷ được như mẫu thật, nên biên dịch đúng phần mà mẫu thật sẽ chạy
     added = eng.llm_engine.added
     assert len(added) == 3 and b.warmup_seconds is not None and eng.calls == []
     assert added[0][2].kw["structured_outputs"].json["required"] == ["action"]
 
 
 def test_time_left_drives_engine_and_finishes(fake_vllm: None) -> None:
-    """Có giới hạn thời gian thì request chạy từng bước trên engine (hủy được) và render giống LLM.chat."""
+    """Có giới hạn thời gian thì request chạy từng bước trên engine (huỷ được) và được render giống `LLM.chat`."""
     b, eng = _backend()
     g = b.generate([{"role": "user", "content": "hi"}], SCHEMA, sample_id="x", time_left_s=10.0)
     assert not g.timed_out and g.text == '{"action":"done"}' and g.prompt_tokens == 3 and g.completion_tokens == 2
@@ -229,7 +243,7 @@ def test_time_left_drives_engine_and_finishes(fake_vllm: None) -> None:
 
 
 def test_time_left_aborts_running_step(fake_vllm: None) -> None:
-    """Bắt lỗi: bước chạy quá hạn của mẫu. Request bị hủy và không trả văn bản."""
+    """Bước chạy quá hạn của mẫu bị huỷ request và không trả văn bản."""
     b, eng = _backend()
     eng.llm_engine = FakeLLMEngine(step_s=0.05, n_steps=1000)
     g = b.generate([], SCHEMA, sample_id="x", time_left_s=0.2)
@@ -238,7 +252,7 @@ def test_time_left_aborts_running_step(fake_vllm: None) -> None:
 
 
 def test_engine_without_step_api_falls_back_to_chat(fake_vllm: None) -> None:
-    """Engine thiếu add_request/step thì quay về LLM.chat (có ghi log) và giữ cách đó."""
+    """Engine thiếu `add_request`/`step` thì quay về `LLM.chat` (có ghi log) và giữ cách đó cho các lần sau."""
     b, eng = _backend()
     eng.llm_engine = object()
     g = b.generate([], SCHEMA, sample_id="x", time_left_s=5.0)

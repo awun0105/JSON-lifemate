@@ -1,10 +1,17 @@
-"""Nơi duy nhất lắp ráp các đối tượng từ Config (SPEC 4.0, mẫu Factory + registry).
+"""Lắp ráp mọi đối tượng của một lần chạy từ `Config`; đây là nơi duy nhất làm việc này (SPEC 4.0).
 
-Cách xây dựng: backend LLM và transcriber được chọn theo tên qua hai registry `LLM_BACKENDS` và `TRANSCRIBERS`
-(tên lạ gây ConfigError). `build` tạo lần lượt: dtype, chỉ mục catalog tool, bộ đếm token, `PromptBuilder` (từ file
-system prompt, kèm danh sách app giữ lại khi train), chuỗi guard, rồi bọc LLM và transcriber trong lớp đo thời gian
-(`TimedLLM`, `TimedTranscriber`) trước khi tạo `Agent`. Kết quả trả về trong `Built`, kèm SHA-256 của template prompt
-để truy vết run.
+Nội dung chính:
+- `build`: tạo agent và các thành phần đi kèm, trả về `Built`.
+- `Built`: gói mọi đối tượng đã lắp ráp.
+- `LLM_BACKENDS`, `TRANSCRIBERS`: registry chọn backend LLM và transcriber theo tên.
+
+Cách hoạt động:
+- Dùng mẫu Factory + registry: backend được chọn theo tên trong `[llm].backend` và `[asr].backend`; tên lạ gây
+  `ConfigError`.
+- `build` tạo lần lượt: dtype, chỉ mục catalog tool, bộ đếm token, `PromptBuilder` (từ file system prompt, kèm
+  danh sách app held-out), chuỗi guard. Sau đó bọc LLM và transcriber trong lớp đo thời gian (`TimedLLM`,
+  `TimedTranscriber`) rồi tạo `Agent`.
+- Kết quả trả về trong `Built`, kèm SHA-256 của template prompt để truy vết run.
 """
 
 from __future__ import annotations
@@ -37,7 +44,18 @@ log = structlog.get_logger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class Built:
-    """Mọi thứ một lần chạy cần, đã lắp ráp xong."""
+    """Mọi thứ một lần chạy cần, đã lắp ráp xong.
+
+    Thuộc tính:
+        agent: agent sẵn sàng chạy.
+        loader: bộ nạp `zaic_tools` của split.
+        index: chỉ mục catalog tool.
+        counter: bộ đếm token.
+        llm: backend LLM đã bọc đo thời gian.
+        transcriber: transcriber đã bọc đo thời gian.
+        dtype: dtype đã chọn cho LLM.
+        prompt_sha256: SHA-256 của file template system prompt.
+    """
 
     agent: Agent
     loader: ZaicLoader
@@ -50,14 +68,14 @@ class Built:
 
 
 def _fake_llm(config: Config, profile: EnvProfile, samples: Sequence[Sample], env_info: EnvInfo, dtype: str) -> Any:
-    """Tạo FakeLLM; cần split có nhãn vì FakeLLM phát lại lời gọi tool gốc."""
+    """Tạo `FakeLLM`; cần split có nhãn vì `FakeLLM` phát lại lời gọi tool gốc."""
     if any(s.label is None for s in samples):
         raise ConfigError("llm.backend = 'fake' needs a labelled split")
     return FakeLLM(samples)
 
 
 def _vllm(config: Config, profile: EnvProfile, samples: Sequence[Sample], env_info: EnvInfo, dtype: str) -> Any:
-    """Tạo VLLMBackend với cache, token HF và compute capability lấy từ profile và thông tin môi trường."""
+    """Tạo `VLLMBackend` với cache, token HF và compute capability lấy từ profile và thông tin máy."""
     return VLLMBackend(
         config.llm,
         dtype=dtype,
@@ -67,7 +85,7 @@ def _vllm(config: Config, profile: EnvProfile, samples: Sequence[Sample], env_in
     )
 
 
-# Registry theo tên: `[llm].backend` và `[asr].backend` -> hàm tạo; hàm chỉ chạy khi tên được chọn
+# Registry theo tên: `[llm].backend` và `[asr].backend` -> hàm tạo; hàm chỉ chạy khi tên đó được chọn.
 LLM_BACKENDS: dict[str, Callable[[Config, EnvProfile, Sequence[Sample], EnvInfo, str], LLMBackend]] = {
     "vllm": _vllm,
     "fake": _fake_llm,
@@ -79,7 +97,7 @@ TRANSCRIBERS: dict[str, Callable[[Config, Path, str], Transcriber]] = {
 
 
 def _counter(config: Config) -> TokenCounter:
-    """Bộ đếm token: tokenizer HF của mô hình; đếm đơn giản với backend fake hoặc khi thiếu transformers."""
+    """Tạo bộ đếm token: tokenizer HF của model; bộ đếm đơn giản khi backend là `fake` hoặc thiếu `transformers`."""
     if config.llm.backend == "fake":
         return SimpleTokenCounter()
     try:
@@ -90,7 +108,7 @@ def _counter(config: Config) -> TokenCounter:
 
 
 def _held_out(repo_root: Path) -> frozenset[str]:
-    """Tập app giữ lại (held-out) đọc từ `configs/splits/meta.json`; rỗng khi file không tồn tại."""
+    """Đọc tập app held-out từ `configs/splits/meta.json`; trả về tập rỗng khi file không tồn tại."""
     meta = repo_root / "configs" / "splits" / "meta.json"
     if not meta.is_file():
         return frozenset()
@@ -107,10 +125,24 @@ def build(
     samples: Sequence[Sample] | None = None,
     observer: AgentObserver | None = None,
 ) -> Built:
-    """Lắp ráp LLM, transcriber, prompt, guard và agent cho `split` dưới `profile.data_root`.
+    """Lắp ráp LLM, transcriber, prompt, guard và agent cho `split` trong `profile.data_root`.
 
-    Kiểm tra tên backend trước khi tạo bất kỳ đối tượng nặng nào, để lỗi cấu hình hiện ra ngay. Với backend fake mà
-    không truyền `samples`, toàn bộ split được nạp để lấy nhãn.
+    Tên backend được kiểm tra trước khi tạo bất kỳ đối tượng nặng nào, để lỗi config lộ ra ngay.
+
+    Tham số:
+        config: config chạy.
+        profile: profile môi trường; đường dẫn đã là tuyệt đối.
+        repo_root: thư mục gốc repo.
+        split: tên split.
+        env_info: thông tin máy, dùng để chọn dtype.
+        samples: các mẫu sẽ chạy. Với backend `fake` mà không truyền, cả split được nạp để lấy nhãn.
+        observer: observer của agent; `None` là không ghi gì thêm.
+
+    Trả về:
+        `Built` chứa mọi đối tượng đã lắp ráp.
+
+    Lỗi:
+        ConfigError: khi tên backend không có trong registry, hoặc backend `fake` gặp mẫu không có nhãn.
     """
     llm_factory = LLM_BACKENDS.get(config.llm.backend)
     if llm_factory is None:

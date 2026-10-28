@@ -1,12 +1,21 @@
-"""Khung fine-tune ASR: huấn luyện Seq2Seq LoRA hoặc toàn phần, chọn checkpoint theo tỉ lệ sót thực thể (SPEC 6.4.3).
+"""Fine-tune model ASR (LoRA hoặc toàn phần, kiểu Seq2Seq) và chọn checkpoint theo tỉ lệ bỏ sót thực thể (SPEC 6.4.3).
 
-Chưa chọn mô hình; code viết cho mô hình speech seq2seq của HF (kiểu Whisper: processor + generate). Các gói nặng
-(torch, transformers, peft, datasets, soundfile) được import bên trong `_import_training_stack`.
+Nội dung chính:
+- `ASRTrainConfig` và các mục `ASRBase`, `ASRData`, `ASRMethod`, `ASRTrain`: config train đọc từ
+  `configs/train/asr_vN.toml`; `load_asr_train_config` đọc và kiểm tra file này.
+- `normalize_text`, `wer`, `score_checkpoint`, `choose_checkpoint`: hàm đo thuần, chạy được không cần GPU.
+- `train`, `transcribe_rows`, `merge_lora`, `select_checkpoint`: phần chạy trên GPU.
+- `parse_args`, `main`: CLI train rồi ghi `train_config.json`.
 
-Nội dung: dataclass config (`ASRTrainConfig` và các mục), hàm đo thuần (`normalize_text`, `wer`,
-`score_checkpoint`, `choose_checkpoint`) chạy được không cần GPU, và phần GPU (`train`, `transcribe_rows`,
-`merge_lora`, `select_checkpoint`). Luồng: file cặp jsonl từ `asr_data` → `train` lưu checkpoint qua
-`CheckpointManager` → chép lời val_unseen bằng từng checkpoint → chọn checkpoint tốt nhất → gộp LoRA.
+Cách hoạt động:
+1. File cặp jsonl do `asr_data` tạo.
+2. `train` fine-tune và lưu checkpoint qua `CheckpointManager`.
+3. Chép lời `val_unseen` bằng từng checkpoint, chọn checkpoint tốt nhất.
+4. Gộp LoRA vào model gốc.
+
+Lưu ý:
+- Chưa chọn model. Mã viết cho model speech seq2seq của Hugging Face (kiểu Whisper: processor + `generate`).
+- Các gói nặng (torch, transformers, peft, datasets, soundfile) chỉ được import trong `_import_training_stack`.
 """
 
 from __future__ import annotations
@@ -49,7 +58,12 @@ _PUNCT_CATEGORIES = ("P", "S")
 
 @dataclass(frozen=True, slots=True)
 class ASRBase:
-    """Mục [base]: mô hình gốc và revision."""
+    """Mục `[base]`: model gốc và revision.
+
+    Thuộc tính:
+        model: tên model trên Hugging Face; rỗng khi chưa chọn.
+        revision: commit cố định của model.
+    """
 
     model: str
     revision: str
@@ -57,14 +71,24 @@ class ASRBase:
 
 @dataclass(frozen=True, slots=True)
 class ASRData:
-    """Mục [data]: đường dẫn file cặp huấn luyện."""
+    """Mục `[data]`: đường dẫn file cặp dữ liệu train.
+
+    Thuộc tính:
+        train: file jsonl do `lifemate.train.asr_data` tạo.
+    """
 
     train: str
 
 
 @dataclass(frozen=True, slots=True)
 class ASRMethod:
-    """Mục [method]: kiểu huấn luyện (lora|full), đóng băng encoder, SpecAugment."""
+    """Mục `[method]`: kiểu train và các tuỳ chọn đi kèm.
+
+    Thuộc tính:
+        kind: `"lora"` hoặc `"full"` (train toàn bộ trọng số).
+        freeze_encoder: `True` để đóng băng encoder, chỉ train decoder.
+        spec_augment: `True` để bật SpecAugment (che ngẫu nhiên một phần phổ âm thanh khi train).
+    """
 
     kind: str
     freeze_encoder: bool
@@ -73,7 +97,17 @@ class ASRMethod:
 
 @dataclass(frozen=True, slots=True)
 class ASRTrain:
-    """Mục [train]: siêu tham số và nhịp eval/lưu checkpoint."""
+    """Mục `[train]`: siêu tham số và nhịp eval, nhịp lưu checkpoint.
+
+    Thuộc tính:
+        lr: learning rate.
+        epochs: số epoch.
+        batch_size: batch size trên mỗi GPU.
+        grad_accum: số bước cộng dồn gradient.
+        seed: seed ngẫu nhiên.
+        eval_every_steps: số step giữa hai lần eval.
+        save_every_steps: số step giữa hai lần lưu checkpoint; phải là bội của `eval_every_steps`.
+    """
 
     lr: float
     epochs: int
@@ -86,7 +120,14 @@ class ASRTrain:
 
 @dataclass(frozen=True, slots=True)
 class ASRTrainConfig:
-    """Toàn bộ configs/train/asr_vN.toml."""
+    """Toàn bộ nội dung `configs/train/asr_vN.toml`.
+
+    Thuộc tính:
+        base: mục `[base]`.
+        data: mục `[data]`.
+        method: mục `[method]`.
+        train: mục `[train]`.
+    """
 
     base: ASRBase
     data: ASRData
@@ -95,9 +136,13 @@ class ASRTrainConfig:
 
 
 def load_asr_train_config(path: Path) -> ASRTrainConfig:
-    """Nạp và kiểm tra TOML config huấn luyện ASR (khóa chặt chẽ).
+    """Đọc và kiểm tra file TOML config train ASR, từ chối khoá lạ hoặc thiếu.
 
-    Kiểm thêm: `method.kind` thuộc lora|full và `save_every_steps` là bội của `eval_every_steps`.
+    Ngoài kiểm tra khoá, hàm còn kiểm tra `method.kind` thuộc `lora|full` và `save_every_steps` là bội của
+    `eval_every_steps`.
+
+    Lỗi:
+        ConfigError: khi config sai.
     """
     raw = load_toml(path, ("base", "data", "method", "train"))
     cfg = ASRTrainConfig(
@@ -113,11 +158,11 @@ def load_asr_train_config(path: Path) -> ASRTrainConfig:
     return cfg
 
 
-# ---------------------------------------------------------------- chỉ số (hàm thuần; dự phòng khi thiếu eval_asr)
+# ---------------------------------------------------------------- Chỉ số (hàm thuần; dự phòng khi thiếu `eval_asr`)
 
 
 def normalize_text(text: str) -> str:
-    """Chữ thường, NFC, bỏ dấu câu, gộp khoảng trắng (chuẩn hóa WER theo SPEC 6.4.2)."""
+    """Chuẩn hoá văn bản để tính WER theo SPEC 6.4.2: chữ thường, NFC, bỏ dấu câu, gộp khoảng trắng."""
     text = unicodedata.normalize("NFC", text.lower())
     # Ký tự thuộc nhóm Unicode P (dấu câu) hoặc S (ký hiệu) được thay bằng khoảng trắng.
     kept = "".join(" " if unicodedata.category(ch)[0] in _PUNCT_CATEGORIES else ch for ch in text)
@@ -125,7 +170,7 @@ def normalize_text(text: str) -> str:
 
 
 def _edit_distance(ref: Sequence[str], hyp: Sequence[str]) -> int:
-    """Khoảng cách Levenshtein theo từ (quy hoạch động, chỉ giữ hai hàng)."""
+    """Tính khoảng cách Levenshtein theo từ bằng quy hoạch động, chỉ giữ hai hàng trong bộ nhớ."""
     prev = list(range(len(hyp) + 1))
     for i, r in enumerate(ref, 1):
         cur = [i] + [0] * len(hyp)
@@ -136,7 +181,7 @@ def _edit_distance(ref: Sequence[str], hyp: Sequence[str]) -> int:
 
 
 def wer(refs: Sequence[str], hyps: Sequence[str]) -> float:
-    """WER trên toàn tập, tính trên văn bản đã chuẩn hóa."""
+    """Tính WER trên toàn tập (tổng lỗi chia tổng số từ tham chiếu), trên văn bản đã chuẩn hoá."""
     errors = words = 0
     for ref, hyp in zip(refs, hyps, strict=True):
         r, h = normalize_text(ref).split(), normalize_text(hyp).split()
@@ -146,9 +191,18 @@ def wer(refs: Sequence[str], hyps: Sequence[str]) -> float:
 
 
 def score_checkpoint(rows: Sequence[Mapping[str, Any]], hyps: Sequence[str], samples: Any = None) -> dict[str, float]:
-    """`entity_miss_rate` (lifemate.eval.eval_asr, lượt cuối của mỗi mẫu) và WER; không có samples thì chỉ có WER.
+    """Chấm bản chép lời của một checkpoint: `entity_miss_rate` và WER.
 
-    Khi thiếu samples, `entity_miss_rate` lấy bằng WER và `entity_metric` = 0.0 để đánh dấu đây là giá trị dự phòng.
+    `entity_miss_rate` tính bằng `lifemate.eval.eval_asr`, chỉ trên lượt cuối của mỗi mẫu. Khi không có `samples`,
+    `entity_miss_rate` lấy bằng WER và `entity_metric` = 0.0 để đánh dấu đây là giá trị dự phòng.
+
+    Tham số:
+        rows: các cặp dữ liệu đã chép lời.
+        hyps: văn bản chép lời, cùng thứ tự với `rows`.
+        samples: các `Sample` có nhãn để tính thực thể; `None` thì chỉ có WER.
+
+    Trả về:
+        Dict gồm `entity_miss_rate`, `wer` và `entity_metric` (1.0 khi tính thật, 0.0 khi dự phòng).
     """
     refs = [str(r["text"]) for r in rows]
     w = wer(refs, hyps)
@@ -156,7 +210,7 @@ def score_checkpoint(rows: Sequence[Mapping[str, Any]], hyps: Sequence[str], sam
         log.warning("eval_asr_unavailable", fallback="wer")
         return {"entity_miss_rate": w, "wer": w, "entity_metric": 0.0}
     from lifemate.core.types import Transcript
-    from lifemate.eval.eval_asr import entity_miss_rate  # tầng eval; import tại đây để train vẫn import độc lập được
+    from lifemate.eval.eval_asr import entity_miss_rate  # tầng eval; import ở đây để `train` vẫn import được độc lập
 
     # Chỉ lượt cuối được chấm thực thể; các lượt lịch sử chỉ góp vào WER.
     final_hyp = {str(r["id"]): h for r, h in zip(rows, hyps, strict=True) if r.get("turn") == "final"}
@@ -169,17 +223,28 @@ def score_checkpoint(rows: Sequence[Mapping[str, Any]], hyps: Sequence[str], sam
 
 
 def choose_checkpoint(scored: Sequence[tuple[CheckpointInfo, Mapping[str, float]]]) -> CheckpointInfo:
-    """Tỉ lệ sót thực thể thấp nhất trên val_unseen, rồi WER thấp nhất, rồi step sớm nhất (SPEC 6.4.3)."""
+    """Chọn checkpoint có tỉ lệ bỏ sót thực thể thấp nhất trên `val_unseen`, hoà thì WER thấp nhất, rồi step sớm nhất.
+
+    Lỗi:
+        ValueError: khi không có checkpoint nào.
+    """
     if not scored:
         raise ValueError("no checkpoints to choose from")
     return min(scored, key=lambda cs: (cs[1]["entity_miss_rate"], cs[1]["wer"], cs[0].step))[0]
 
 
-# ---------------------------------------------------------------- phần GPU (không chạy trong test)
+# ---------------------------------------------------------------- Phần chạy trên GPU (test không chạy phần này)
 
 
 def _import_training_stack() -> SimpleNamespace:
-    """Import các gói phụ huấn luyện ASR; thiếu gói nào thì RuntimeError nêu tên gói đó."""
+    """Import các gói cần cho fine-tune ASR.
+
+    Trả về:
+        Namespace chứa các module, truy cập theo tên (ví dụ `stack.torch`).
+
+    Lỗi:
+        RuntimeError: khi thiếu gói, kèm tên các gói còn thiếu.
+    """
     mods: dict[str, ModuleType] = {}
     missing: list[str] = []
     for name in TRAIN_PACKAGES:
@@ -193,7 +258,11 @@ def _import_training_stack() -> SimpleNamespace:
 
 
 def load_audio(stack: SimpleNamespace, path: Path, sampling_rate: int) -> Any:
-    """Mảng float mono ở `sampling_rate`; sai tần số lấy mẫu thì báo lỗi, cần resample dữ liệu trước."""
+    """Đọc file audio thành mảng float mono ở `sampling_rate`.
+
+    Lỗi:
+        ValueError: khi tần số lấy mẫu của file khác `sampling_rate`; cần resample dữ liệu trước.
+    """
     data, sr = stack.soundfile.read(str(path), dtype="float32", always_2d=False)
     if getattr(data, "ndim", 1) > 1:
         data = data.mean(axis=1)
@@ -205,11 +274,24 @@ def load_audio(stack: SimpleNamespace, path: Path, sampling_rate: int) -> Any:
 def train(
     cfg: ASRTrainConfig, *, repo_root: Path, data_root: Path, split: str, out_dir: Path, resume_from: Path | None = None
 ) -> Path:
-    """Fine-tune mô hình ASR trên `cfg.data.train`; checkpoint nằm dưới `out_dir/checkpoints`.
+    """Fine-tune model ASR trên `cfg.data.train`; checkpoint nằm trong `out_dir/checkpoints`.
 
-    Trainer của HF không tự lưu (`save_strategy="no"`); callback lưu qua `CheckpointManager` mỗi
-    `save_every_steps` và ghi log vào metrics.jsonl. Có `resume_from` thì khôi phục RNG rồi tiếp tục.
-    Trả về thư mục checkpoint.
+    Trainer của HF không tự lưu (`save_strategy="no"`). Một callback lưu qua `CheckpointManager` mỗi
+    `save_every_steps` step và ghi log vào `metrics.jsonl`. Có `resume_from` thì khôi phục RNG rồi train tiếp.
+
+    Tham số:
+        cfg: config train.
+        repo_root: thư mục gốc repo.
+        data_root: thư mục dữ liệu.
+        split: split chứa file audio.
+        out_dir: thư mục ghi kết quả.
+        resume_from: checkpoint để train tiếp; `None` là train từ đầu.
+
+    Trả về:
+        Thư mục chứa các checkpoint.
+
+    Lỗi:
+        ConfigError: khi chưa chọn `base.model`.
     """
     if not cfg.base.model:
         raise ConfigError("base.model: required to train (ASR model not chosen yet, SPEC 6.0)")
@@ -227,6 +309,7 @@ def train(
     if cfg.method.freeze_encoder and hasattr(model, "freeze_encoder"):
         model.freeze_encoder()
     if cfg.method.kind == "lora":
+        # LoRA chỉ gắn vào q_proj và v_proj của attention; `lora_alpha = 2r` là cặp giá trị phổ biến.
         lora = stack.peft.LoraConfig(r=32, lora_alpha=64, lora_dropout=0.05, target_modules=["q_proj", "v_proj"])
         model = stack.peft.get_peft_model(model, lora)
     sr = int(processor.feature_extractor.sampling_rate)
@@ -234,6 +317,7 @@ def train(
 
     # Mỗi dòng: đặc trưng âm thanh làm input, token của text nguyên văn làm nhãn.
     def encode(row: dict[str, Any]) -> dict[str, Any]:
+        """Đổi một dòng dữ liệu thành đặc trưng âm thanh (input) và token của văn bản (nhãn)."""
         audio = load_audio(stack, split_dir / row["audio"], sr)
         feats = processor.feature_extractor(audio, sampling_rate=sr).input_features[0]
         return {"input_features": feats, "labels": processor.tokenizer(row["text"]).input_ids}
@@ -242,6 +326,7 @@ def train(
     train_ds = stack.datasets.Dataset.from_list(rows).map(encode, remove_columns=list(rows[0].keys()))
 
     def collate(batch: list[dict[str, Any]]) -> dict[str, Any]:
+        """Gộp một batch: đệm đặc trưng âm thanh và nhãn cho cùng độ dài."""
         feats = processor.feature_extractor.pad(
             [{"input_features": b["input_features"]} for b in batch], return_tensors="pt"
         )
@@ -250,6 +335,7 @@ def train(
         ids = labels["input_ids"].masked_fill(labels["attention_mask"].ne(1), -100)
         return {"input_features": feats["input_features"], "labels": ids}
 
+    # GPU hỗ trợ bf16 thì dùng bf16, không thì dùng fp16.
     bf16 = bool(torch.cuda.is_available() and torch.cuda.is_bf16_supported())
     args = tf.Seq2SeqTrainingArguments(
         output_dir=str(out_dir / "hf"),
@@ -257,7 +343,7 @@ def train(
         num_train_epochs=cfg.train.epochs,
         per_device_train_batch_size=cfg.train.batch_size,
         gradient_accumulation_steps=cfg.train.grad_accum,
-        save_strategy="no",  # CheckpointManager lo việc lưu (SPEC 6.5)
+        save_strategy="no",  # `CheckpointManager` lo việc lưu (SPEC 6.5)
         logging_steps=10,
         seed=cfg.train.seed,
         data_seed=cfg.train.seed,
@@ -266,17 +352,21 @@ def train(
         report_to=[],
         remove_unused_columns=False,
     )
+    # Gán qua biến kiểu `Any` để mypy chấp nhận lớp con của một lớp nạp động.
     base_cb: Any = tf.TrainerCallback
 
     class _Callback(base_cb):  # type: ignore[misc]
+        """Callback của Trainer: ghi log vào `metrics.jsonl` và lưu checkpoint theo nhịp `save_every_steps`."""
         trainer: Any = None
 
         def on_log(self, a: Any, state: Any, control: Any, logs: Any = None, **kw: Any) -> None:
+            """Ghi mỗi lần Trainer log ra một dòng trong `metrics.jsonl`."""
             metrics.log({"step": state.global_step, **(logs or {})})
 
         def on_step_end(self, a: Any, state: Any, control: Any, **kw: Any) -> None:
+            """Lưu checkpoint khi step hiện tại là bội của `save_every_steps`."""
             if state.global_step % cfg.train.save_every_steps == 0:
-                # Loss gần nhất trong log_history làm metric của checkpoint.
+                # Loss gần nhất trong `log_history` làm metric của checkpoint.
                 loss = next((h["loss"] for h in reversed(state.log_history) if "loss" in h), None)
                 mgr.save(state.global_step, loss, lambda d: self.trainer.model.save_pretrained(str(d)))
 
@@ -288,7 +378,7 @@ def train(
     if resume_from is not None:
         mgr.load(resume_from)
     trainer.train(resume_from_checkpoint=str(resume_from) if resume_from else None)
-    # Luôn lưu checkpoint cuối, kể cả khi step cuối không rơi vào nhịp lưu.
+    # Luôn lưu checkpoint cuối, kể cả khi step cuối không rơi đúng nhịp lưu.
     mgr.save(trainer.state.global_step, None, lambda d: trainer.model.save_pretrained(str(d)))
     processor.save_pretrained(str(out_dir / "processor"))
     return mgr.directory
@@ -297,7 +387,17 @@ def train(
 def transcribe_rows(
     model_dir: Path, processor_dir: Path, rows: Sequence[Mapping[str, Any]], split_dir: Path
 ) -> list[str]:
-    """Chép lời `rows` bằng giải mã tham lam với một checkpoint (đã gộp); dùng để chọn checkpoint."""
+    """Chép lời `rows` bằng một checkpoint (đã gộp), giải mã tham lam; dùng khi chọn checkpoint.
+
+    Tham số:
+        model_dir: thư mục model đã gộp.
+        processor_dir: thư mục processor.
+        rows: các cặp dữ liệu cần chép lời.
+        split_dir: thư mục split chứa file audio.
+
+    Trả về:
+        Văn bản chép lời, cùng thứ tự với `rows`.
+    """
     stack = _import_training_stack()
     tf, torch = stack.transformers, stack.torch
     processor = tf.AutoProcessor.from_pretrained(str(processor_dir))
@@ -316,7 +416,17 @@ def transcribe_rows(
 
 
 def merge_lora(base: str, adapter_dir: Path, out_dir: Path, *, revision: str | None = None) -> Path:
-    """Gộp adapter LoRA vào mô hình ASR gốc và lưu safetensors (chạy CPU cũng được)."""
+    """Gộp adapter LoRA vào model ASR gốc và lưu dạng safetensors; chạy trên CPU cũng được.
+
+    Tham số:
+        base: tên model gốc.
+        adapter_dir: thư mục adapter LoRA.
+        out_dir: thư mục ghi model đã gộp.
+        revision: commit của model gốc.
+
+    Trả về:
+        `out_dir`.
+    """
     stack = _import_training_stack()
     model = stack.transformers.AutoModelForSpeechSeq2Seq.from_pretrained(base, revision=revision)
     merged = stack.peft.PeftModel.from_pretrained(model, str(adapter_dir)).merge_and_unload()
@@ -332,14 +442,24 @@ def select_checkpoint(
     rows: Sequence[Mapping[str, Any]],
     samples: Any = None,
 ) -> tuple[CheckpointInfo, list[dict[str, Any]]]:
-    """Chấm mọi checkpoint trên `rows` (cặp val_unseen), chọn theo tỉ lệ sót thực thể rồi WER; trả về kèm bảng điểm."""
+    """Chấm mọi checkpoint trên `rows` (cặp `val_unseen`) và chọn theo tỉ lệ bỏ sót thực thể, rồi WER.
+
+    Tham số:
+        ckpts: các checkpoint cần chấm.
+        transcribe: hàm chép lời `rows` bằng một checkpoint.
+        rows: các cặp dữ liệu dùng để chấm.
+        samples: các `Sample` có nhãn để tính thực thể; `None` thì chỉ dùng WER.
+
+    Trả về:
+        Cặp (checkpoint được chọn, bảng điểm của mọi checkpoint).
+    """
     scored = [(c, score_checkpoint(rows, transcribe(c), samples)) for c in ckpts]
     table = [{"path": str(c.path), "step": c.step, **s} for c, s in scored]
     return choose_checkpoint(scored), table
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    """Tham số dòng lệnh."""
+    """Đọc tham số dòng lệnh."""
     ap = argparse.ArgumentParser(prog="python -m lifemate.train.asr", description="ASR fine-tune (SPEC 6.4.3).")
     ap.add_argument("--config", required=True, type=Path, help="configs/train/asr_v1.toml")
     ap.add_argument("--env", default="local", help="env profile")
@@ -350,7 +470,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: Sequence[str] | None = None, repo_root: Path = REPO_ROOT) -> int:
-    """Điểm vào CLI: huấn luyện rồi ghi train_config.json."""
+    """Chạy CLI: train rồi ghi `train_config.json`; trả về mã thoát 0."""
     args = parse_args(argv)
     cfg_path = abs_path(args.config, repo_root)
     cfg = load_asr_train_config(cfg_path)

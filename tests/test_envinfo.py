@@ -1,6 +1,8 @@
-"""Kiểm tra T20 `resolve_dtype` và T22 cách lấy `code_version` khi không có git.
+"""Test T20 (`resolve_dtype`) và T22 (`code_version` khi không có git).
 
-`EnvInfo` được dựng tay qua helper `_info` (GPU giả theo compute capability). Không cần dữ liệu cuộc thi hay tokenizer.
+Lưu ý:
+- `EnvInfo` được dựng tay qua helper `_info`, với GPU giả theo compute capability.
+- Không cần dữ liệu cuộc thi hay tokenizer.
 """
 
 from pathlib import Path
@@ -18,7 +20,7 @@ def _info(cc: tuple[int, int] | None) -> EnvInfo:
 
 
 def test_resolve_dtype() -> None:
-    """T20. Bảo vệ: chọn dtype theo GPU. Bắt lỗi: sai dtype hoặc không báo lỗi khi ép bf16 trên sm75."""
+    """T20: chọn đúng dtype theo GPU, và báo lỗi khi ép bf16 trên GPU sm75."""
     assert resolve_dtype("auto", _info((7, 5))) == "float16"
     assert resolve_dtype("auto", _info((8, 0))) == "bfloat16"
     assert resolve_dtype("auto", _info(None)) == "float16"
@@ -29,7 +31,7 @@ def test_resolve_dtype() -> None:
 
 
 def test_code_version_fallback(tmp_path: Path) -> None:
-    """T22. Bảo vệ: không có .git thì đọc file VERSION; không có cả hai thì trả "unknown" kèm cảnh báo."""
+    """T22: không có `.git` thì đọc file `VERSION`; không có cả hai thì trả "unknown" kèm cảnh báo."""
     with structlog.testing.capture_logs() as logs:
         assert code_version(tmp_path) == ("unknown", None)
     assert any(e["event"] == "code_version_unknown" for e in logs)

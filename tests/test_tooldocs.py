@@ -1,7 +1,8 @@
-"""T2, T3: kiểm tra tài liệu tool đầy đủ và tất định (SPEC 4.5).
+"""T2, T3: test mô tả tool sinh từ catalog đầy đủ và tất định (SPEC 4.5).
 
-Cách kiểm tra: hai test mang marker `data` đọc catalog tool thật của cuộc thi qua fixture `data_root`; các test còn lại
-dùng catalog tổng hợp `SYN`. Không cần tokenizer.
+Lưu ý:
+- Hai test mang marker `data` đọc catalog tool thật của cuộc thi qua fixture `data_root`.
+- Các test còn lại dùng catalog tổng hợp `SYN`. Không cần tokenizer.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ def _all_tools(index: CatalogIndex, catalog: dict[str, Any]) -> tuple[str, ...]:
 @pytest.mark.data
 @pytest.mark.parametrize("rel", CATALOGS)
 def test_tooldocs_complete(data_root: Path, rel: str) -> None:
-    """Bảo vệ: mọi trường của catalog đều vào tài liệu. Bắt lỗi: rơi mất param, enum hoặc trường x-*."""
+    """Mọi trường của catalog đều vào mô tả tool, không rơi mất tham số, enum hay trường `x-*`."""
     catalog = _load(data_root, rel)
     index = CatalogIndex(catalog)
     text = render_tools(index, _all_tools(index, catalog))
@@ -39,7 +40,7 @@ def test_tooldocs_complete(data_root: Path, rel: str) -> None:
         for tool in app["tools"]:
             head = f"- {tool['name']} [{tool['kind']}]" + (f" → {tool['returns']}" if tool["returns"] else "")
             assert head + "\n" in text
-            # Cắt phần tài liệu của riêng tool này: đến tool kế tiếp hoặc app kế tiếp.
+            # Cắt phần mô tả của riêng tool này: tới tool kế tiếp hoặc app kế tiếp.
             block = text.split(head + "\n", 1)[1].split("\n- ", 1)[0].split("\n## ", 1)[0]
             assert tool["description"] in block
             params = tool["parameters"]
@@ -72,7 +73,7 @@ def test_tooldocs_complete(data_root: Path, rel: str) -> None:
 
 @pytest.mark.data
 def test_tooldocs_drop_descriptions_keeps_structure(data_root: Path) -> None:
-    """Mức rút gọn 2 bỏ mô tả param nhưng giữ tên, enum và các dấu x-*."""
+    """Mức rút gọn 2 bỏ mô tả tham số nhưng giữ tên, enum và các dấu `x-*`."""
     catalog = _load(data_root, CATALOGS[0])
     index = CatalogIndex(catalog)
     full = render_tools(index, _all_tools(index, catalog))
@@ -146,7 +147,7 @@ SYN: dict[str, Any] = {
 
 
 def test_tooldocs_deterministic() -> None:
-    """T3: cùng đầu vào cho cùng chuỗi, không phụ thuộc thứ tự tập tool cho phép; giữ thứ tự catalog."""
+    """T3: cùng đầu vào cho cùng chuỗi, không phụ thuộc thứ tự tập tool được phép, và giữ thứ tự catalog."""
     index = CatalogIndex(SYN)
     one = render_tools(index, ["a.r", "b.x", "a.w", ASK_TOOL])
     two = render_tools(CatalogIndex(json.loads(json.dumps(SYN))), (ASK_TOOL, "a.w", "b.x", "a.r"))
@@ -157,7 +158,7 @@ def test_tooldocs_deterministic() -> None:
 
 
 def test_allowed_tools_order_and_unknown() -> None:
-    """Bảo vệ: allowed_tools theo thứ tự catalog, bỏ tool không tồn tại và luôn thêm ASK_TOOL."""
+    """`allowed_tools` theo thứ tự catalog, bỏ tool không tồn tại và luôn thêm `ASK_TOOL`."""
     index = CatalogIndex(SYN)
     got = index.allowed_tools({"a": {"tools": ["a.r", "a.w", "a.ghost"]}})
     assert got == ("a.w", "a.r", ASK_TOOL)

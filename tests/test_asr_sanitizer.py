@@ -1,7 +1,10 @@
-"""Kiểm thử bộ làm sạch ASR (chuyển thể từ repo của trưởng nhóm) và hàm kiểm tra thực thể dùng khi trộn dữ liệu SFT.
+"""Test bộ lọc văn bản ASR (chuyển thể từ repo của trưởng nhóm) và hàm kiểm tra thực thể dùng khi trộn dữ liệu SFT.
 
-Phần lớn test dùng chuỗi viết tay. Riêng `test_gold_transcripts_untouched` mang marker `data`,
-đọc train.jsonl của dữ liệu cuộc thi và tự bỏ qua khi thiếu. Không cần tokenizer.
+Lưu ý:
+- Phần lớn test dùng chuỗi viết tay.
+- Riêng `test_gold_transcripts_untouched` mang marker `data`: đọc `train.jsonl` của dữ liệu cuộc thi và tự skip
+  khi thiếu.
+- Không cần tokenizer.
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ DATA = Path(__file__).resolve().parent.parent / "data" / "train+public_test" / "
 
 
 def test_subtitle_hallucinations_removed() -> None:
-    """Bảo vệ: câu rác kiểu phụ đề YouTube bị cắt; lượt lịch sử chỉ gồm câu rác thành chuỗi rỗng."""
+    """Câu rác kiểu phụ đề YouTube bị cắt, và lượt lịch sử chỉ toàn câu rác thành chuỗi rỗng."""
     mixed = "Hôm nay mệt quá! Cảm ơn các bạn đã theo dõi và hãy subscribe cho kênh lalaschool"
     assert sanitize(mixed, is_history=False) == "Hôm nay mệt quá!"
     pure = "Hãy subscribe cho kênh Ghiền Mì Gõ để không bỏ lỡ những video hấp dẫn"
@@ -29,12 +32,12 @@ def test_subtitle_hallucinations_removed() -> None:
     ["À đăng ký cho anh cái khóa Thiết kế dịch vụ", "hủy gói đăng ký Xemflix giúp tôi", "Chuyển sang kênh HTV7"],
 )
 def test_real_requests_kept(text: str) -> None:
-    """Bắt lỗi dương tính giả của bản gốc: "đăng ký <bất kỳ>" từng bị cắt, xoá mất yêu cầu đăng ký thật."""
+    """Yêu cầu đăng ký thật được giữ; bản gốc từng cắt nhầm mọi câu "đăng ký <bất kỳ>"."""
     assert sanitize(text, is_history=False) == text
 
 
 def test_loops_collapsed_but_spoken_digits_kept() -> None:
-    """Bắt lỗi dương tính giả khác của bản gốc: "không, không không, không" trong số điện thoại đọc thành lời."""
+    """Đoạn lặp bị gộp, nhưng số điện thoại đọc thành lời ("không, không không, không") được giữ, khác với bản gốc."""
     assert truncate_loops("tôi muốn tôi muốn tôi muốn tôi muốn đặt xe") == "tôi muốn đặt xe"
     assert sanitize("số " + "22 " * 25, is_history=False) == "số 22"
     phone = "gọi số không chín không tám, không không không, không hai"
@@ -43,7 +46,7 @@ def test_loops_collapsed_but_spoken_digits_kept() -> None:
 
 @pytest.mark.data
 def test_gold_transcripts_untouched() -> None:
-    """Bảo vệ: bộ làm sạch không đổi transcript gold nào trong 5.036 mẫu train (cả câu cuối lẫn lịch sử)."""
+    """Bộ lọc không đổi transcript gold nào trong 5.036 mẫu train, cả câu cuối lẫn lịch sử."""
     if not DATA.is_file():
         pytest.skip("data package missing")
     changed = []
@@ -52,13 +55,13 @@ def test_gold_transcripts_untouched() -> None:
         turns = [(it["audio_text"], False)] + [
             (h["audio_text"], True) for h in it["history"] if h.get("role") == "user" and h.get("audio_text")
         ]
-        # So với bản chỉ chuẩn hoá khoảng trắng: sanitize được phép gộp khoảng trắng.
+        # So với bản chỉ chuẩn hoá khoảng trắng, vì `sanitize` được phép gộp khoảng trắng.
         changed += [it["id"] for t, hist in turns if sanitize(t, is_history=hist) != " ".join(t.split())]
     assert changed == []
 
 
 def test_entities_preserved() -> None:
-    """Bảo vệ: tên và số dài phải còn trong transcript; ID và thời gian không bắt buộc (bỏ qua dấu và hoa thường)."""
+    """Tên và số dài phải còn trong transcript, còn ID và thời gian thì không bắt buộc; bỏ qua dấu và hoa thường."""
     calls = [
         {"name": "sms.send", "arguments": {"contact_id": "c_1", "content": "Về muộn"}},
         {"name": "banking.transfer", "arguments": {"amount": 2500000, "beneficiary_id": "b"}},

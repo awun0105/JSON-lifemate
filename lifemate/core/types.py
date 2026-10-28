@@ -1,17 +1,20 @@
-"""Đối tượng giá trị, enum và Protocol dùng chung (SPEC 4.0, 4.2, 4.4, 4.7, 4.8, 4.9, 4.12, 4.13).
+"""Khai báo các kiểu dữ liệu, enum và Protocol mà mọi phần của lifemate dùng chung (SPEC 4.0, 4.2, 4.7–4.9, 4.12, 4.13).
 
-Nội dung file:
-- Enum: `StopReason` (lý do dừng một mẫu), `ErrorCode` (mã lỗi), `GuardVerdict` (kết luận của guard).
-- Dataclass giá trị: dữ liệu vào (`Turn`, `Sample`, `Transcript`), kết quả LLM (`Generation`, `Action`,
-  `ParseError`), guard (`GuardResult`, `GuardContext`) và bản ghi trace (`StepRecord`, `SampleResult`).
-- Protocol: giao diện của môi trường công cụ, backend LLM, bộ đếm token, bộ chuyển giọng nói, đồng hồ, guard
-  và observer.
+Nội dung chính:
+- `StopReason`, `ErrorCode`, `GuardVerdict`: lý do dừng một mẫu, mã lỗi, và kết luận của guard.
+- `Turn`, `Sample`, `Transcript`: dữ liệu đầu vào của một mẫu.
+- `Generation`, `Action`, `ParseError`: đầu ra của LLM trước và sau khi parse.
+- `GuardResult`, `GuardContext`: đầu ra và đầu vào của guard.
+- `StepRecord`, `SampleResult`: bản ghi một bước và một mẫu trong `trace.jsonl`.
+- `ToolEnvLike`, `LLMBackend`, `TokenCounter`, `Transcriber`, `Clock`, `Guard`, `AgentObserver`: giao diện
+  (Protocol) của các thành phần thay thế được.
 
-Cách xây dựng:
-- Module này không import gì trong lifemate, nên mọi tầng (io, backends, agent) dùng được mà không vòng import.
-- Dataclass `frozen=True, slots=True`: giá trị bất biến, an toàn khi truyền qua các tầng và khi ghi trace.
-- Phụ thuộc giữa các tầng đi qua Protocol (kiểu cấu trúc), nên test thay backend thật bằng bản giả dễ dàng.
-- `to_dict` đổi enum thành `.value` để trace.jsonl chỉ chứa kiểu JSON thuần.
+Cách hoạt động:
+- Module này không import gì khác trong lifemate, nên mọi tầng (`io`, `backends`, `agent`) đều dùng được mà
+  không bị import vòng.
+- Các dataclass đều `frozen=True, slots=True`: giá trị không đổi, an toàn khi truyền qua các tầng và khi ghi trace.
+- Các tầng phụ thuộc nhau qua Protocol (kiểu cấu trúc), nên test dễ thay backend thật bằng bản giả.
+- `to_dict` đổi enum thành `.value`, để `trace.jsonl` chỉ chứa kiểu JSON thuần.
 """
 
 from __future__ import annotations
@@ -23,7 +26,11 @@ from typing import Any, Literal, Protocol
 
 
 class StopReason(Enum):
-    """Lý do vòng lặp agent kết thúc với một mẫu."""
+    """Lý do vòng lặp agent dừng với một mẫu.
+
+    `TIMEOUT` nghĩa là đã tới `deadline_s` và bước LLM đang chạy bị ngắt. `EXCEPTION` là lỗi ngoài dự kiến, do
+    `Runner` bắt.
+    """
 
     DONE = "done"
     ASKED = "asked"
@@ -36,7 +43,11 @@ class StopReason(Enum):
 
 
 class ErrorCode(Enum):
-    """Mã lỗi ghi trong từng bước và trong danh sách lỗi của mẫu."""
+    """Mã lỗi ghi trong từng bước (`StepRecord.error`) và trong danh sách lỗi của mẫu (`SampleResult.errors`).
+
+    `UNKNOWN_TOOL` là tool không được phép, `INVALID_ARGS` là `env.validate` từ chối tham số, `DUPLICATE_WRITE` là
+    gọi lại y hệt một lời gọi `write` trước đó (chỉ cảnh báo).
+    """
 
     PARSE_ERROR = "parse_error"
     UNKNOWN_TOOL = "unknown_tool"
@@ -56,7 +67,16 @@ class GuardVerdict(Enum):
 
 @dataclass(frozen=True, slots=True)
 class Turn:
-    """Một lượt trong lịch sử hội thoại (của user hoặc assistant)."""
+    """Một lượt trong lịch sử hội thoại, của user hoặc của assistant.
+
+    Thuộc tính:
+        role: `"user"` hoặc `"assistant"`.
+        audio: lượt user: đường dẫn file audio, tương đối trong split.
+        audio_text: lượt user: transcript gốc; chỉ tập train có.
+        text: lượt assistant: câu trả lời bằng chữ.
+        tool_calls: lượt assistant: các lời gọi tool, có thể rỗng.
+        tool_results: lượt assistant: kết quả của các lời gọi tool, có thể rỗng.
+    """
 
     role: Literal["user", "assistant"]
     audio: str | None
@@ -68,7 +88,17 @@ class Turn:
 
 @dataclass(frozen=True, slots=True)
 class Sample:
-    """Một mẫu dữ liệu của cuộc thi; chỉ FakeLLM và bộ chấm điểm được đọc `label`."""
+    """Một mẫu dữ liệu của cuộc thi.
+
+    Thuộc tính:
+        id: mã mẫu, ví dụ `train_0874`.
+        split: tên split chứa mẫu.
+        audio: đường dẫn file audio của lượt cuối.
+        audio_text: transcript gốc của lượt cuối; chỉ tập train có.
+        context: ngữ cảnh đi kèm, giữ nguyên văn từ file jsonl.
+        history: các lượt hội thoại trước lượt cuối.
+        label: đáp án; chỉ tập train có. Chỉ `FakeLLM` và bộ chấm được đọc trường này, agent không được đọc.
+    """
 
     id: str
     split: str
@@ -81,43 +111,70 @@ class Sample:
 
 @dataclass(frozen=True, slots=True)
 class Transcript:
-    """Văn bản của lượt cuối và của các lượt user trong lịch sử; `seconds` là thời gian chuyển giọng nói."""
+    """Văn bản của lượt cuối và của các lượt user trong lịch sử, sau bước chuyển giọng nói thành chữ.
+
+    Thuộc tính:
+        final: văn bản lượt cuối.
+        history: văn bản từng lượt trong lịch sử; `None` ở lượt không phải của user.
+        seconds: thời gian chuyển giọng nói thành chữ, tính bằng giây.
+        raw: chữ ASR trước khi lọc ảo giác (xem chú thích bên dưới).
+    """
 
     final: str
     history: tuple[str | None, ...]
     seconds: float
-    # Chữ ASR trước bộ lọc ảo giác, theo thứ tự file (các lượt user trong lịch sử rồi lượt cuối); rỗng khi không
-    # qua ASR (transcript gold). Chỉ eval_asr đọc trường này để đếm câu bịa; agent dùng `final` và `history`.
+    # Chữ ASR trước khi lọc ảo giác, theo thứ tự file: các lượt user trong lịch sử trước, lượt cuối sau.
+    # Rỗng khi không chạy ASR (dùng transcript gold). Chỉ `eval_asr` đọc trường này để đếm câu bịa; agent chỉ dùng
+    # `final` và `history`.
     raw: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class Generation:
-    """Một lần sinh văn bản của LLM, kèm số token và thời gian."""
+    """Kết quả một lần sinh văn bản của LLM, kèm số token và thời gian.
+
+    Thuộc tính:
+        text: văn bản LLM sinh ra.
+        prompt_tokens: số token của prompt.
+        completion_tokens: số token sinh ra.
+        seconds: thời gian sinh, tính bằng giây.
+        timed_out: `True` khi bị ngắt tại hạn chót của mẫu.
+    """
 
     text: str
     prompt_tokens: int
     completion_tokens: int
     seconds: float
-    timed_out: bool = False  # bị dừng tại hạn chót của mẫu; `text` chỉ là một phần, không được parse
+    timed_out: bool = False  # bị ngắt tại hạn chót của mẫu; khi đó `text` chỉ là một phần nên không được parse
 
 
 @dataclass(frozen=True, slots=True)
 class Action:
-    """Quyết định của LLM sau khi parse: gọi một công cụ (`call`) hoặc kết thúc (`done`)."""
+    """Quyết định của LLM sau khi parse: gọi một tool (`call`) hoặc kết thúc (`done`).
+
+    Thuộc tính:
+        kind: `"call"` hoặc `"done"`.
+        name: tên tool khi `kind = "call"`, ngược lại là `None`.
+        arguments: tham số của tool khi `kind = "call"`, ngược lại là `None`.
+    """
 
     kind: Literal["call", "done"]
     name: str | None
     arguments: dict[str, Any] | None
 
     def to_dict(self) -> dict[str, Any]:
-        """Tuần tự hóa thành dict để ghi trace."""
+        """Chuyển thành dict để ghi trace."""
         return {"kind": self.kind, "name": self.name, "arguments": self.arguments}
 
 
 @dataclass(frozen=True, slots=True)
 class ParseError:
-    """Đầu ra LLM không parse được thành Action; giữ lại `raw` để gỡ lỗi."""
+    """Đầu ra LLM không parse được thành `Action`.
+
+    Thuộc tính:
+        message: mô tả lỗi parse.
+        raw: văn bản gốc của LLM, giữ lại để gỡ lỗi.
+    """
 
     message: str
     raw: str
@@ -125,7 +182,13 @@ class ParseError:
 
 @dataclass(frozen=True, slots=True)
 class GuardResult:
-    """Kết quả một lần kiểm tra guard; `code` và `message` là None khi cho qua."""
+    """Kết quả một lần kiểm tra guard.
+
+    Thuộc tính:
+        verdict: kết luận của guard.
+        code: mã lỗi; `None` khi cho qua.
+        message: giải thích cho LLM hoặc cho trace; `None` khi cho qua.
+    """
 
     verdict: GuardVerdict
     code: ErrorCode | None
@@ -134,7 +197,14 @@ class GuardResult:
 
 @dataclass(frozen=True, slots=True)
 class GuardContext:
-    """Những gì guard được phép xem: môi trường, danh sách công cụ cho phép, loại công cụ, các lần gọi trước."""
+    """Những thông tin guard được phép xem khi kiểm tra một `Action`.
+
+    Thuộc tính:
+        env: môi trường tool của mẫu.
+        allowed: tên các tool được phép gọi.
+        tool_kind: tên tool tới loại tool (ví dụ `read` hoặc `write`).
+        calls_so_far: các `Action` đã thực thi trước đó trong mẫu.
+    """
 
     env: ToolEnvLike
     allowed: frozenset[str]
@@ -144,7 +214,21 @@ class GuardContext:
 
 @dataclass(frozen=True, slots=True)
 class StepRecord:
-    """Một bước của agent, đúng như được ghi vào trace.jsonl."""
+    """Một bước của agent, đúng như được ghi vào `trace.jsonl`.
+
+    Thuộc tính:
+        i: số thứ tự bước, bắt đầu từ 0.
+        prompt_tokens: số token của prompt ở bước này.
+        completion_tokens: số token LLM sinh ra.
+        llm_s: thời gian LLM chạy, tính bằng giây.
+        raw: văn bản gốc của LLM.
+        action: `Action` đã parse; `None` khi parse lỗi.
+        guard: kết luận của guard; `None` khi bước không gọi tool (parse lỗi, `done`, hết giờ).
+        warnings: các mã cảnh báo của guard (không chặn lời gọi).
+        error: mã lỗi của bước; `None` khi không lỗi.
+        result: kết quả tool trả về; `None` khi không gọi tool.
+        tool_s: thời gian chạy tool, tính bằng giây.
+    """
 
     i: int
     prompt_tokens: int
@@ -159,7 +243,7 @@ class StepRecord:
     tool_s: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
-        """Tuần tự hóa thành dict để ghi trace, enum được đổi thành `.value`."""
+        """Chuyển thành dict để ghi trace; enum được đổi thành `.value`."""
         return {
             "i": self.i,
             "prompt_tokens": self.prompt_tokens,
@@ -177,7 +261,22 @@ class StepRecord:
 
 @dataclass(frozen=True, slots=True)
 class SampleResult:
-    """Kết quả của một mẫu, đúng như được ghi vào trace.jsonl."""
+    """Kết quả của một mẫu, đúng như được ghi vào `trace.jsonl`.
+
+    Thuộc tính:
+        id: mã mẫu.
+        stop_reason: lý do dừng.
+        errors: các mã lỗi gặp trong mẫu.
+        transcript: transcript đã dùng; `None` khi mẫu lỗi trước khi có transcript.
+        steps: các bước của agent.
+        tool_calls: các lời gọi tool mà môi trường ghi nhận.
+        state_hash: hash trạng thái môi trường sau mẫu, dùng để chấm điểm.
+        timing: thời gian từng giai đoạn (`asr_s`, `llm_s`, `tool_s`, `total_s`), tính bằng giây.
+        tokens: số token prompt lớn nhất (`max_prompt`) và tổng số token sinh ra (`completion_total`).
+        prompt_shrink_level: mức rút gọn prompt đã áp dụng; 0 là không rút gọn.
+        transcript_source: nguồn transcript: `"gold"`, `"asr"` hoặc thuộc tính `source` của transcriber.
+        traceback: traceback khi mẫu dừng vì exception.
+    """
 
     id: str
     stop_reason: StopReason
@@ -193,7 +292,7 @@ class SampleResult:
     traceback: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Tuần tự hóa thành dict để ghi trace, enum được đổi thành `.value`."""
+        """Chuyển thành dict để ghi trace; enum được đổi thành `.value`."""
         t = self.transcript
         return {
             "id": self.id,
@@ -213,7 +312,11 @@ class SampleResult:
 
 
 class ToolEnvLike(Protocol):
-    """Một môi trường zaic_tools cho một mẫu: kiểm tra, gọi công cụ, lấy danh sách lần gọi và hash trạng thái."""
+    """Môi trường `zaic_tools` của một mẫu.
+
+    Gồm bốn thao tác: `validate` kiểm tra tham số, `call` gọi tool, `get_tool_calls` trả về các lời gọi đã ghi nhận,
+    `get_state_hash` trả về hash trạng thái để chấm điểm.
+    """
 
     def validate(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]: ...
     def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]: ...
@@ -222,7 +325,10 @@ class ToolEnvLike(Protocol):
 
 
 class LLMBackend(Protocol):
-    """Backend sinh văn bản bị ràng buộc theo JSON schema."""
+    """Backend sinh văn bản theo ràng buộc JSON schema.
+
+    `warmup` chạy vài lần sinh thử trước khi đo, để lần đo đầu tiên không bị chậm vì khởi động.
+    """
 
     def generate(
         self,
@@ -232,7 +338,17 @@ class LLMBackend(Protocol):
         sample_id: str,
         time_left_s: float | None = None,
     ) -> Generation:
-        """Sinh một lần; dừng và trả về `timed_out=True` khi đã hết `time_left_s` giây (None: không giới hạn)."""
+        """Sinh văn bản một lần cho `messages`, đầu ra tuân theo `schema`.
+
+        Tham số:
+            messages: danh sách tin nhắn của prompt.
+            schema: JSON schema ràng buộc đầu ra.
+            sample_id: mã mẫu, dùng cho log.
+            time_left_s: số giây còn lại của mẫu; `None` là không giới hạn.
+
+        Trả về:
+            `Generation`; `timed_out=True` khi hết `time_left_s` giây và phải ngắt giữa chừng.
+        """
         ...
 
     def warmup(self) -> None: ...
@@ -245,26 +361,26 @@ class TokenCounter(Protocol):
 
 
 class Transcriber(Protocol):
-    """Chuyển audio của mẫu thành văn bản."""
+    """Chuyển audio của mẫu thành văn bản; `warmup` chạy thử trước khi đo."""
 
     def transcribe(self, sample: Sample) -> Transcript: ...
     def warmup(self) -> None: ...
 
 
 class Clock(Protocol):
-    """Đồng hồ trả về số giây đơn điệu tăng (thay được bằng đồng hồ giả trong test)."""
+    """Đồng hồ trả về số giây tăng đơn điệu; test thay bằng đồng hồ giả để điều khiển thời gian."""
 
     def __call__(self) -> float: ...
 
 
 class Guard(Protocol):
-    """Một mắt xích trong chuỗi guard, kiểm tra từng Action trước khi thực thi."""
+    """Một khâu trong chuỗi guard, kiểm tra từng `Action` trước khi thực thi."""
 
     def check(self, action: Action, ctx: GuardContext) -> GuardResult: ...
 
 
 class AgentObserver(Protocol):
-    """Nhận sự kiện của agent (tracer, observer rỗng)."""
+    """Nhận sự kiện của agent: bắt đầu mẫu, mỗi bước, và khi dừng (ví dụ tracer ghi `trace.jsonl`)."""
 
     def on_sample_start(self, sample: Sample, transcript: Transcript) -> None: ...
     def on_step(self, step: StepRecord) -> None: ...

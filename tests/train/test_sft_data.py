@@ -1,8 +1,13 @@
-"""Kiểm tra quy tắc dữ liệu SFT (SPEC 6.2.1, 6.2.7 mục 1-2), che loss (6.2.2) và tiện ích pipeline (6.2.3, 6.2.6).
+"""Test quy tắc dữ liệu SFT (SPEC 6.2.1, 6.2.7 mục 1-2), che loss (6.2.2) và tiện ích pipeline (6.2.3, 6.2.6).
 
-Nhóm đầu dùng fixture `built` dựng dòng SFT từ 20 mẫu train thật cộng mẫu rò rỉ LEAK_ID, nên cần dữ liệu cuộc thi
-(marker `data`, tự bỏ qua nếu thiếu). Nhóm che loss dùng `FakeChatTokenizer` thay tokenizer thật. Nhóm pipeline chạy
-trên `tmp_path` với runner giả, không cần GPU.
+Nội dung chính:
+- Nhóm dữ liệu thật: dùng fixture `built`, dựng dòng SFT từ 20 mẫu train thật cộng mẫu rò rỉ `LEAK_ID`.
+- Nhóm che loss: dùng `FakeChatTokenizer` thay tokenizer thật.
+- Nhóm pipeline: chạy trên `tmp_path` với runner giả.
+
+Lưu ý:
+- Nhóm dữ liệu thật cần dữ liệu cuộc thi (marker `data`), tự skip nếu thiếu.
+- Nhóm pipeline không cần GPU.
 """
 
 from __future__ import annotations
@@ -40,7 +45,7 @@ CFG = REPO_ROOT / "configs" / "train" / "llm_v1.toml"
 
 @pytest.fixture(scope="module")
 def built() -> dict[str, Any]:
-    """Dựng dòng SFT (chế độ train) từ 20 mẫu đầu của split train cộng LEAK_ID; dùng chung cho cả module."""
+    """Dựng dòng SFT (chế độ train) từ 20 mẫu đầu của split train cộng `LEAK_ID`; dùng chung cho cả module."""
     if not DATA_ROOT.is_dir():
         pytest.skip(f"data package missing: {DATA_ROOT}")
     cfg = load_llm_train_config(CFG)
@@ -76,7 +81,7 @@ def test_prompt_matches_runtime_bytes(built: dict[str, Any]) -> None:
 
 @pytest.mark.data
 def test_turn_structure(built: dict[str, Any]) -> None:
-    """Lượt assistant là JSON chuẩn tắc, lượt user mở đầu bằng RESULT_PREFIX; lượt cuối khớp loại mẫu."""
+    """Lượt assistant là JSON chuẩn tắc, lượt user mở đầu bằng `RESULT_PREFIX`, và lượt cuối khớp loại mẫu."""
     for row in built["result"].rows:
         sample: Sample = built["samples"][row["id"]]
         calls = (sample.label or {}).get("tool_calls") or []
@@ -97,7 +102,7 @@ def test_turn_structure(built: dict[str, Any]) -> None:
 
 @pytest.mark.data
 def test_no_held_out_app_and_leaks_dropped(built: dict[str, Any]) -> None:
-    """Không dòng nào nhắc app held-out; mẫu có lịch sử gọi app held-out bị loại với lý do held_out_leak."""
+    """Không dòng nào nhắc app held-out; mẫu có lịch sử gọi app held-out bị loại với lý do `held_out_leak`."""
     held_out = read_held_out(REPO_ROOT)
     for row in built["result"].rows:
         for m in row["messages"]:
@@ -139,7 +144,7 @@ def test_replay_of_rows_matches_gold_state(built: dict[str, Any]) -> None:
 
 @pytest.mark.data
 def test_cli_writes_files_and_refuses_eval_ids(tmp_path: Path) -> None:
-    """CLI ghi file dữ liệu, danh sách loại và meta; từ chối id eval trừ khi có --allow-eval."""
+    """CLI ghi file dữ liệu, danh sách mẫu bị bỏ và meta; từ chối id eval trừ khi có `--allow-eval`."""
     if not DATA_ROOT.is_dir():
         pytest.skip("data package missing")
     ids = tmp_path / "ids.txt"
@@ -154,7 +159,7 @@ def test_cli_writes_files_and_refuses_eval_ids(tmp_path: Path) -> None:
     ids.write_text(val[0] + "\n", encoding="utf-8")
     with pytest.raises(SystemExit, match="refusing"):
         sft_data.run(sft_data.parse_args(argv), REPO_ROOT, argv=argv)
-    # Với --allow-eval, file eval được dựng nhưng tắt chế độ train (không tăng cường).
+    # Với `--allow-eval`, file eval được dựng nhưng tắt chế độ train (không tăng cường).
     meta = sft_data.run(sft_data.parse_args([*argv, "--allow-eval"]), REPO_ROOT, argv=argv)
     assert meta["train_mode"] is False and meta["n_rows"] == 1
 
@@ -169,13 +174,13 @@ def test_asr_transcript_source_needs_cache(tmp_path: Path) -> None:
 
 
 class FakeChatTokenizer:
-    """Tokenizer giả theo kiểu ChatML: mỗi ký tự một token, `<|im_start|>`=1 và `<|im_end|>`=2."""
+    """Tokenizer giả kiểu ChatML: mỗi ký tự là một token, `<|im_start|>` = 1 và `<|im_end|>` = 2."""
 
     START, END = 1, 2
     chat_template = "chatml {% if enable_thinking %}{% endif %}"
 
     def _encode(self, text: str) -> list[int]:
-        """Mã hóa mỗi ký tự thành một token (lệch 10 để tránh id đặc biệt)."""
+        """Mã hoá mỗi ký tự thành một token (cộng 10 để tránh trùng id đặc biệt)."""
         return [ord(ch) + 10 for ch in text]
 
     def decode(self, ids: list[int]) -> str:
@@ -186,7 +191,7 @@ class FakeChatTokenizer:
     def apply_chat_template(
         self, conversation: list[dict[str, str]], *, tokenize: bool, add_generation_prompt: bool, **kw: Any
     ) -> list[int]:
-        """Dựng chuỗi token theo khuôn ChatML; chỉ chấp nhận tokenize=True và enable_thinking=False."""
+        """Dựng chuỗi token theo khuôn ChatML; chỉ chấp nhận `tokenize=True` và `enable_thinking=False`."""
         assert tokenize and kw == {"enable_thinking": False}
         ids: list[int] = []
         for m in conversation:
@@ -197,7 +202,7 @@ class FakeChatTokenizer:
 
 
 def test_build_labels_masks_everything_but_assistant_turns() -> None:
-    """build_labels giữ nguyên token của template nhưng che mọi phần trừ lượt assistant."""
+    """`build_labels` giữ nguyên token của template nhưng che mọi phần, trừ lượt assistant."""
     tok = FakeChatTokenizer()
     call = '{"action":"call","arguments":{},"name":"x.y"}'
     messages = [
@@ -232,7 +237,7 @@ def test_build_labels_masks_everything_but_assistant_turns() -> None:
 
 
 def test_choose_prefers_unseen_then_seen() -> None:
-    """Chọn checkpoint theo điểm val_unseen trước, hòa thì xét val_seen."""
+    """Chọn checkpoint theo điểm `val_unseen` trước, hoà thì xét `val_seen`."""
     cands = [
         {"path": "a", "val_unseen": 80.0, "val_seen": 90.0},
         {"path": "b", "val_unseen": 82.0, "val_seen": 70.0},
@@ -242,21 +247,21 @@ def test_choose_prefers_unseen_then_seen() -> None:
 
 
 def test_dump_toml_round_trip(repo_root: Path) -> None:
-    """dump_toml ghi ra TOML đọc lại được đúng dữ liệu gốc."""
+    """`dump_toml` ghi ra TOML đọc lại được đúng dữ liệu gốc."""
     with open(repo_root / "configs" / "v0.toml", "rb") as f:
         raw = tomllib.load(f)
     assert tomllib.loads(llm_pipeline.dump_toml(raw)) == raw
 
 
 def _ctx(tmp_path: Path) -> llm_pipeline.PipelineContext:
-    """Dựng PipelineContext thử nghiệm trong `tmp_path` với cấu hình llm_v1."""
+    """Dựng `PipelineContext` thử nghiệm trong `tmp_path` với config `llm_v1`."""
     cfg = load_llm_train_config(CFG)
     (tmp_path / "artifacts" / "models").mkdir(parents=True)
     return llm_pipeline.PipelineContext(REPO_ROOT, CFG, cfg, "local", "ft-x-sft1-r01", tmp_path / "work", 30)
 
 
 def test_default_name_and_registry(tmp_path: Path) -> None:
-    """Tên mô hình mặc định tăng số lượt chạy theo registry; registry có dòng tiêu đề đúng."""
+    """Tên model mặc định tăng số lần chạy theo registry, và registry có dòng tiêu đề đúng."""
     cfg = load_llm_train_config(CFG)
     reg = tmp_path / "registry.csv"
     name1 = "ft-qwen34binstruct2507-sft1-r01"
@@ -267,7 +272,7 @@ def test_default_name_and_registry(tmp_path: Path) -> None:
 
 
 def test_eval_choose_register_stages_with_fake_runner(tmp_path: Path) -> None:
-    """Stage eval, choose, register với runner giả: chọn checkpoint tốt hơn trên val_unseen, ghi đủ file và registry."""
+    """Stage eval, choose, register (runner giả) chọn checkpoint tốt hơn trên `val_unseen`, ghi đủ file và registry."""
     ctx = _ctx(tmp_path)
     ctx = llm_pipeline.PipelineContext(tmp_path, CFG, ctx.cfg, "local", ctx.name, tmp_path / "work", 30)
     (tmp_path / "configs").mkdir()
@@ -276,7 +281,7 @@ def test_eval_choose_register_stages_with_fake_runner(tmp_path: Path) -> None:
     calls: list[list[str]] = []
 
     def fake_runner(cmd: Any, cwd: Path) -> int:
-        """Runner giả: ghi summary.json với điểm định sẵn theo tên mô hình và split."""
+        """Runner giả: ghi `summary.json` với điểm định sẵn theo tên model và split."""
         cmd = list(cmd)
         calls.append(cmd)
         run_dir = Path(cmd[cmd.index("--out") + 1])
@@ -305,12 +310,12 @@ def test_eval_choose_register_stages_with_fake_runner(tmp_path: Path) -> None:
 
 
 def test_run_pipeline_resumes_from_stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """run_pipeline dừng được ở một stage và chạy tiếp từ stage sau mà không lặp lại."""
+    """`run_pipeline` dừng được ở một stage và chạy tiếp từ stage sau mà không lặp lại."""
     ctx = _ctx(tmp_path)
     seen: list[str] = []
     for name in llm_pipeline.STAGES:
         monkeypatch.setitem(llm_pipeline.STAGE_FUNCS, name, lambda c, s, n=name: seen.append(n))
-    # Chạy tới train, sau đó tiếp từ select: gộp lại phải đủ mọi stage, mỗi stage một lần.
+    # Chạy tới train, sau đó tiếp từ select: gộp lại phải đủ mọi stage, mỗi stage đúng một lần.
     llm_pipeline.run_pipeline(ctx, to_stage="train")
     state = llm_pipeline.run_pipeline(ctx, from_stage="select")
     assert seen == list(llm_pipeline.STAGES)
@@ -318,13 +323,13 @@ def test_run_pipeline_resumes_from_stage(tmp_path: Path, monkeypatch: pytest.Mon
 
 
 def test_parse_args_defaults() -> None:
-    """Giá trị mặc định của CLI pipeline: limit=30 và bắt đầu từ stage data."""
+    """CLI pipeline có giá trị mặc định `limit=30` và bắt đầu từ stage data."""
     ns = llm_pipeline.parse_args(["--config", "x.toml"])
     assert isinstance(ns, argparse.Namespace) and ns.limit == 30 and ns.from_stage == "data"
 
 
 def test_eval_command_uses_eval_transcripts(tmp_path: Path) -> None:
-    """Bảo vệ: chấm checkpoint chạy agent với nguồn chữ `base.eval_transcripts` (llm_v1 đặt "asr", như lúc thi)."""
+    """Chấm checkpoint chạy agent với nguồn chữ `base.eval_transcripts` (`llm_v1` đặt "asr", giống lúc thi)."""
     ctx = _ctx(tmp_path)
     cmd = llm_pipeline.eval_command(ctx, tmp_path / "run.toml", "configs/splits/val_seen.txt", tmp_path / "r")
     assert cmd[cmd.index("--transcripts") + 1] == ctx.cfg.base.eval_transcripts == "asr"

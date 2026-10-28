@@ -1,7 +1,9 @@
-"""Kiểm thử T10 ở mức Budget: hạn chót thật, số bước, ngữ cảnh, số lần thử lại (SPEC 4.10).
+"""Test T10 ở mức `Budget`: hạn giờ thật, số bước, độ dài context, số lần thử lại (SPEC 4.10).
 
-Dùng FakeClock để điều khiển thời gian; AGENT_CFG và LLM_CFG ở đây được các file test khác dùng lại.
-Không cần dữ liệu cuộc thi hay tokenizer.
+Lưu ý:
+- Dùng `FakeClock` để điều khiển thời gian.
+- `AGENT_CFG` và `LLM_CFG` trong file này được các file test khác dùng lại.
+- Không cần dữ liệu cuộc thi hay tokenizer.
 """
 
 from __future__ import annotations
@@ -36,7 +38,7 @@ LLM_CFG = LLMConfig(
 
 
 def test_steps_run_until_the_real_deadline() -> None:
-    """Bắt lỗi: dừng sớm theo thời gian bước dự đoán; bước nào cũng được bắt đầu khi còn thời gian."""
+    """Bước nào bắt đầu khi còn giờ cũng được chạy; không dừng sớm theo thời gian bước dự đoán."""
     clock = FakeClock()
     b = Budget(AGENT_CFG, LLM_CFG, clock)
     clock.advance(28.5)
@@ -46,16 +48,16 @@ def test_steps_run_until_the_real_deadline() -> None:
 
 
 def test_slow_first_step_does_not_block_later_steps() -> None:
-    """Bắt lỗi từng gặp trên Kaggle T4: bước đầu 14 s khiến bộ dự đoán cũ từ chối bước thứ hai chỉ 3 s."""
+    """Bước đầu chậm 14 giây không chặn bước thứ hai 3 giây (lỗi từng gặp với bộ dự đoán cũ trên Kaggle T4)."""
     clock = FakeClock()
     b = Budget(AGENT_CFG, LLM_CFG, clock)
-    clock.advance(16)  # ASR 2 s + bước đầu 14 s
+    clock.advance(16)  # ASR 2 giây + bước đầu 14 giây
     b.after_step(14)
     assert b.before_step(10) is None
 
 
 def test_max_steps() -> None:
-    """Bảo vệ: đủ `max_steps` bước thì dừng với MAX_STEPS."""
+    """Chạy đủ `max_steps` bước thì dừng với `MAX_STEPS`."""
     b = Budget(dataclasses.replace(AGENT_CFG, max_steps=2), LLM_CFG, FakeClock())
     b.after_step(0)
     assert b.before_step(10) is None
@@ -64,14 +66,14 @@ def test_max_steps() -> None:
 
 
 def test_context_overflow() -> None:
-    """Bảo vệ: prompt cộng `max_tokens` vượt `max_model_len` (1000) thì dừng với CONTEXT_OVERFLOW."""
+    """Prompt cộng `max_tokens` vượt `max_model_len` (1000) thì dừng với `CONTEXT_OVERFLOW`."""
     b = Budget(AGENT_CFG, LLM_CFG, FakeClock())
-    # 900 + 100 token sinh = 1000 vừa khít; 901 vượt một token.
+    # 900 + 100 token sinh = 1000, vừa khít; 901 thì vượt một token.
     assert b.before_step(900) is None
     assert b.before_step(901) is StopReason.CONTEXT_OVERFLOW
 
 
 def test_retry_counting() -> None:
-    """Bảo vệ: `max_retries=2` cho phép đúng hai lần thử lại, lần thứ ba bị từ chối."""
+    """`max_retries=2` cho phép đúng hai lần thử lại; lần thứ ba bị từ chối."""
     b = Budget(AGENT_CFG, LLM_CFG, FakeClock())
     assert [b.retry(), b.retry(), b.retry()] == [True, True, False]

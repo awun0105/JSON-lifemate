@@ -1,22 +1,27 @@
-"""Làm sạch văn bản ASR trước khi đưa vào prompt hoặc dữ liệu SFT (SPEC 6.1).
+"""Lọc câu ảo giác và đoạn lặp trong văn bản ASR trước khi đưa vào prompt hoặc dữ liệu SFT (SPEC 6.1).
 
-Adapted from the team lead's repo ThanhDanh1510/ZaloAI2026 src/preprocessing/asr/sanitizer.py@7033c9f.
-Chuyển thể từ repo của trưởng nhóm, đường dẫn và commit như dòng trên.
+Nội dung chính:
+- `sanitize`: làm sạch đầy đủ một lượt ASR; đây là hàm chính.
+- `strip_hallucinations`, `is_pure_hallucination`: cắt câu phụ đề bịa và nhận biết văn bản chỉ toàn phụ đề.
+- `truncate_loops`: gộp các đoạn lặp mất kiểm soát.
+- `gold_entities`, `entities_preserved`: kiểm tra bản ASR còn giữ các thực thể của lời gọi tool gốc hay không;
+  dùng khi lọc dữ liệu SFT.
+- `HALLUCINATION_PATTERNS`: danh sách regex của các câu phụ đề hay bị bịa.
 
-Whisper hay bịa phụ đề kiểu YouTube trên clip ngắn hoặc im lặng ("hãy subscribe cho kênh...", "cảm ơn các bạn đã
-theo dõi") và đôi khi lặp vòng trên số hoặc cụm từ; trưởng nhóm đo được 98% lỗi ASR nặng nhất thuộc loại này.
+Cách hoạt động:
+- Whisper hay bịa phụ đề kiểu YouTube trên clip ngắn hoặc im lặng ("hãy subscribe cho kênh...", "cảm ơn các bạn
+  đã theo dõi"), và đôi khi lặp vòng trên số hoặc cụm từ. Trưởng nhóm đo được 98% lỗi ASR nặng nhất thuộc loại này.
+- `sanitize` chuẩn hoá NFC trước. Nếu văn bản chỉ toàn phụ đề, trả về "" (lượt lịch sử) hoặc phần còn sót (lượt
+  cuối). Nếu không, cắt phụ đề rồi gộp đoạn lặp.
+- `_KEYWORDS` giúp loại nhanh văn bản chắc chắn không phải phụ đề, khỏi phải chạy regex.
 
-Cách xây dựng: một danh sách regex `HALLUCINATION_PATTERNS` cắt các cụm phụ đề, `_KEYWORDS` cho phép nhận biết
-nhanh văn bản chỉ toàn phụ đề, `truncate_loops` gộp các lần lặp. Luồng xử lý trong `sanitize`: chuẩn hóa NFC ->
-nếu toàn phụ đề thì trả "" (lượt lịch sử) hoặc phần còn lại (lượt cuối) -> nếu không thì cắt phụ đề rồi gộp lặp.
-`gold_entities` và `entities_preserved` dùng khi lọc dữ liệu SFT: kiểm tra bản ghi ASR còn giữ các thực thể của
-lời gọi tool gốc hay không.
-
-Thay đổi so với mã gốc:
-
-- Mẫu "đăng ký" chỉ kích hoạt khi nói về kênh ("đăng ký kênh", "đăng ký cho kênh"). Bản gốc khớp
-  "đăng ký <bất kỳ>" và cắt mất yêu cầu thật như "đăng ký cho anh cái khóa..." hay "hủy gói đăng ký".
-- `entities_preserved` làm việc trên lời gọi tool gốc và bỏ dấu tiếng Việt, giống cách so khớp mờ của bộ chấm điểm.
+Lưu ý:
+- Nguồn: Adapted from the team lead's repo ThanhDanh1510/ZaloAI2026 src/preprocessing/asr/sanitizer.py@7033c9f.
+- Khác mã gốc ở hai điểm:
+  - Mẫu "đăng ký" chỉ khớp khi nói về kênh ("đăng ký kênh", "đăng ký cho kênh"). Bản gốc khớp "đăng ký <bất kỳ>"
+    nên cắt mất yêu cầu thật như "đăng ký cho anh cái khóa..." hay "hủy gói đăng ký".
+  - `entities_preserved` làm việc trên lời gọi tool gốc và bỏ dấu tiếng Việt, giống cách so khớp mờ của bộ chấm.
+- Bộ đọc số giữ nguyên chữ số lặp dưới 8 lần (mã gốc gộp từ 4 lần), vì số điện thoại đọc thành lời hay lặp số.
 """
 
 from __future__ import annotations
@@ -26,7 +31,7 @@ import unicodedata
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-# Các mẫu được áp dụng theo thứ tự; mỗi mẫu cắt từ cụm phụ đề đến hết câu (`.*`)
+# Các mẫu được áp dụng theo thứ tự; mỗi mẫu cắt từ đầu cụm phụ đề tới hết câu (`.*`).
 _CHANNEL = r"(?:kênh|channel)"
 HALLUCINATION_PATTERNS = [
     re.compile(
@@ -42,11 +47,11 @@ HALLUCINATION_PATTERNS = [
     re.compile(r"(?i)like\s+and\s+subscribe.*"),
     re.compile(r"(?i)chúc\s+các\s+bạn\s+(?:một\s+ngày|xem\s+video)\s+vui\s+vẻ.*"),
     re.compile(r"(?i)ủng\s+hộ\s+kênh.*"),
-    # prompt giải mã bị mô hình lặp lại nguyên văn trên lượt im lặng
+    # Prompt giải mã (`initial_prompt`) mà model lặp lại nguyên văn khi gặp lượt im lặng.
     re.compile(r"(?i)^trợ\s+lý\s+ảo\s+tiếng\s+việt.*"),
     re.compile(r"(?i)^lifemate\s*:?\s*trợ\s+lý\s+ảo.*"),
 ]
-# Từ khóa lọc nhanh: văn bản không chứa từ nào ở đây thì chắc chắn không phải phụ đề thuần
+# Từ khoá lọc nhanh: văn bản không chứa từ nào trong đây thì chắc chắn không phải toàn phụ đề.
 _KEYWORDS = (
     "subscribe",
     "kênh",
@@ -63,14 +68,18 @@ _KEYWORDS = (
 
 
 def normalize(text: str) -> str:
-    """Chuẩn hóa Unicode NFC và gộp khoảng trắng thành một dấu cách."""
+    """Chuẩn hoá Unicode NFC và gộp các khoảng trắng liền nhau thành một dấu cách."""
     return " ".join(unicodedata.normalize("NFC", text or "").split())
 
 
 def strip_hallucinations(text: str) -> str:
     """Cắt các cụm kiểu phụ đề khỏi `text`, giữ lại lời nói thật xung quanh.
 
-    Khi không mẫu nào khớp, văn bản được trả nguyên (chỉ bỏ khoảng trắng hai đầu).
+    Tham số:
+        text: văn bản ASR.
+
+    Trả về:
+        Văn bản đã cắt và chuẩn hoá. Khi không mẫu nào khớp, trả về nguyên văn bản, chỉ bỏ khoảng trắng hai đầu.
     """
     cleaned, matched = text, False
     for pattern in HALLUCINATION_PATTERNS:
@@ -79,42 +88,52 @@ def strip_hallucinations(text: str) -> str:
             cleaned = pattern.sub("", cleaned)
     if not matched:
         return text.strip()
-    # Bỏ dấu phẩy, chấm phẩy và khoảng trắng còn sót ở hai đầu sau khi cắt
+    # Sau khi cắt, bỏ dấu phẩy, chấm phẩy và khoảng trắng còn sót ở hai đầu.
     cleaned = re.sub(r"[\s,;]+$", "", cleaned)
     cleaned = re.sub(r"^[\s,;]+", "", cleaned)
     return normalize(cleaned)
 
 
 def is_pure_hallucination(text: str) -> bool:
-    """True khi toàn bộ văn bản là phụ đề rập khuôn (sau khi cắt chỉ còn tối đa một từ)."""
+    """Trả về `True` khi cả văn bản là phụ đề rập khuôn, tức sau khi cắt chỉ còn nhiều nhất một từ."""
     norm = normalize(text)
     if not any(k in norm.lower() for k in _KEYWORDS):
         return False
     return len([w for w in re.split(r"\W+", strip_hallucinations(norm)) if w]) <= 1
 
 
-# Các từ đọc chữ số, kể cả biến thể khi đọc số điện thoại ("mốt", "tư", "lăm")
+# Các từ đọc chữ số, kể cả biến thể khi đọc số điện thoại ("mốt", "tư", "lăm").
 _DIGIT_WORDS = {"không", "một", "mốt", "hai", "ba", "bốn", "tư", "năm", "lăm", "sáu", "bảy", "tám", "chín", "mười"}
 
 
 def _collapse_word(m: re.Match[str]) -> str:
-    """Hàm thay thế cho regex lặp một từ: trả một lần từ đó, hoặc giữ nguyên chuỗi khi là chữ số lặp chưa đủ 8."""
+    """Hàm thay thế cho regex bắt một từ lặp: trả về từ đó một lần, hoặc giữ nguyên nếu là chữ số lặp dưới 8 lần."""
     word = m.group(1)
     repeats = len(re.findall(r"\w+", m.group(0)))
-    # Số điện thoại đọc thành lời lặp từ chữ số là chuyện bình thường ("không, không không, không"): với chữ số và
-    # từ chữ số, chỉ gộp khi thật sự lặp vòng (8 lần liên tiếp trở lên). Khác mã gốc, vốn cắt từ 4 lần.
+    # Số điện thoại đọc thành lời thường lặp chữ số ("không, không không, không"). Vì vậy với chữ số và từ đọc chữ số,
+    # chỉ gộp khi thật sự lặp vòng (từ 8 lần liên tiếp). Mã gốc gộp từ 4 lần.
     if (word.isdigit() or word.lower() in _DIGIT_WORDS) and repeats < 8:
         return m.group(0)
     return word
 
 
 def truncate_loops(text: str) -> str:
-    """Gộp các lần lặp mất kiểm soát: một từ lặp 4+ lần (8+ với chữ số), cụm 2-3 từ lặp 3+ lần, hoặc đuôi số dài.
+    """Gộp các đoạn lặp mất kiểm soát trong văn bản ASR.
 
-    Đuôi số dài: câu trên 20 token mà phần từ token thứ 11 trở đi có hơn 15 token là số; khi đó chỉ giữ 10 token
-    đầu.
+    Ba trường hợp được gộp:
+    - Một từ lặp từ 4 lần trở lên (từ 8 lần với chữ số).
+    - Cụm 2-3 từ lặp từ 3 lần trở lên.
+    - Đuôi số dài: câu trên 20 token mà phần từ token thứ 11 trở đi có hơn 15 token là số. Khi đó chỉ giữ 10 token
+      đầu.
+
+    Tham số:
+        text: văn bản cần xử lý.
+
+    Trả về:
+        Văn bản đã gộp, bỏ khoảng trắng hai đầu.
     """
-    # Thứ tự: một từ, rồi cụm hai từ, rồi cụm ba từ; mỗi bước giữ lại một lần xuất hiện
+    # Gộp theo thứ tự: một từ, rồi cụm hai từ, rồi cụm ba từ; mỗi bước giữ lại một lần xuất hiện.
+    # `{3,}` nghĩa là thêm ít nhất 3 lần lặp sau lần đầu (tổng từ 4 lần); `{2,}` là tổng từ 3 lần.
     text = re.sub(r"\b(\w+)(?:[\s,]+\1){3,}\b", _collapse_word, text, flags=re.IGNORECASE)
     text = re.sub(r"\b(\w+\s+\w+)(?:[\s,]+\1){2,}\b", r"\1", text, flags=re.IGNORECASE)
     text = re.sub(r"\b(\w+\s+\w+\s+\w+)(?:[\s,]+\1){2,}\b", r"\1", text, flags=re.IGNORECASE)
@@ -125,10 +144,15 @@ def truncate_loops(text: str) -> str:
 
 
 def sanitize(text: str, *, is_history: bool) -> str:
-    """Làm sạch đầy đủ một lượt ASR.
+    """Làm sạch đầy đủ một lượt ASR: cắt phụ đề bịa rồi gộp đoạn lặp.
 
-    Lượt lịch sử chỉ toàn phụ đề thành "" (lượt assistant phía sau vẫn mang ngữ cảnh); lượt cuối giữ lại phần lời
-    nói thật còn sót, vì lượt cuối rỗng sẽ khiến agent không có yêu cầu để xử lý.
+    Tham số:
+        text: văn bản ASR của một lượt.
+        is_history: `True` với lượt trong lịch sử, `False` với lượt cuối.
+
+    Trả về:
+        Văn bản đã làm sạch. Lượt lịch sử chỉ toàn phụ đề thành "", vì lượt assistant phía sau vẫn giữ ngữ cảnh.
+        Lượt cuối thì giữ lại phần lời nói thật còn sót, vì lượt cuối rỗng sẽ khiến agent không có yêu cầu để xử lý.
     """
     norm = normalize(text)
     if not norm:
@@ -139,17 +163,24 @@ def sanitize(text: str, *, is_history: bool) -> str:
 
 
 def _fold(s: str) -> str:
-    """Chữ thường, bỏ dấu tiếng Việt (kể cả đ -> d) và gộp khoảng trắng, dùng để so khớp không phân biệt dấu."""
-    # NFD tách dấu thành ký tự tổ hợp riêng; "đ" không tách được nên thay tay
+    """Đổi về chữ thường, bỏ dấu tiếng Việt (cả "đ" thành "d") và gộp khoảng trắng, để so khớp không phân biệt dấu."""
+    # NFD tách dấu thành ký tự tổ hợp riêng để bỏ đi; "đ" không tách được nên phải thay tay.
     t = unicodedata.normalize("NFD", str(s).lower()).replace("đ", "d")
     return " ".join("".join(c for c in t if not unicodedata.combining(c)).split())
 
 
 def gold_entities(tool_calls: Iterable[Mapping[str, Any]]) -> list[str]:
-    """Các giá trị tham số mà bản ghi phải chứa để lời gọi còn khôi phục được.
+    """Lấy các giá trị tham số mà bản ASR phải chứa thì mới khôi phục được lời gọi tool.
 
     Gồm chuỗi từ 2 ký tự trở lên không phải ID, và số có từ 4 chữ số trở lên (số điện thoại, số tiền). Bỏ qua
-    `sys.ask_missing_info`, các khóa kết thúc bằng `_id` và các khóa thời gian (thường được nói khác cách ghi).
+    `sys.ask_missing_info`, các khoá kết thúc bằng `_id` và các khoá thời gian, vì thời gian thường được nói khác
+    với cách ghi.
+
+    Tham số:
+        tool_calls: các lời gọi tool gốc của mẫu.
+
+    Trả về:
+        Danh sách giá trị dạng chuỗi.
     """
     out: list[str] = []
     for call in tool_calls:
@@ -160,16 +191,23 @@ def gold_entities(tool_calls: Iterable[Mapping[str, Any]]) -> list[str]:
                 continue
             if isinstance(value, str) and len(value.strip()) > 1:
                 out.append(value)
-            # bool là lớp con của int nên phải loại riêng
+            # bool là lớp con của int nên phải loại riêng.
             elif isinstance(value, int | float) and not isinstance(value, bool) and len(str(int(value))) >= 4:
                 out.append(str(int(value)))
     return out
 
 
 def entities_preserved(tool_calls: Iterable[Mapping[str, Any]], transcript: str) -> bool:
-    """True khi mọi thực thể gốc xuất hiện trong `transcript` (không phân biệt hoa thường và dấu).
+    """Kiểm tra mọi thực thể gốc có xuất hiện trong `transcript` không, bỏ qua hoa thường và dấu.
 
-    Thực thể dạng số còn được so trên bản bỏ hết dấu cách, vì ASR có thể tách số điện thoại thành nhiều nhóm.
+    Thực thể dạng số còn được so trên bản đã bỏ hết dấu cách, vì ASR có thể tách số điện thoại thành nhiều nhóm.
+
+    Tham số:
+        tool_calls: các lời gọi tool gốc của mẫu.
+        transcript: văn bản ASR cần kiểm tra.
+
+    Trả về:
+        `True` khi mọi thực thể đều có mặt.
     """
     hay = _fold(transcript)
     compact = hay.replace(" ", "")

@@ -1,61 +1,83 @@
-"""Đếm token theo chat template của mô hình (SPEC 4.8, HFTokenCounter).
+"""Đếm token của danh sách tin nhắn theo chat template của model (SPEC 4.8).
 
-Nội dung file:
-- `HFTokenCounter`: đếm chính xác bằng tokenizer của Hugging Face, kể cả token do chat template thêm vào.
-- `SimpleTokenCounter`: ước lượng thô theo khoảng trắng, dùng với FakeLLM hoặc khi không có transformers.
+Nội dung chính:
+- `HFTokenCounter`: đếm chính xác bằng tokenizer Hugging Face, tính cả token mà chat template chèn thêm.
+- `SimpleTokenCounter`: ước lượng thô theo khoảng trắng, dùng với `FakeLLM` hoặc khi không có `transformers`.
 
-Cách xây dựng: cả hai lớp thỏa Protocol `TokenCounter` (lifemate.core.types), nên agent đổi bộ đếm mà không
-phải sửa mã. `transformers` chỉ được import trong `HFTokenCounter.__init__`, để môi trường không cài extra
-`tokenizer` vẫn import được module này. Tokenizer chạy trên CPU, không chiếm GPU của LLM.
+Cách hoạt động:
+- Cả hai lớp thoả Protocol `TokenCounter` trong `lifemate.core.types`, nên agent đổi bộ đếm mà không phải sửa mã.
+- Tokenizer chạy trên CPU, không chiếm GPU của LLM.
+
+Lưu ý:
+- `transformers` chỉ được import trong `HFTokenCounter.__init__`. Nhờ vậy máy không cài extra `tokenizer` vẫn
+  import được module này.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-# Nội dung mẫu ngắn dùng để đo phần token template thêm vào mỗi tin nhắn.
+# Nội dung mẫu ngắn, dùng để đo số token mà template chèn thêm quanh mỗi tin nhắn.
 _PROBE = "xin chào"
 
 
 class HFTokenCounter:
-    """TokenCounter dựa trên `transformers.AutoTokenizer.apply_chat_template`; chạy trên CPU.
+    """Đếm token bằng `transformers.AutoTokenizer.apply_chat_template`, chạy trên CPU.
 
-    Tham số khởi tạo:
-        model: tên hoặc đường dẫn mô hình trên Hugging Face.
-        revision: commit hoặc nhánh của mô hình; None là mặc định.
-        local_files_only: True thì chỉ đọc cache cục bộ, không tải qua mạng (dùng khi chạy offline).
+    Dùng khi cần số token khớp với prompt thật mà LLM nhận, ví dụ để kiểm tra giới hạn context.
+
+    Tham số:
+        model: tên model trên Hugging Face hoặc đường dẫn tới thư mục model.
+        revision: commit hoặc branch của model; `None` là bản mặc định.
+        local_files_only: `True` thì chỉ đọc cache trên máy, không tải qua mạng (dùng khi chạy offline).
     """
 
     def __init__(self, model: str, revision: str | None = None, *, local_files_only: bool = False) -> None:
-        # transformers đến từ extra `tokenizer`.
+        # `transformers` thuộc extra `tokenizer`, nên chỉ import ở đây.
         from transformers import AutoTokenizer
 
         self._tok = AutoTokenizer.from_pretrained(model, revision=revision, local_files_only=local_files_only)
-        # Cache phần token template thêm vào theo từng role, tính một lần.
+        # Số token template chèn thêm cho từng role; mỗi role chỉ tính một lần rồi lưu lại.
         self._overhead: dict[str, int] = {}
 
     def count(self, messages: list[dict[str, Any]]) -> int:
-        """Số token prompt của `messages` khi dựng bằng chat template, cộng cả phần mở đầu lượt sinh."""
+        """Đếm số token prompt của `messages` sau khi dựng bằng chat template.
+
+        Kết quả tính cả phần mở đầu lượt trả lời của assistant (`add_generation_prompt=True`), đúng như prompt gửi
+        cho LLM.
+
+        Tham số:
+            messages: danh sách tin nhắn dạng `{"role": ..., "content": ...}`.
+
+        Trả về:
+            Số token của prompt.
+        """
         ids: Any = self._tok.apply_chat_template(messages, tokenize=True, add_generation_prompt=True)
-        # Tùy phiên bản transformers, kết quả có thể là list id hoặc BatchEncoding/dict chứa `input_ids`.
+        # Tuỳ phiên bản `transformers`, kết quả là list id hoặc `BatchEncoding`/dict có khoá `input_ids`.
         if isinstance(ids, dict) or hasattr(ids, "input_ids"):
             ids = ids["input_ids"]
         return len(ids)
 
     def count_text(self, text: str) -> int:
-        """Số token của văn bản thô, không tính token đặc biệt."""
+        """Đếm số token của văn bản thô, không tính token đặc biệt."""
         return len(self._tok.encode(text, add_special_tokens=False))
 
     def template_overhead(self, role: str) -> int:
-        """Số token template thêm vào khi nối một tin nhắn `role` (tính một lần bằng phép trừ).
+        """Trả về số token mà template chèn thêm khi nối một tin nhắn có role `role`.
 
-        Cách tính: dựng một hội thoại cơ sở, nối thêm một tin nhắn `role` có nội dung `_PROBE`, rồi lấy hiệu số
-        token trừ đi số token của chính `_PROBE`.
+        Cách tính: dựng một hội thoại cơ sở, nối thêm một tin nhắn `role` có nội dung `_PROBE`, lấy số token chênh
+        lệch rồi trừ đi số token của chính `_PROBE`. Kết quả được lưu lại, mỗi role chỉ tính một lần.
+
+        Tham số:
+            role: role của tin nhắn, ví dụ `"user"` hoặc `"tool"`.
+
+        Trả về:
+            Số token template thêm vào cho một tin nhắn của role đó.
         """
         if role not in self._overhead:
             base = [{"role": "system", "content": _PROBE}, {"role": "user", "content": _PROBE}]
-            # Thêm lượt assistant để tin nhắn user mới nối vào giữ đúng thứ tự xen kẽ user/assistant
-            # mà nhiều chat template bắt buộc.
+            # Nhiều chat template bắt buộc user và assistant xen kẽ nhau. Vì vậy, trước khi nối một tin nhắn user mới,
+            # cần thêm một lượt assistant.
             if role == "user":
                 base.append({"role": "assistant", "content": _PROBE})
             grown = [*base, {"role": role, "content": _PROBE}]
@@ -64,11 +86,12 @@ class HFTokenCounter:
 
 
 class SimpleTokenCounter:
-    """Đếm token theo khoảng trắng trong nội dung mỗi tin nhắn, cộng 4 cho mỗi tin nhắn.
+    """Ước lượng số token bằng cách đếm từ theo khoảng trắng, cộng 4 token cho mỗi tin nhắn.
 
-    Dùng với FakeLLM hoặc khi không có transformers; chỉ là ước lượng.
+    Chỉ là ước lượng, dùng với `FakeLLM` hoặc khi không có `transformers`. Số 4 xấp xỉ phần token template
+    (role, ký hiệu mở/đóng) quanh mỗi tin nhắn.
     """
 
     def count(self, messages: list[dict[str, Any]]) -> int:
-        """Số token prompt ước lượng của `messages`."""
+        """Trả về số token ước lượng của `messages`."""
         return sum(len(str(m.get("content") or "").split()) + 4 for m in messages)

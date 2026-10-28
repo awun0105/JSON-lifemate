@@ -1,7 +1,9 @@
-"""Kiểm tra phần tăng cường dữ liệu SFT chỉ dùng khi train (sft_data.Augment), chuyển thể từ bộ dựng của trưởng nhóm.
+"""Test phần tăng cường dữ liệu SFT chỉ dùng khi train (`sft_data.Augment`), chuyển thể từ bộ dựng của trưởng nhóm.
 
-Phần lớn test dựng `Sample` giả bằng `_sample` và dùng `FakeChatTokenizer` (mượn từ test_sft_data) nên không cần
-tokenizer thật. Riêng `test_augment_on_real_data` cần dữ liệu cuộc thi (marker `data`) và tự bỏ qua nếu thiếu.
+Lưu ý:
+- Phần lớn test dựng `Sample` giả bằng `_sample` và dùng `FakeChatTokenizer` (mượn từ `test_sft_data`), nên không
+  cần tokenizer thật.
+- Riêng `test_augment_on_real_data` cần dữ liệu cuộc thi (marker `data`) và tự skip nếu thiếu.
 """
 
 from __future__ import annotations
@@ -29,7 +31,7 @@ CFG = REPO_ROOT / "configs" / "train" / "llm_v1.toml"
 
 
 def _sample(sid: str, calls: list[dict[str, Any]], text: str = "", apps: tuple[str, ...] = ("a",)) -> Sample:
-    """Dựng `Sample` giả có danh sách app cài sẵn và nhãn tool_calls cho trước."""
+    """Dựng `Sample` giả với danh sách app cài sẵn và nhãn `tool_calls` cho trước."""
     ctx = {"installed_apps": {app: {"tools": [f"{app}.x"]} for app in apps}}
     return Sample(sid, "train", f"{sid}.wav", text, ctx, (), {"tool_calls": calls, "tool_results": []})
 
@@ -40,7 +42,7 @@ CALL = {"name": "a.x", "arguments": {"k": 1}}
 
 
 def test_category() -> None:
-    """Phân loại: không lời gọi là out_of_scope, kết thúc bằng hỏi thêm là ask_missing_info, còn lại là execute."""
+    """Không có lời gọi là `out_of_scope`, kết thúc bằng hỏi lại là `ask_missing_info`, còn lại là `execute`."""
     assert sft_data.category(_sample("1", [])) == "out_of_scope"
     assert sft_data.category(_sample("2", [CALL, ASK])) == "ask_missing_info"
     assert sft_data.category(_sample("3", [CALL])) == "execute"
@@ -58,7 +60,7 @@ def test_hard_copies_only_for_hard_rows_and_average_to_factor() -> None:
 
 
 def test_dedup_keeps_at_most_k_per_cluster_in_order() -> None:
-    """Khử trùng lặp giữ tối đa k mẫu mỗi cụm theo thứ tự gốc; k=0 tắt khử trùng lặp."""
+    """Lọc trùng giữ tối đa k mẫu mỗi cụm theo thứ tự gốc; k=0 thì tắt lọc trùng."""
     same = "bật đèn phòng khách lên giúp anh nhé"
     samples = [_sample(f"t{i}", [CALL], same) for i in range(4)] + [_sample("u", [CALL], "xem thời tiết ngày mai")]
     kept = sft_data.dedup_clusters(samples, 2)
@@ -67,7 +69,7 @@ def test_dedup_keeps_at_most_k_per_cluster_in_order() -> None:
 
 
 def test_distractors_skip_installed_held_out_and_out_of_scope() -> None:
-    """App gây nhiễu không trùng app đã cài hay app held-out, không sửa mẫu gốc và bỏ qua mẫu out_of_scope."""
+    """App gây nhiễu không trùng app đã cài hay app held-out, không sửa mẫu gốc, và bỏ qua mẫu `out_of_scope`."""
     catalog = {"apps": [{"id": a, "tools": [{"name": f"{a}.x", "kind": "read"}]} for a in "abcde"]}
     index = CatalogIndex(catalog)
     sample = _sample("s", [CALL])
@@ -81,7 +83,7 @@ def test_distractors_skip_installed_held_out_and_out_of_scope() -> None:
 
 
 def test_failed_call_is_not_trained() -> None:
-    """Lượt gọi sai đánh dấu loss=False bị che khỏi nhãn, còn lời gọi sửa lại vẫn được học."""
+    """Lượt gọi sai có `loss=False` bị che khỏi nhãn, còn lời gọi sửa lại vẫn được học."""
     tok = FakeChatTokenizer()
     bad, good = '{"name":"x.y","arguments":{}}', '{"name":"x.y","arguments":{"k":1}}'
     messages = [
@@ -95,12 +97,12 @@ def test_failed_call_is_not_trained() -> None:
     trained = tok.decode([i for i, lab in zip(ids, labels, strict=True) if lab != IGNORE_INDEX])
     assert good in trained and bad not in trained
     plain = [{"role": m["role"], "content": m["content"]} for m in messages]
-    assert ids == build_labels(tok, plain, {"enable_thinking": False})[0]  # cờ `loss` không đổi chuỗi token
+    assert ids == build_labels(tok, plain, {"enable_thinking": False})[0]  # cờ `loss` không làm đổi chuỗi token
 
 
 @pytest.mark.data
 def test_augment_on_real_data() -> None:
-    """Hồi phục lỗi dùng đúng văn bản guard thật và tắt với file eval; app gây nhiễu không bao giờ là app held-out."""
+    """Lời gọi lỗi dùng đúng thông báo của guard thật, tắt với file eval; app gây nhiễu không là app held-out."""
     if not DATA_ROOT.is_dir():
         pytest.skip(f"data package missing: {DATA_ROOT}")
     cfg = load_llm_train_config(CFG)
@@ -132,7 +134,7 @@ def test_augment_on_real_data() -> None:
     assert recovered
     for row in recovered:
         msgs = row["messages"]
-        # Lượt gọi sai (loss=False) phải theo sau bởi thông báo chặn và một lời gọi đúng cùng tên tool.
+        # Sau lượt gọi sai (loss=False) phải là thông báo chặn, rồi một lời gọi đúng cùng tên tool.
         k = next(i for i, m in enumerate(msgs) if m.get("loss") is False)
         assert msgs[k + 1]["role"] == "user" and msgs[k + 1]["content"].startswith(BLOCK_PREFIX)
         assert json.loads(msgs[k]["content"])["name"] == json.loads(msgs[k + 2]["content"])["name"]
