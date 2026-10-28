@@ -100,7 +100,7 @@ Also check `summary.json` for no sample over 30 s.
 
 ## Not verified yet
 
-Nothing here has been built or run: the dev machine has no Docker and no GPU. Open points:
+Nothing here has been built or run yet. The dev machine has Docker but too little free disk for the image and a 4 GB GPU without nvidia-container-toolkit, so real runs go to a rented GPU box. The entrypoint logic is covered by `tests/test_docker_entrypoint.py` (bash, dry-run). Open points:
 
 - The image build itself (uv-managed Python on the CUDA base, vLLM wheel vs CUDA 12.4 runtime vs host driver).
 - vLLM loading from `/app/models/llm` fully offline, and whether it tries to write caches outside `$HOME`
