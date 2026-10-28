@@ -1,6 +1,6 @@
 # ops/kaggle/
 
-Kernel Kaggle chạy tự động bằng Kaggle CLI. Mọi kernel đều riêng tư, dùng GPU T4, gắn dataset dữ liệu thi riêng tư, và clone mã từ GitHub theo một nhánh hoặc tag nên mỗi lần chạy đúng một phiên bản mã đã biết. Kết quả tải về bằng `kaggle kernels output <kernel> -p <thư mục>`.
+Kernel Kaggle chạy tự động bằng Kaggle CLI. Mọi kernel đều riêng tư, dùng GPU T4, gắn dataset dữ liệu thi riêng tư, và clone mã từ GitHub theo một nhánh hoặc tag nên mỗi lần chạy đúng một phiên bản mã đã biết. Kết quả tải về bằng `kaggle kernels output <kernel> -p <thư mục>`, vào `artifacts/runs/kaggle/{agent,asr,asr_cache}/<tháng-ngày>_<việc>_v<phiên bản>` (xem `artifacts/runs/README.md`).
 
 | File | Chức năng |
 |---|---|

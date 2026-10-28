@@ -4,7 +4,7 @@ Ngày: 28/10/2026. Trạng thái: **xong** (kernel Kaggle `quanlam/lifemate-asr-
 
 Báo cáo trả lời câu hỏi: trong năm mô hình nhận dạng giọng nói tiếng Việt, mô hình nào, với cấu hình nào, chép lời
 người dùng tốt nhất cho bài thi LifeMate. Phần 0 giải thích bối cảnh và thuật ngữ cho người đọc chưa theo dõi dự án.
-Kết quả thô (lời chép từng câu, config, chỉ số) nằm trong `artifacts/runs/kaggle/asr_tune_v3/`, không có trên git.
+Kết quả thô (lời chép từng câu, config, chỉ số) nằm trong `artifacts/runs/kaggle/asr/10-28_tune_v3/`, không có trên git.
 Các ví dụ trong báo cáo được trích nguyên văn từ các file đó.
 
 ## 0. Bối cảnh và thuật ngữ
