@@ -20,6 +20,26 @@ Ngoài ra, `lifemate-asr-tune.log` ở thư mục gốc là log đầy đủ c�
 mục 6.4 được trích nguyên văn từ các file `hyps.jsonl`. Cách xếp thư mục của mọi lần chạy xem
 `artifacts/runs/README.md`.
 
+## Mục lục
+
+- [0. Bối cảnh và thuật ngữ](#0-bối-cảnh-và-thuật-ngữ)
+- [1. Vấn đề](#1-vấn-đề)
+- [2. Dữ liệu](#2-dữ-liệu)
+  - [2.1. Dữ liệu gốc có cấu trúc thế nào](#21-dữ-liệu-gốc-có-cấu-trúc-thế-nào)
+  - [2.2. Chia tập và lý do](#22-chia-tập-và-lý-do)
+  - [2.3. Thước đo](#23-thước-đo)
+- [3. Bộ cấu hình chung](#3-bộ-cấu-hình-chung)
+- [4. Mô hình và cấu hình riêng](#4-mô-hình-và-cấu-hình-riêng)
+- [5. Phương pháp thử nghiệm](#5-phương-pháp-thử-nghiệm)
+- [6. Kết quả](#6-kết-quả)
+  - [6.1. Đường dò trên tập chỉnh (300 mẫu, 1 024 câu, 123 tên riêng)](#61-đường-dò-trên-tập-chỉnh-300-mẫu-1-024-câu-123-tên-riêng)
+  - [6.2. Cấu hình thắng của mỗi mô hình](#62-cấu-hình-thắng-của-mỗi-mô-hình)
+  - [6.3. Đo trên tập kiểm tra](#63-đo-trên-tập-kiểm-tra)
+  - [6.4. Ví dụ từ lần chạy](#64-ví-dụ-từ-lần-chạy)
+- [7. Phân tích và đánh giá](#7-phân-tích-và-đánh-giá)
+- [8. Kết luận](#8-kết-luận)
+- [Giới hạn đã biết](#giới-hạn-đã-biết)
+
 ## 0. Bối cảnh và thuật ngữ
 
 **Bài thi.** LifeMate (Zalo AI Challenge 2026) là trợ lý ảo điều khiển bằng giọng nói. Mỗi mẫu thi gồm một file ghi
