@@ -22,7 +22,9 @@ RUN = {
     "RUN_GOLD": "0",
     "RUN_ASR": "0",
     "RUN_ASR_EVAL": "0",
-    "ASR_TUNE": "large-v3,phowhisper,chunkformer,chunkformer-rnnt,parakeet",
+    # Đủ năm model: "large-v3,phowhisper,chunkformer,chunkformer-rnnt,parakeet". Lần chạy 29/10/2026 chỉ chạy lại
+    # parakeet sau khi sửa engine NeMo (float16 cho đầu ra NaN); bốn model kia giữ kết quả lần chạy v3.
+    "ASR_TUNE": "parakeet",
 }
 os.environ.update(RUN)
 # Thư mục tạm chứa bản clone nông, chỉ dùng để lấy file kịch bản smoke.

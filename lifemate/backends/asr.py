@@ -342,6 +342,9 @@ class NemoCTCASR:
     Tham số:
         cfg: mục `[asr]` của config.
 
+    `dtype = "auto"` chạy float32 (float16 trên T4 cho đầu ra NaN, xem `__init__`). Với float16/bfloat16 tường minh,
+    câu nào ra NaN/inf được chạy lại ở float32.
+
     Thuộc tính:
         dtype: tên dtype đã chọn cho model.
 
@@ -374,7 +377,10 @@ class NemoCTCASR:
             hf_hub_download(cfg.model, nemo_files[0], revision=rev), map_location=self._device
         )
         cc = tuple(torch.cuda.get_device_capability(0)) if on_gpu else None
-        self.dtype = resolve_asr_dtype(cfg.dtype, on_gpu, cc)
+        # `auto` chọn float32: chạy float16 trên T4 cho đầu ra NaN ở nhiều câu (chẩn đoán 29/10/2026 trên 216 câu hỏng
+        # của lần chạy trước: 70 câu ra `⁇` ở float16, 0 câu ở float32, và float32 còn nhanh hơn). Chọn float16 hoặc
+        # bfloat16 tường minh thì vẫn chạy autocast, có đường dự phòng float32 ở `transcribe_batch`.
+        self.dtype = "float32" if cfg.dtype == "auto" else resolve_asr_dtype(cfg.dtype, on_gpu, cc)
         self._autocast = on_gpu and self.dtype != "float32"
         # Giống `ASRModel.transcribe`: tắt dither (nhiễu ngẫu nhiên thêm vào đặc trưng) và đệm khung khi suy luận, để
         # kết quả tất định.
@@ -401,17 +407,32 @@ class NemoCTCASR:
         x = torch.zeros(len(audios), int(lens.max()), dtype=torch.float32)
         for i, a in enumerate(audios):
             x[i, : len(a)] = torch.from_numpy(a)
-        dev = self._device
-        with torch.no_grad(), torch.autocast("cuda", dtype=getattr(torch, self.dtype), enabled=self._autocast):
-            log_probs, enc_len, _ = self._model.forward(input_signal=x.to(dev), input_signal_length=lens.to(dev))
-        # Đếm câu có đầu ra NaN/inf (dấu hiệu tràn số khi chạy float16) để thấy được trong log.
-        nonfinite = int((~torch.isfinite(log_probs.float())).flatten(1).any(dim=1).sum())
-        if nonfinite:
-            log.warning("asr_nonfinite_output", engine="nemo_ctc", dtype=self.dtype, rows=nonfinite, batch=len(audios))
+        log_probs, enc_len = self._forward(x, lens, self._autocast)
+        log_probs = log_probs.float()
+        # Câu có đầu ra NaN/inf (tràn số khi chạy autocast) được chạy lại ở float32 từng câu một, kèm cảnh báo.
+        bad = (~torch.isfinite(log_probs)).flatten(1).any(dim=1)
+        if bool(bad.any()):
+            rows = int(bad.sum())
+            log.warning("asr_nonfinite_output", engine="nemo_ctc", dtype=self.dtype, rows=rows, batch=len(audios))
+        if self._autocast:
+            for i in bad.nonzero().flatten().tolist():
+                lp, el = self._forward(x[i : i + 1, : int(lens[i])], lens[i : i + 1], False)
+                n = int(el[0])
+                log_probs[i].fill_(0.0)
+                log_probs[i, :n] = lp[0, :n].float()
+                enc_len[i] = n
         out = self._model.decoding.ctc_decoder_predictions_tensor(log_probs.float(), decoder_lengths=enc_len)
         if isinstance(out, tuple):  # một số phiên bản NeMo trả về cặp (best, all)
             out = out[0]
         return [str(getattr(o, "text", o)).strip() for o in out]
+
+    def _forward(self, x: Any, lens: Any, autocast: bool) -> tuple[Any, Any]:
+        """Chạy model trên batch `x` (độ dài thật `lens`), có hoặc không autocast; trả (log_probs, độ dài đầu ra)."""
+        torch, dev = self._torch, self._device
+        dtype = getattr(torch, self.dtype) if autocast else torch.float32
+        with torch.no_grad(), torch.autocast("cuda", dtype=dtype, enabled=autocast):
+            log_probs, enc_len, _ = self._model.forward(input_signal=x.to(dev), input_signal_length=lens.to(dev))
+        return log_probs, enc_len
 
     def warmup(self) -> None:
         """Chạy một lần trên 1 giây im lặng (ghi ra file WAV tạm)."""

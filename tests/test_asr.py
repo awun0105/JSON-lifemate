@@ -5,6 +5,8 @@ Lưu ý:
 """
 
 import dataclasses
+from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -102,3 +104,50 @@ def test_hf_generate_kwargs_maps_shared_config() -> None:
     }
     with pytest.raises(ValueError, match="vad_filter"):
         hf_generate_kwargs({"vad_filter": True})
+
+
+def test_nemo_nonfinite_rows_rerun_in_float32(tmp_path: Path) -> None:
+    """Engine NeMo: câu ra NaN khi chạy autocast được chạy lại không autocast; câu tốt giữ nguyên (cần torch)."""
+    torch = pytest.importorskip("torch")
+    import wave as _wave
+
+    from lifemate.backends.asr import NemoCTCASR
+    from lifemate.core.config import ASRConfig
+
+    paths = []
+    for i, n in enumerate((1600, 800)):
+        p = tmp_path / f"{i}.wav"
+        with _wave.open(str(p), "wb") as w:
+            w.setnchannels(1), w.setsampwidth(2), w.setframerate(16000), w.writeframes(b"\x01\x00" * n)
+        paths.append(p)
+    eng = object.__new__(NemoCTCASR)
+    eng._cfg = ASRConfig(
+        backend="asr",
+        engine="nemo_ctc",
+        model="m",
+        revision="",
+        device="cpu",
+        dtype="float16",
+        batch_size=8,
+        generate_kwargs={},
+        sample_rate=16000,
+        sanitize=False,
+    )
+    eng._torch, eng._device, eng.dtype, eng._autocast = torch, torch.device("cpu"), "float16", True
+    calls: list[tuple[int, bool]] = []
+
+    def fake_forward(x: Any, lens: Any, autocast: bool) -> tuple[Any, Any]:
+        calls.append((x.shape[0], autocast))
+        lp = torch.zeros(x.shape[0], 4, 3)
+        if autocast:
+            lp[1, 0, 0] = float("nan")  # câu thứ hai tràn số
+        return lp, torch.full((x.shape[0],), 4)
+
+    class _Decoding:
+        def ctc_decoder_predictions_tensor(self, lp: Any, decoder_lengths: Any) -> list[str]:
+            return ["nan" if bool(torch.isnan(r).any()) else "ok" for r in lp]
+
+    eng._forward = fake_forward  # type: ignore[method-assign]
+    eng._model = type("M", (), {"decoding": _Decoding()})()
+    assert eng.transcribe_batch(paths) == ["ok", "ok"]
+    assert calls == [(2, True), (1, False)]
