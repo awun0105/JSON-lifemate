@@ -1,12 +1,16 @@
 # Báo cáo so sánh mô hình và cấu hình ASR
 
-Ngày: 28/10/2026. Trạng thái: **xong** (kernel Kaggle `quanlam/lifemate-asr-tune`, lần chạy v3).
+Ngày: 28/10/2026, cập nhật 29/10/2026. Trạng thái: **xong** (kernel Kaggle `quanlam/lifemate-asr-tune`: lần chạy v3
+cho bốn mô hình, lần chạy v4 chạy lại riêng Parakeet sau khi sửa lỗi engine, xem mục 6.5).
 
 Báo cáo trả lời câu hỏi: trong năm mô hình nhận dạng giọng nói tiếng Việt, mô hình nào, với cấu hình nào, chép lời
 người dùng tốt nhất cho bài thi LifeMate. Phần 0 giải thích bối cảnh và thuật ngữ cho người đọc chưa theo dõi dự án.
 
 **Kết quả thô.** Nằm trong `artifacts/runs/kaggle/asr/10-28_tune_v3/` (không có trên git), mỗi mô hình một thư mục
-con: `large-v3/`, `phowhisper/`, `chunkformer/`, `chunkformer-rnnt/`, `parakeet/`.
+con: `large-v3/`, `phowhisper/`, `chunkformer/`, `chunkformer-rnnt/`, `parakeet/`. Kết quả Parakeet trong thư mục này
+là lần chạy v3, **không hợp lệ** (mục 6.5). Kết quả Parakeet dùng trong báo cáo nằm ở
+`artifacts/runs/kaggle/asr/10-29_tune_v4_parakeet/parakeet/`, cùng cấu trúc file. Lần chẩn đoán lỗi nằm ở
+`artifacts/runs/kaggle/asr/10-29_parakeet_diag_v1/`.
 
 | File (trong `<mô hình>/`) | Chứa gì | Dùng ở mục |
 |---|---|---|
@@ -39,6 +43,7 @@ mục 6.4 được trích nguyên văn từ các file `hyps.jsonl`. Cách xếp 
   - [6.2. Cấu hình thắng của mỗi mô hình](#62-cấu-hình-thắng-của-mỗi-mô-hình)
   - [6.3. Đo trên tập kiểm tra](#63-đo-trên-tập-kiểm-tra)
   - [6.4. Ví dụ từ lần chạy](#64-ví-dụ-từ-lần-chạy)
+  - [6.5. Sửa lỗi Parakeet và chạy lại](#65-sửa-lỗi-parakeet-và-chạy-lại)
 - [7. Phân tích và đánh giá](#7-phân-tích-và-đánh-giá)
 - [8. Kết luận](#8-kết-luận)
 - [Giới hạn đã biết](#giới-hạn-đã-biết)
@@ -198,7 +203,7 @@ Phần giữ giống hệt cho mọi mô hình:
 | Mục | Giá trị | Lý do |
 |---|---|---|
 | Câu được đo | Mọi lượt người dùng trong lịch sử và lượt cuối | LLM đọc chữ của mọi lượt |
-| Phần cứng | Một phiên Kaggle T4 cho cả năm mô hình, `dtype = "auto"` (float16 trên T4) | Thời gian so được với nhau |
+| Phần cứng | Một phiên Kaggle T4 cho mỗi lần chạy, `dtype = "auto"` (float16 trên T4; riêng engine NeMo là float32) | Thời gian so được với nhau |
 | Giải mã | Tất định: `temperature = 0` (trừ lựa chọn nhiệt độ thử lại) | Chạy lại cho cùng kết quả |
 | Bộ lọc ảo giác | Bật | Chạy sau ASR, không phụ thuộc engine, nên áp giống hệt cho mọi mô hình |
 | `condition_on_previous_text` | `false` | Mỗi câu nghe độc lập, câu bịa không lây sang câu sau |
@@ -210,7 +215,9 @@ Giải thích thêm từng dòng:
   cầu. Một câu trong lịch sử bị chép sai ("chị Lan" thành "chị lán") có thể làm LLM gọi sai người ở câu cuối.
 - **Phần cứng và `dtype`.** Cả năm mô hình chạy nối tiếp trong cùng một phiên Kaggle với cùng một GPU T4, nên thời gian
   p95 của các mô hình so được với nhau. `dtype` là độ chính xác của phép tính: `"auto"` để engine tự chọn, trên T4 là
-  float16 (số thực 16 bit, nhanh hơn và tốn ít bộ nhớ hơn float32). Đây cũng là giá trị dùng khi nộp bài. Mỗi lần đưa
+  float16 (số thực 16 bit, nhanh hơn và tốn ít bộ nhớ hơn float32). Đây cũng là giá trị dùng khi nộp bài. Ngoại lệ:
+  engine NeMo (Parakeet) chọn float32 cho `"auto"`, vì float16 làm đầu ra của mô hình này thành NaN (mục 6.5).
+  Parakeet được chạy lại trong một phiên T4 khác, nên thời gian của Parakeet so với các mô hình khác chỉ gần đúng. Mỗi lần đưa
   vào mô hình 8 câu cùng lúc (`batch_size = 8`), âm thanh được đọc ở 16 000 mẫu mỗi giây (`sample_rate = 16000`).
 - **Giải mã tất định.** `temperature` là độ ngẫu nhiên khi chọn chữ. Đặt `0` thì mô hình luôn chọn chữ có xác suất cao
   nhất, nên chạy lại bao nhiêu lần cũng ra cùng một chữ. Nếu có ngẫu nhiên, hai lần chạy cùng cấu hình có thể chênh
@@ -334,7 +341,9 @@ Các điều chỉnh dưới đây không đổi cách mô hình nghe, chỉ đ�
 - **ChunkFormer:** gói tự tải mô hình nhưng bỏ qua revision, nên engine tải đúng revision trước khi nạp. Tham số chia
   đoạn giữ mặc định (`chunk_size = 64`, ngữ cảnh trái/phải 128), không dò, để số lần chạy ngang với các mô hình kia.
 - **Parakeet:** không dùng hàm `transcribe` có sẵn vì bộ nạp dữ liệu của NeMo lỗi với torch 2.13 trên Kaggle. Engine
-  tự đọc WAV, gọi thẳng mô hình rồi bộ giải mã CTC. NeMo hạ phiên bản transformers, nên Parakeet đo sau cùng.
+  tự đọc WAV, gọi thẳng mô hình rồi bộ giải mã CTC. NeMo hạ phiên bản transformers, nên Parakeet đo sau cùng. Với
+  `dtype = "auto"`, engine chạy float32 (sửa ngày 29/10, mục 6.5); nếu chọn float16 tường minh, câu nào ra NaN được
+  tự chạy lại ở float32.
 
 ## 5. Phương pháp thử nghiệm
 
@@ -418,7 +427,7 @@ Lựa chọn được giữ in đậm.
 | | | bật | 46,3% | 0 | 29,6% | 30,3% | 0 | 3,25 |
 | ChunkFormer CTC | (một cấu hình) | tham lam | 39,0% | 0 | 21,0% | 20,5% | 0 | 2,94 |
 | ChunkFormer RNNT | (một cấu hình) | tham lam | 37,4% | 0 | 20,3% | 19,5% | 0 | 2,71 |
-| Parakeet | (một cấu hình) | tham lam | 63,4% | 70 | 36,5% | 36,8% | 0 | 0,86 |
+| Parakeet (v4) | (một cấu hình) | tham lam | 59,3% | 0 | 31,4% | 31,7% | 0 | 2,04 |
 
 Cách đọc: với large-v3, bước 1 chọn tham lam vì beam 5 cho nhiều câu rỗng hơn (31 so với 10). Ở bước 2, không câu mồi
 nào tốt hơn "không câu mồi". Bước 4 chọn nhiệt độ thử lại vì bỏ sót thấp nhất; mọi lựa chọn của large-v3 đều vượt 6 s
@@ -470,8 +479,8 @@ số câu viết đúng "Zalo" và "VTV" trên số câu đáp án có tên đó
 | | val_unseen | 55,6% | 0 | 21,0% | 20,9% | 0 | 2,30 | 0/6 | 1/1 |
 | ChunkFormer RNNT | val_seen | 32,1% | 0 | **20,0%** | **19,7%** | 0 | 2,53 | **17/19** | 10/13 |
 | | val_unseen | **48,1%** | 0 | **19,8%** | **19,8%** | 0 | 2,49 | **5/6** | 1/1 |
-| Parakeet | val_seen | 54,1% | 37 | 35,3% | 35,7% | 0 | 0,87 | 5/19 | 1/13 |
-| | val_unseen | 79,6% | 51 | 38,2% | 38,7% | 0 | 0,74 | 0/6 | 1/1 |
+| Parakeet (v4) | val_seen | 50,5% | 0 | 31,6% | 32,0% | 0 | 2,00 | 5/19 | 1/13 |
+| | val_unseen | 77,8% | 0 | 31,1% | 31,8% | 0 | 1,92 | 0/6 | 1/1 |
 
 Cách đọc bảng:
 
@@ -483,7 +492,8 @@ Cách đọc bảng:
   lệ tên riêng khác nên con số giữa hai tập không so trực tiếp được. Thứ hạng giữa các mô hình mới là thứ cần so.
 - **Số câu chứa tên app rất ít,** nhất là trên val_unseen (Zalo 6 câu, VTV 1 câu). Một câu đúng hay sai đã đổi tỉ lệ
   đáng kể, nên hai cột này chỉ để tham khảo.
-- **Câu rỗng của Parakeet** (37 và 51) là các câu ra ký tự `⁇`, xem ví dụ 6 và mục 7.
+- **Parakeet** là kết quả lần chạy lại v4, sau khi sửa lỗi float16 (mục 6.5). Lần v3 có 37 và 51 câu ra ký tự `⁇`;
+  lần v4 không còn câu nào.
 
 ### 6.4. Ví dụ từ lần chạy
 
@@ -549,9 +559,57 @@ hình khác nghe thành "cho lô", nên LLM không biết phải dùng app Zalo.
 ChunkFormer nghe đúng số nhưng viết bằng chữ ("năm giờ"); WER thường tính "5" khác "năm" là lỗi. WER bỏ số loại cả
 hai cách viết số nên chỉ còn lỗi nghe thật ("tập" thay cho "đặt").
 
-**Ví dụ 6. Parakeet ra ký tự lạ.** Mọi câu "rỗng" của Parakeet (37 trên val_seen, 51 trên val_unseen) đều có chữ
-ASR là đúng một ký tự `⁇`, kể cả câu ngắn và rõ như "Gần đây có quán pizza nào không?". `⁇` là ký hiệu "token không
-biết" của bộ tách từ. Xem mục 7.
+**Ví dụ 6. Parakeet ra ký tự lạ ở lần chạy v3, và sau khi sửa.**
+
+| | Chữ |
+|---|---|
+| Đáp án | Gần đây có quán pizza nào không? |
+| Parakeet v3 (float16) | ⁇ |
+| Parakeet v4 (float32) | Gần đây có quán biza nào không? |
+
+Ở lần v3, mọi câu "rỗng" của Parakeet (37 trên val_seen, 51 trên val_unseen) đều chỉ có đúng một ký tự `⁇`, kể cả câu
+ngắn và rõ như câu trên. `⁇` là ký hiệu "token không biết" của bộ tách từ. Nguyên nhân và cách sửa ở mục 6.5.
+
+Sau khi sửa, Parakeet vẫn hay dính hoặc mất chữ, ví dụ "Tài khoản của anh còn được bao nhiêu?" thành "Tài khoản của
+ăn gọn l được bao nhiêu?". Lỗi này có ở cả float16 lẫn float32, nên là cách mô hình tự chép, không phải lỗi engine.
+
+### 6.5. Sửa lỗi Parakeet và chạy lại
+
+**Triệu chứng (lần chạy v3).** 70/1 024 câu của tập chỉnh, 37/916 câu của val_seen và 51/527 câu của val_unseen chỉ ra
+ký tự `⁇`. Các câu này rải rác ở mọi độ dài và mọi kiểu câu.
+
+**Chẩn đoán** (kernel `quanlam/lifemate-asr-diag`, 29/10). Lấy 42 mẫu có câu hỏng (216 câu) ở lần v3, chạy lại với
+bốn cách:
+
+| Cách chạy | Câu ra `⁇` | Đầu ra có NaN | WER | p95 (s) |
+|---|---|---|---|---|
+| float16, batch 8 (như v3) | 70 | có (49 batch) | 56,1% | 4,54 |
+| float32, batch 8 | 0 | không | 28,9% | 0,39 |
+| float16, batch 1 | 69 | có (69 câu) | 55,8% | 4,00 |
+| float32, batch 1 | 0 | không | 28,9% | 0,64 |
+
+Kết luận: lỗi do **float16 tràn số**, không do đệm batch. Ở float16, phép tính trong mô hình vượt giới hạn của kiểu số
+16 bit, đầu ra thành NaN ("không phải số"), và bước chọn chữ rơi vào token số 0 là token không biết. Chạy float32 thì
+hết lỗi, và còn nhanh hơn float16 trên T4.
+
+**Cách sửa** (`lifemate/backends/asr.py`, lớp `NemoCTCASR`; áp cho mọi mô hình chạy bằng engine NeMo, không riêng
+Parakeet):
+- `dtype = "auto"` chạy float32.
+- Nếu chọn float16 hoặc bfloat16 tường minh, câu nào có đầu ra NaN hoặc inf được tự chạy lại ở float32, kèm cảnh báo
+  `asr_nonfinite_output` trong log.
+- `eval_asr` có thêm chỉ số `n_unk` (số câu chỉ gồm `⁇`), để lỗi kiểu này không lẫn vào "câu rỗng" nữa.
+
+**Chạy lại (lần v4).** Cùng quy trình như mục 5: cùng tập chỉnh, cùng các bước dò, rồi đo một lần trên val_seen và
+val_unseen. Không còn câu `⁇` nào (`n_unk = 0`) và log không có cảnh báo NaN. Bốn mô hình còn lại không chạy lại.
+
+| Parakeet | Tập | Bỏ sót | Rỗng | WER | p95 (s) |
+|---|---|---|---|---|---|
+| v3 (float16, không hợp lệ) | val_seen | 54,1% | 37 | 35,3% | 0,87 |
+| v4 (float32) | val_seen | 50,5% | 0 | 31,6% | 2,00 |
+| v3 (float16, không hợp lệ) | val_unseen | 79,6% | 51 | 38,2% | 0,74 |
+| v4 (float32) | val_unseen | 77,8% | 0 | 31,1% | 1,92 |
+
+p95 của v4 cao hơn v3, vì ở v3 các câu hỏng kết thúc sớm (chỉ ra một token), và vì v4 chạy trong một phiên T4 khác.
 
 ## 7. Phân tích và đánh giá
 
@@ -567,10 +625,10 @@ biết" của bộ tách từ. Xem mục 7.
   mồi và `hotwords` đều làm kết quả kém hơn (ví dụ 3), khớp với sweep v2.
 - **PhoWhisper không bịa và nhanh hơn large-v3** (p95 khoảng 3 s). Câu mồi ngắn giúp viết đúng "Zalo" trên val_seen
   (16/19), nhưng bỏ sót vẫn cao (38–48%) vì sai nhiều ở tên riêng khác. Beam 5 gần như không cải thiện mà chậm gấp ba.
-- **Parakeet nhanh nhất nhưng kết quả lần này chưa đáng tin.** p95 dưới 1 s, nhưng 37–70 câu ra `⁇` (ví dụ 6) và bỏ
-  sót 54–80%. Kiểu lỗi "cả câu chỉ còn token không biết", rải rác ở mọi kiểu câu, giống lỗi tính toán trong engine tự
-  viết (nhiều khả năng float16 tràn số) hơn là mô hình nghe kém. Chữ cũng có nhiều ký tự hỏng ("điệnữ", "giúpánh").
-  Muốn kết luận về Parakeet phải chạy lại ở float32.
+- **Parakeet, sau khi sửa lỗi float16, vẫn kém hai ChunkFormer.** Không còn câu rỗng, WER giảm từ 35–38% xuống khoảng
+  31%, ngang large-v3. Nhưng bỏ sót tên riêng cao nhất trong năm mô hình (50,5% và 77,8%), tên app gần như luôn sai
+  (Zalo 5/19 và 0/6), và chữ hay dính hoặc mất (ví dụ 6). Mô hình nhanh (p95 khoảng 2 s) và không bịa câu phụ đề,
+  nhưng không có lợi thế nào bù được độ chính xác.
 - **Độ tin cậy.** val_unseen có ít câu chứa từng tên riêng (Zalo 6 câu, VTV 1 câu), nên chênh vài câu ở đó chưa đủ để
   kết luận. Trên cả ba tập, ChunkFormer RNNT có WER ổn định (19,5–20,3%) và luôn ở nhóm đầu về bỏ sót; kết luận dựa
   chủ yếu vào sự ổn định này.
@@ -584,7 +642,8 @@ biết" của bộ tách từ. Xem mục 7.
 3. Chưa đổi `configs/v0.toml`. Chỉ số ASR chỉ dùng để rút gọn danh sách; chọn cuối cùng phải dựa trên điểm thi của cả
    hệ thống (ASR + LLM, chấm bằng `score.py`) trên GPU từ 24 GB, so ChunkFormer RNNT với large-v3 hiện tại, có thể thêm
    PhoWhisper.
-4. Parakeet: chạy lại ở float32 trước khi loại. ChunkFormer CTC chỉ xét lại nếu BTC cho dùng giấy phép phi thương mại
+4. Bỏ Parakeet: đã chạy lại sau khi sửa lỗi float16 (mục 6.5), vẫn kém hai ChunkFormer ở mọi chỉ số chính xác.
+   ChunkFormer CTC chỉ xét lại nếu BTC cho dùng giấy phép phi thương mại
    và điểm thi cho thấy lợi thế trên val_seen là thật.
 
 ## Giới hạn đã biết
