@@ -338,12 +338,40 @@ Các điều chỉnh dưới đây không đổi cách mô hình nghe, chỉ đ�
 
 ## 5. Phương pháp thử nghiệm
 
+**Tổng quan.** Benchmark chạy qua ba giai đoạn, nối tiếp nhau:
+
+```text
+Chạy thử trên CPU  ──►  Dò cấu hình trên GPU  ──►  Đo cấu hình thắng
+(3 mẫu, bắt lỗi)        (asr_tune, 300 mẫu)        (val_seen + val_unseen)
+```
+
+Mọi giai đoạn chạy trên Kaggle bằng kernel riêng tư. Kernel là một phiên máy ảo: tự tải mã nguồn của dự án từ GitHub,
+gắn dữ liệu thi (dataset riêng tư trên Kaggle), cài thư viện, chạy lệnh rồi lưu kết quả để tải về.
+
 1. **Chạy thử trên CPU** (kernel `quanlam/lifemate-asr-preflight`): cài đúng thư viện như kernel GPU, chạy mọi lựa
    chọn của từng mô hình trên 3 mẫu, để bắt lỗi cài đặt và nạp mô hình trước khi tốn giờ GPU. Lần 1 Parakeet lỗi mọi
    lựa chọn và flashlight-text không build được; sau khi sửa engine và bỏ lựa chọn KenLM, lần 2 mọi mô hình chạy được.
 2. **Dò cấu hình trên GPU** (kernel `quanlam/lifemate-asr-tune`): mỗi mô hình chạy `python -m lifemate.eval.asr_tune`
    theo các bước ở mục 4 trên `asr_tune.txt`. Lựa chọn "giữ nguyên" dùng lại kết quả đã đo.
 3. **Đo cấu hình thắng** của mỗi mô hình đúng một lần trên val_seen và val_unseen.
+
+Giải thích thêm từng giai đoạn:
+
+1. **Vì sao chạy thử trên CPU trước.** Kaggle chỉ cho mỗi tài khoản một số giờ GPU mỗi tuần, và một lần dò đầy đủ mất
+   khoảng 4 giờ. Nếu một mô hình lỗi lúc cài đặt hay lúc nạp, lỗi đó chỉ lộ ra sau vài giờ chạy các mô hình trước, và
+   phải chạy lại từ đầu. Chạy thử trên CPU (không tốn giờ GPU) với 3 mẫu cho mỗi lựa chọn bắt được các lỗi này trong vài
+   phút. Kết quả chạy thử chỉ để biết "chạy được hay không", không dùng để so sánh.
+2. **Dò cấu hình.** Script `lifemate/eval/asr_tune.py` làm theo cách ở mục 4.2. Với mỗi lựa chọn, script ghi một file
+   config, gọi `lifemate/eval/eval_asr.py` để chép toàn bộ 300 mẫu và tính chỉ số, rồi dùng hàm mục tiêu để chọn. Một
+   cấu hình đã đo thì không đo lại: lựa chọn "giữ nguyên" ở bước sau chính là cấu hình thắng ở bước trước. Tổng cộng có
+   16 lần đo trên tập chỉnh: large-v3 8 lần, PhoWhisper 5 lần, ba mô hình còn lại mỗi mô hình 1 lần.
+3. **Đo cấu hình thắng.** Cấu hình thắng của mỗi mô hình được chạy đúng một lần trên val_seen và một lần trên
+   val_unseen, tổng 10 lần đo. Không có lựa chọn nào được đổi sau khi xem kết quả trên hai tập này.
+
+**Thứ tự chạy.** Năm mô hình chạy nối tiếp trong cùng một phiên: large-v3, PhoWhisper, ChunkFormer CTC, ChunkFormer
+RNNT, Parakeet. Thư viện riêng của ChunkFormer và Parakeet chỉ được cài ngay trước khi đo mô hình đó, vì các thư viện
+này thay đổi phiên bản của thư viện dùng chung (Parakeet hạ phiên bản transformers). Cài sớm có thể làm hỏng các mô hình
+đo trước.
 
 Tái tạo: `make splits` (sinh `asr_tune.txt`), rồi `kaggle kernels push -p ops/kaggle/asr_tune --accelerator
 NvidiaTeslaT4`, hoặc trên máy có GPU: `python -m lifemate.eval.asr_tune --env <profile> --out <thư mục>`.
@@ -354,6 +382,17 @@ Một phiên T4, khoảng 4 giờ. Mọi mô hình chạy hết, không lần đ
 beam 5 của PhoWhisper, nhưng lần đo đó vẫn hoàn tất.
 
 ### 6.1. Đường dò trên tập chỉnh (300 mẫu, 1 024 câu, 123 tên riêng)
+
+Bảng này là "nhật ký" của giai đoạn dò: mọi lần đo trên tập chỉnh, theo đúng thứ tự các bước ở mục 4.2. Mỗi dòng là
+một lần đo với cấu hình gồm lựa chọn ở dòng đó cộng các lựa chọn đã giữ ở các bước trước. Các cột:
+- **Bỏ sót:** tỉ lệ tên riêng bị chép sai, trên 123 tên riêng của tập chỉnh. Càng thấp càng tốt.
+- **Rỗng:** số câu (trên 1 024) mà mô hình không ra chữ nào sau bộ lọc.
+- **WER, WER bỏ số:** tỉ lệ từ sai, như mục 2.3.
+- **Bịa:** số câu có cụm phụ đề bịa bị bộ lọc phát hiện.
+- **p95 (s):** 95% số mẫu chép xong trong số giây này. Ngưỡng là 6 s.
+
+Một số dòng trùng số liệu với nhau, ví dụ "tham lam" ở bước 1 và "không" ở bước 2 của large-v3. Đó là cùng một cấu
+hình được dùng lại, không đo lại (mục 5).
 
 Lựa chọn được giữ in đậm.
 
@@ -385,7 +424,29 @@ Cách đọc: với large-v3, bước 1 chọn tham lam vì beam 5 cho nhiều c
 nào tốt hơn "không câu mồi". Bước 4 chọn nhiệt độ thử lại vì bỏ sót thấp nhất; mọi lựa chọn của large-v3 đều vượt 6 s
 nên chỉ so với nhau.
 
+Giải thích chi tiết hơn:
+
+- **Cách chọn ở mỗi bước** là so tổng "bỏ sót + tỉ lệ câu rỗng" (mục 2.3). Ví dụ bước 4 của large-v3: "không" là
+  41,5% + 10/1 024 ≈ 42,5%; VAD là 41,5% + 8/1 024 ≈ 42,3%; nhiệt độ thử lại là 40,7% + 11/1 024 ≈ 41,8%. Nhiệt độ
+  thử lại thấp nhất nên được giữ.
+- **large-v3 vượt ngưỡng ở mọi lần đo** (p95 từ 6,7 đến 8,3 s), nên các lựa chọn của large-v3 chỉ được so với nhau theo
+  độ chính xác. Thời gian của cùng một mô hình dao động khoảng 1,5 s giữa các lần đo, nên chênh lệch p95 nhỏ giữa hai
+  lựa chọn của large-v3 chưa chắc do lựa chọn đó gây ra.
+- **Câu mồi với large-v3:** cả ba kiểu đều kém hơn không câu mồi. Câu mồi của lead tăng WER từ 30,8% lên 48,6% và câu
+  rỗng từ 10 lên 22. `hotwords` ít câu rỗng nhất (4) nhưng bỏ sót tới 59,3%, vì Whisper chép sai cả câu chứ không chỉ
+  tên riêng.
+- **Beam 5:** không giúp mô hình nào. Với large-v3, beam tăng câu bịa từ 17 lên 39. Với PhoWhisper, beam giảm WER chưa
+  tới 0,5 điểm mà p95 tăng từ 3,2 lên 9,2 s.
+- **Câu mồi với PhoWhisper:** câu mồi ngắn giảm bỏ sót từ 48,0% xuống 46,3%, tức khoảng 2 tên riêng trên 123. Mức cải
+  thiện này nhỏ, nhưng là lựa chọn tốt nhất theo hàm mục tiêu nên được giữ.
+- **Chống lặp:** không giúp mô hình nào, còn làm WER của PhoWhisper tăng 1,5 điểm.
+- **Ba mô hình CTC/RNNT** chỉ có một dòng vì không có tham số nào để dò (mục 4.2). Hai ChunkFormer đã tốt hơn mọi cấu
+  hình của hai mô hình Whisper ngay trên tập chỉnh: bỏ sót 37–39% so với 41–59%, WER 20–21% so với 28–49%.
+
 ### 6.2. Cấu hình thắng của mỗi mô hình
+
+Cấu hình cuối cùng mà mỗi mô hình mang sang giai đoạn đo (mục 5, giai đoạn 3). Config đầy đủ nằm trong
+`<mô hình>__report_val_seen.toml` (xem đầu báo cáo).
 
 | Mô hình | Cấu hình thắng |
 |---|---|
@@ -394,6 +455,10 @@ nên chỉ so với nhau.
 | ChunkFormer CTC, ChunkFormer RNNT, Parakeet | tham lam, tham số mặc định |
 
 ### 6.3. Đo trên tập kiểm tra
+
+Đây là kết quả chính để so sánh các mô hình: cấu hình thắng của mỗi mô hình, đo một lần trên hai tập kiểm tra mà giai
+đoạn dò chưa từng thấy. val_seen có 916 câu và 109 tên riêng; val_unseen có 527 câu và 54 tên riêng. Hai cột cuối đếm
+số câu viết đúng "Zalo" và "VTV" trên số câu đáp án có tên đó. Giá trị tốt nhất mỗi cột được in đậm.
 
 | Mô hình | Tập | Bỏ sót | Rỗng | WER | WER bỏ số | Bịa | p95 (s) | Zalo | VTV |
 |---|---|---|---|---|---|---|---|---|---|
@@ -407,6 +472,18 @@ nên chỉ so với nhau.
 | | val_unseen | **48,1%** | 0 | **19,8%** | **19,8%** | 0 | 2,49 | **5/6** | 1/1 |
 | Parakeet | val_seen | 54,1% | 37 | 35,3% | 35,7% | 0 | 0,87 | 5/19 | 1/13 |
 | | val_unseen | 79,6% | 51 | 38,2% | 38,7% | 0 | 0,74 | 0/6 | 1/1 |
+
+Cách đọc bảng:
+
+- **Hai tập cho kết quả khác nhau ở bỏ sót, không khác ở WER.** WER của mỗi mô hình gần như bằng nhau trên hai tập
+  (chênh dưới 1 điểm), nghĩa là độ khó âm thanh của hai tập tương đương. Nhưng bỏ sót trên val_unseen cao hơn hẳn (ví
+  dụ ChunkFormer CTC: 23,9% lên 55,6%). Lý do: val_unseen dùng 6 app không có trong train, nên tên riêng ở đó là tên
+  thuốc, chuyến bay, sách… lạ hơn và khó nghe đúng hơn.
+- **So với tập chỉnh,** bỏ sót trên val_seen thấp hơn ở hầu hết mô hình (large-v3: 40,7% xuống 31,2%). Tập chỉnh có tỉ
+  lệ tên riêng khác nên con số giữa hai tập không so trực tiếp được. Thứ hạng giữa các mô hình mới là thứ cần so.
+- **Số câu chứa tên app rất ít,** nhất là trên val_unseen (Zalo 6 câu, VTV 1 câu). Một câu đúng hay sai đã đổi tỉ lệ
+  đáng kể, nên hai cột này chỉ để tham khảo.
+- **Câu rỗng của Parakeet** (37 và 51) là các câu ra ký tự `⁇`, xem ví dụ 6 và mục 7.
 
 ### 6.4. Ví dụ từ lần chạy
 
