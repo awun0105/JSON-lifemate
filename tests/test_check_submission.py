@@ -45,3 +45,18 @@ def test_check_submission_flags_each_problem(data_root: Path, tmp_path: Path) ->
     assert rows[1]["id"] in report.rejected
     for needle in ("missing ids", "duplicated ids", "invalid JSON", "schema errors", "replay"):
         assert needle in text
+
+
+def test_malformed_tool_calls_reported_not_crash(data_root: Path, tmp_path: Path) -> None:
+    """Lời gọi không phải object hoặc có `arguments` không phải object bị báo là dòng hỏng, không làm checker crash."""
+    ids = [s.id for s in load_split(data_root, "train")[:3]]
+    lines = [
+        {"id": ids[0], "tool_calls": ["bad"]},
+        {"id": ids[1], "tool_calls": [{"name": "x.y", "arguments": "oops"}]},
+        {"id": ids[2], "tool_calls": []},
+    ]
+    sub = tmp_path / "submission.jsonl"
+    sub.write_text("".join(json.dumps(r) + "\n" for r in lines), encoding="utf-8")
+    report = check_submission(sub, data_root, "train")
+    assert report.invalid_lines == [1, 2]
+    assert not report.ok and "invalid JSON" in report.to_text()

@@ -163,7 +163,8 @@ def load_asr_train_config(path: Path) -> ASRTrainConfig:
 
 def normalize_text(text: str) -> str:
     """Chuẩn hoá văn bản để tính WER theo SPEC 6.4.2: chữ thường, NFC, bỏ dấu câu, gộp khoảng trắng."""
-    text = unicodedata.normalize("NFC", text.lower())
+    # `<unk>` là token không biết của model, không phải từ: xoá trước, kẻo bỏ dấu `<>` xong còn lại từ "unk".
+    text = unicodedata.normalize("NFC", text.lower()).replace("<unk>", " ")
     # Ký tự thuộc nhóm Unicode P (dấu câu) hoặc S (ký hiệu) được thay bằng khoảng trắng.
     kept = "".join(" " if unicodedata.category(ch)[0] in _PUNCT_CATEGORIES else ch for ch in text)
     return " ".join(kept.split())

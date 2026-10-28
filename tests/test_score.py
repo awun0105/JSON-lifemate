@@ -95,3 +95,24 @@ def test_score_match_modes(data_root, tmp_path):
             g.write(json.dumps({"id": json.loads(line)["id"], "tool_calls": []}) + "\n")
     out = _run(str(empty), "--root", str(data_root), "--match", "both")
     assert re.findall(r"Final score \[(\w+)\]: ([\d.]+)", out) == [("strict", "7.18"), ("canon", "7.18")]
+
+
+def test_report_empty_rows_no_crash(capsys):
+    """Báo cáo trên tập rỗng không chia cho 0: độ chính xác quyết định in ra `nan`."""
+    score.report([], 5)
+    assert "decision accuracy: nan%" in capsys.readouterr().out
+
+
+@pytest.mark.data
+def test_empty_ids_file_exits_clearly(data_root, tmp_path):
+    """File `--ids` rỗng làm script dừng với thông báo rõ ràng, không crash giữa chừng."""
+    ids = tmp_path / "ids.txt"
+    ids.write_text("", encoding="utf-8")
+    proc = subprocess.run(
+        [sys.executable, *SCORE, str(tmp_path / "none.jsonl"), "--root", str(data_root), "--ids", str(ids)],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=REPO,
+    )
+    assert proc.returncode != 0 and "no samples selected for scoring" in proc.stderr

@@ -198,11 +198,22 @@ def _replay(report: CheckReport, rows: list[dict[str, Any]], zaic: ModuleType, r
         )
 
 
+def _valid_calls(calls: Any) -> bool:
+    """`True` khi `calls` là list các lời gọi `{"name": str, "arguments": dict}`, đúng định dạng nộp bài.
+
+    Các bước sau (đếm tool lạ, thống kê, phát lại) gọi `.get` trên từng lời gọi, nên phần tử sai dạng phải bị loại
+    ở đây và báo thành dòng không hợp lệ, thay vì làm cả bước kiểm tra crash.
+    """
+    return isinstance(calls, list) and all(
+        isinstance(c, dict) and isinstance(c.get("name"), str) and isinstance(c.get("arguments"), dict) for c in calls
+    )
+
+
 def _read_rows(report: CheckReport, submission: Path) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """Đọc file submission, giữ dòng đầu tiên của mỗi id và đếm số lần mỗi id xuất hiện.
 
-    Dòng không phải JSON, không phải object, thiếu `id` hoặc có `tool_calls` không phải list được ghi số dòng vào
-    `report.invalid_lines`. Dòng trống bị bỏ qua và không tính vào `report.n_lines`.
+    Dòng không phải JSON, không phải object, thiếu `id` hoặc có `tool_calls` sai dạng (xem `_valid_calls`) được ghi
+    số dòng vào `report.invalid_lines`. Dòng trống bị bỏ qua và không tính vào `report.n_lines`.
 
     Tham số:
         report: báo cáo cần ghi thêm kết quả.
@@ -222,7 +233,7 @@ def _read_rows(report: CheckReport, submission: Path) -> tuple[list[dict[str, An
         except json.JSONDecodeError:
             report.invalid_lines.append(n)
             continue
-        if not isinstance(row, dict) or "id" not in row or not isinstance(row.get("tool_calls", []), list):
+        if not isinstance(row, dict) or "id" not in row or not _valid_calls(row.get("tool_calls", [])):
             report.invalid_lines.append(n)
             continue
         sid = str(row["id"])

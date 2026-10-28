@@ -15,7 +15,7 @@ import pytest
 
 from lifemate.io.data import load_split, read_ids
 from lifemate.train import asr_data
-from lifemate.train.asr import choose_checkpoint
+from lifemate.train.asr import choose_checkpoint, normalize_text
 from lifemate.train.common import CheckpointInfo
 
 # Số cặp audio-transcript mong đợi cho từng split, lấy từ SPEC 6.4.1.
@@ -70,3 +70,9 @@ def test_choose_checkpoint_entity_then_wer() -> None:
     ]
     # b và c cùng `entity_miss_rate` thấp nhất; c thắng nhờ WER thấp hơn.
     assert choose_checkpoint(scored) is c
+
+
+def test_normalize_text_drops_unk() -> None:
+    """Token `<unk>` và `⁇` bị xoá khi chuẩn hoá, nên không bị tính như một từ "unk" khi chọn checkpoint."""
+    assert normalize_text("Bật <unk> đèn ⁇!") == "bật đèn"
+    assert normalize_text("<unk>") == ""

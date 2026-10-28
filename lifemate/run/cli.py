@@ -22,26 +22,22 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import datetime as dt
+import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import structlog
 
 from lifemate.core.config import EnvProfile, load_config, load_profile
 from lifemate.core.envinfo import detect
-from lifemate.core.paths import REPO_ROOT
+from lifemate.core.paths import REPO_ROOT, repo_path
 from lifemate.io.data import load_split, read_ids
 from lifemate.io.store import RunStore
 from lifemate.run import factory
 from lifemate.run.runner import Runner, RunSummary
 
 log = structlog.get_logger(__name__)
-
-
-def _abs(path: str, repo_root: Path) -> Path:
-    """Mở rộng `~` và tính đường dẫn tương đối từ thư mục gốc repo (SPEC 4.16, profile `local`)."""
-    p = Path(path).expanduser()
-    return p if p.is_absolute() else repo_root / p
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -79,19 +75,19 @@ def run(args: argparse.Namespace, repo_root: Path = REPO_ROOT) -> RunSummary:
     Trả về:
         `RunSummary` của lần chạy. Điểm chỉ được tính khi mọi mẫu đều có nhãn.
     """
-    config = load_config(_abs(str(args.config), repo_root))
+    config = load_config(repo_path(str(args.config), repo_root))
     # `--transcripts asr` chạy ASR thật trên cùng config, khỏi phải chép cả file config chỉ để đổi `asr.backend`.
     if args.transcripts != "config":
         config = dataclasses.replace(config, asr=dataclasses.replace(config.asr, backend=args.transcripts))
     raw_profile = load_profile(args.env, repo_root).with_overrides(root=args.root)
     profile: EnvProfile = dataclasses.replace(
         raw_profile,
-        data_root=str(_abs(raw_profile.data_root, repo_root)),
-        runs_dir=str(_abs(raw_profile.runs_dir, repo_root)),
+        data_root=str(repo_path(raw_profile.data_root, repo_root)),
+        runs_dir=str(repo_path(raw_profile.runs_dir, repo_root)),
     )
     env_info = detect(repo_root)
     root = Path(profile.data_root)
-    ids_file = _abs(str(args.ids), repo_root) if args.ids is not None else None
+    ids_file = repo_path(str(args.ids), repo_root) if args.ids is not None else None
     ids = read_ids(ids_file) if ids_file is not None else None
     samples = load_split(root, args.split, ids)
     # Sắp theo id trước khi cắt, để `--limit` luôn chọn cùng một tập mẫu.
@@ -99,22 +95,22 @@ def run(args: argparse.Namespace, repo_root: Path = REPO_ROOT) -> RunSummary:
         samples = sorted(samples, key=lambda s: s.id)[: args.limit]
     has_labels = all(s.label is not None for s in samples)
 
-    built = factory.build(config, profile, repo_root=repo_root, split=args.split, env_info=env_info, samples=samples)
     start = dt.datetime.now(dt.UTC)
     if args.out is not None:
-        run_dir = _abs(args.out, repo_root)
+        run_dir = repo_path(args.out, repo_root)
         index_csv = run_dir.parent / "index.csv"
     else:
         run_dir = Path(profile.runs_dir) / (args.name or start.strftime("%Y-%m-%d_%H%M%S"))
         index_csv = Path(profile.runs_dir) / "index.csv"
+    # Mở thư mục run và kiểm tra `--resume` trước khi nạp model: lỗi trùng tên hay lệch config phải lộ ra ngay, không
+    # phải sau vài phút nạp vLLM và ASR trên GPU.
     store = RunStore(run_dir, resume=args.resume)
     # Bản ghi đầy đủ config của run, để sau này chạy lại được đúng kết quả.
-    record = {
+    record: dict[str, Any] = {
         "config": dataclasses.asdict(config),
-        "dtype": {"config": config.llm.dtype, "resolved": built.dtype},
         "env_info": dataclasses.asdict(env_info),
         "profile": {"data_root": profile.data_root, "runs_dir": profile.runs_dir, "persist": profile.persist},
-        "prompt_sha256": built.prompt_sha256,
+        "prompt_sha256": factory.prompt_sha256(config, repo_root),
         "split": args.split,
         "ids_file": str(ids_file) if ids_file is not None else None,
         "limit": args.limit,
@@ -122,6 +118,9 @@ def run(args: argparse.Namespace, repo_root: Path = REPO_ROOT) -> RunSummary:
         "resume": args.resume,
         "started_at": start.isoformat(timespec="seconds"),
     }
+    store.check_resume(record)
+    built = factory.build(config, profile, repo_root=repo_root, split=args.split, env_info=env_info, samples=samples)
+    record["dtype"] = {"config": config.llm.dtype, "resolved": built.dtype}
     runner = Runner(
         built.agent,
         built.loader,
@@ -140,7 +139,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         argv: tham số dòng lệnh; `None` thì đọc từ `sys.argv`.
 
     Trả về:
-        Mã thoát, luôn là 0 khi chạy xong.
+        Mã thoát: 1 khi script chấm điểm lỗi, còn lại là 0. Khi `check_submission` báo lỗi, CLI in cảnh báo ra stderr
+        nhưng vẫn trả 0: container Docker nộp bài chạy chính CLI này, file nộp đã ghi xong, và mã khác 0 có thể khiến
+        BTC coi cả container là hỏng.
     """
     result = run(parse_args(argv))
     print(f"summary: {result.run_dir / 'summary.json'}")
@@ -149,7 +150,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"score [{mode}]: {value:.2f}")
     if result.report is not None:
         print(f"report: {result.report}")
-    return 0
+    if result.failed is not None:
+        print(f"FAILED ({result.failed}): see {result.report}", file=sys.stderr)
+    return 1 if result.failed == "score" else 0
 
 
 if __name__ == "__main__":

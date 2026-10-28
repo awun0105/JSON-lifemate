@@ -57,23 +57,9 @@ import sys
 import unicodedata
 from pathlib import Path
 
-from lifemate.core.paths import REPO_ROOT as REPO
+from lifemate.core.paths import local_data_root
 
-
-def default_data_root() -> Path:
-    """Trả về thư mục dữ liệu của profile môi trường `local` (`configs/env/local.toml`).
-
-    Đường dẫn tương đối được tính từ thư mục gốc repo; `~` được mở rộng.
-    """
-    import tomllib
-
-    with open(REPO / "configs" / "env" / "local.toml", "rb") as f:
-        raw = tomllib.load(f)
-    p = Path(raw["data_root"]).expanduser()
-    return p if p.is_absolute() else REPO / p
-
-
-DEFAULT_ROOT = default_data_root()
+DEFAULT_ROOT = local_data_root()
 FUZZY_THRESHOLD = 0.6
 CATEGORIES = ["execute", "ask_missing_info", "out_of_scope"]
 SHORT = {"execute": "execute", "ask_missing_info": "ask", "out_of_scope": "[]"}
@@ -379,7 +365,7 @@ def report(rows: list[dict], min_app: int, extra: dict[str, list[dict]] | None =
         if cnt:
             print(f"{SHORT[g]:<18}" + "".join(f"{cnt.get(c, 0):>10}" for c in cols))
     agree = sum(r["predicted"] == r["category"] for r in rows)
-    print(f"decision accuracy: {100 * agree / n:.1f}%")
+    print(f"decision accuracy: {100 * agree / n if n else float('nan'):.1f}%")
 
     # b) Vì sao các mẫu cần hành động bị mất điểm.
     acting = [r for r in rows if r["category"] != "out_of_scope" and "errors" in r]
@@ -440,7 +426,7 @@ def main() -> None:
     load_canon_scalar()
 
     items = load_jsonl(args.root / args.split / f"{args.split}.jsonl")
-    if "label" not in items[0]:
+    if items and "label" not in items[0]:
         sys.exit(f"split {args.split!r} has no labels; only a labelled split can be scored locally")
     if args.ids:
         with open(args.ids, encoding="utf-8") as f:
@@ -449,6 +435,9 @@ def main() -> None:
         if unknown:
             sys.exit(f"{len(unknown)} ids in {args.ids} are not in {args.split}, e.g. {sorted(unknown)[:3]}")
         items = [it for it in items if it["id"] in wanted]
+    # File `--ids` rỗng hoặc split rỗng: dừng với thông báo rõ ràng thay vì chấm một tập không có mẫu nào.
+    if not items:
+        sys.exit(f"no samples selected for scoring in {args.split!r}")
 
     if args.make_gold:
         with open(args.make_gold, "w", encoding="utf-8") as f:

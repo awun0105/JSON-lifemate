@@ -51,23 +51,10 @@ from pathlib import Path
 
 from lifemate.core.config import load_profile
 from lifemate.core.paths import REPO_ROOT as REPO
+from lifemate.core.paths import local_data_root, repo_path
 from lifemate.core.textsim import cluster_near_duplicates
 
-
-def default_data_root() -> Path:
-    """Trả về thư mục dữ liệu của profile môi trường `local` (`configs/env/local.toml`).
-
-    Đường dẫn tương đối được tính từ thư mục gốc repo; `~` được mở rộng.
-    """
-    import tomllib
-
-    with open(REPO / "configs" / "env" / "local.toml", "rb") as f:
-        raw = tomllib.load(f)
-    p = Path(raw["data_root"]).expanduser()
-    return p if p.is_absolute() else REPO / p
-
-
-DEFAULT_ROOT = default_data_root()
+DEFAULT_ROOT = local_data_root()
 # Lựa chọn của trưởng nhóm: mỗi miền một app (sức khoẻ, thể thao, du lịch, di chuyển, cá nhân, tài chính).
 DEFAULT_HELD_OUT = ["medication", "fitness", "flights", "bike_rental", "library", "subscriptions"]
 
@@ -219,7 +206,7 @@ def main() -> None:
     args = ap.parse_args()
     # Thứ tự ưu tiên: `--root`, rồi `data_root` của profile `--env`, rồi thư mục dữ liệu mặc định trên máy.
     if args.root is None:
-        args.root = Path(load_profile(args.env, REPO).data_root).expanduser() if args.env else DEFAULT_ROOT
+        args.root = repo_path(load_profile(args.env, REPO).data_root, REPO) if args.env else DEFAULT_ROOT
 
     with open(args.root / "train" / "train.jsonl", encoding="utf-8") as f:
         items = [json.loads(line) for line in f if line.strip()]

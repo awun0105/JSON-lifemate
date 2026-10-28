@@ -257,3 +257,32 @@ def test_engine_without_step_api_falls_back_to_chat(fake_vllm: None) -> None:
     eng.llm_engine = object()
     g = b.generate([], SCHEMA, sample_id="x", time_left_s=5.0)
     assert g.text == '{"action":"done"}' and len(eng.calls) == 1 and b._abortable is False
+
+
+class BrokenStepEngine(FakeLLMEngine):
+    """Engine nhận request được nhưng `step()` ném `TypeError`, như một bug thật bên trong engine."""
+
+    def step(self) -> list[Any]:
+        """Luôn ném lỗi."""
+        raise TypeError("real internal bug")
+
+
+def test_first_step_failure_aborts_request_and_counts_time(fake_vllm: None) -> None:
+    """Lần đầu đã lỗi thì quay về `LLM.chat`; request đã thêm bị huỷ, không bị bỏ lại trong engine."""
+    b, eng = _backend()
+    eng.llm_engine = BrokenStepEngine()
+    g = b.generate([], SCHEMA, sample_id="x", time_left_s=5.0)
+    assert g.text == '{"action":"done"}' and b._abortable is False
+    assert eng.llm_engine.aborted == [eng.llm_engine.added[0][0]]
+
+
+def test_error_after_verified_step_api_raises(fake_vllm: None) -> None:
+    """Đường step/abort đã chạy được thì lỗi sau đó được ném ra (request bị huỷ), không lặng lẽ bỏ hạn giờ."""
+    b, eng = _backend()
+    b.generate([], SCHEMA, sample_id="ok", time_left_s=5.0)
+    broken = BrokenStepEngine()
+    eng.llm_engine = broken
+    with pytest.raises(TypeError, match="real internal bug"):
+        b.generate([], SCHEMA, sample_id="x", time_left_s=5.0)
+    assert b._abortable is True and eng.calls == []
+    assert broken.aborted == [broken.added[0][0]]

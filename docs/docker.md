@@ -56,17 +56,25 @@ links `/tmp/zaic_root/<split> -> /data` (ToolEnv wants `<root>/<split>/...`; `za
 paths so the link is fine), then execs
 
 ```
-python -m lifemate.run.cli --config ${LIFEMATE_CONFIG:-configs/docker.toml} --env docker --split <split> --out result --resume [extra args]
+python -m lifemate.run.cli --config ${LIFEMATE_CONFIG:-configs/docker.toml} --env docker --split <split> --out ${RESULT_DIR:-result} [extra args]
 ```
 
-`--resume` is always passed: `RunStore` creates an empty `result/` and finds no done ids, and after an
-interruption a rerun skips samples already in `trace.jsonl`. Extra `docker run` arguments go to the CLI
-(e.g. `--limit 5`).
+`--resume` is never passed (D39): every organiser run must be a fresh, independent run (the rules say a
+mismatching rerun is scored as the mean of five runs). If `result/trace.jsonl` is left over from an earlier
+run, the entrypoint renames it to `trace.<UTC timestamp>.bak` first, so the run neither continues on old
+results nor dies on a config mismatch. Extra `docker run` arguments go to the CLI (e.g. `--limit 5`).
+`LIFEMATE_DRY_RUN=1` prints the CLI command instead of running it (`tests/test_docker_entrypoint.py`).
+
+Crash safety: `submission.jsonl` is written before the models load (every line a placeholder
+`{"tool_calls": [], "state_hash": ""}`) and rewritten atomically after every sample, so an OOM or a kill
+on the overall time limit still leaves a complete file with the finished samples. Placeholders score as
+failed samples (the organisers replay `tool_calls`; `--validate` ignores `state_hash`). Once the file is
+written, errors in `check_submission` or `index.csv` are only logged and the CLI exits 0.
 
 ## Collecting results
 
-`result/` (= `/app/result`) holds `submission.jsonl` (what the organisers take), plus `trace.jsonl`,
-`summary.json`, `config.json`, `check.txt`. The host folder must be writable by uid 10001
+`result/` (= `/app/result`, or `RESULT_DIR`) holds `submission.jsonl` (what the organisers take), plus
+`trace.jsonl`, `summary.json`, `config.json`, `check.txt`, and `trace.*.bak` if the folder was reused. The host folder must be writable by uid 10001
 (`chmod a+rwx result`, done by `make docker-run` and the smoke script). `/data` is mounted read-only;
 nothing is written there.
 
@@ -92,7 +100,7 @@ Also check `summary.json` for no sample over 30 s.
 
 ## Not verified yet
 
-Nothing here has been built or run: the dev machine has no Docker and no GPU. Open points:
+Nothing here has been built or run yet. The dev machine has Docker but too little free disk for the image and a 4 GB GPU without nvidia-container-toolkit, so real runs go to a rented GPU box. The entrypoint logic is covered by `tests/test_docker_entrypoint.py` (bash, dry-run). Open points:
 
 - The image build itself (uv-managed Python on the CUDA base, vLLM wheel vs CUDA 12.4 runtime vs host driver).
 - vLLM loading from `/app/models/llm` fully offline, and whether it tries to write caches outside `$HOME`

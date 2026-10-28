@@ -18,8 +18,9 @@ Bộ kiểm thử pytest. Chạy bằng `make test`, trên CPU, không cần GPU
 | `test_config.py` | Đọc và kiểm tra cấu hình, profile của mọi loại máy. |
 | `test_envinfo.py` | Chọn kiểu số theo GPU, lấy phiên bản mã khi không có git. |
 | `test_factory.py` | Lắp ghép từ cấu hình và các bảng đăng ký. |
-| `test_runner.py` | Runner cô lập lỗi từng mẫu. |
-| `test_store.py` | Chạy tiếp sau khi bị ngắt, dòng cuối hỏng, ghi nguyên tử, file tổng hợp. |
+| `test_runner.py` | Runner cô lập lỗi từng mẫu; file nộp ghi lại sau mỗi mẫu, đủ dòng khi chết giữa chừng; bước sau file nộp lỗi không làm crash. |
+| `test_store.py` | Chạy tiếp sau khi bị ngắt, dòng cuối hỏng, ghi nguyên tử, dòng giữ chỗ cho id chưa chạy, file tổng hợp. |
+| `test_docker_entrypoint.py` | Entrypoint Docker ở chế độ in lệnh: không `--resume`, dọn trace cũ, đúng một catalog. |
 | `test_cli.py` | Chạy dòng lệnh với LLM giả phải ra 100 điểm; không lộ HF token; không có đường dẫn gắn cứng trong mã. |
 | `test_data.py` | Đọc dữ liệu thi. |
 | `test_zaic.py` | Nạp đúng trình mô phỏng của từng split, một env mỗi mẫu. |
