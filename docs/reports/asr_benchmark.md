@@ -435,8 +435,8 @@ Giải thích chi tiết hơn:
 - **Câu mồi với large-v3:** cả ba kiểu đều kém hơn không câu mồi. Câu mồi của lead tăng WER từ 30,8% lên 48,6% và câu
   rỗng từ 10 lên 22. `hotwords` ít câu rỗng nhất (4) nhưng bỏ sót tới 59,3%, vì Whisper chép sai cả câu chứ không chỉ
   tên riêng.
-- **Beam 5:** không giúp mô hình nào. Với large-v3, beam tăng câu bịa từ 17 lên 39. Với PhoWhisper, beam giảm WER chưa
-  tới 0,5 điểm mà p95 tăng từ 3,2 lên 9,2 s.
+- **Beam 5:** không giúp mô hình nào. Với large-v3, beam tăng câu bịa từ 17 lên 39. Với PhoWhisper, beam giảm WER khoảng
+  0,5 điểm mà p95 tăng từ 3,2 lên 9,2 s.
 - **Câu mồi với PhoWhisper:** câu mồi ngắn giảm bỏ sót từ 48,0% xuống 46,3%, tức khoảng 2 tên riêng trên 123. Mức cải
   thiện này nhỏ, nhưng là lựa chọn tốt nhất theo hàm mục tiêu nên được giữ.
 - **Chống lặp:** không giúp mô hình nào, còn làm WER của PhoWhisper tăng 1,5 điểm.
