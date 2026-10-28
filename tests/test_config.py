@@ -112,3 +112,17 @@ def test_unknown_or_missing_key_raises(tmp_path: Path, repo_root: Path, old: str
     p.write_text(text.replace('backend = "vllm"', 'backend = "fake"'), encoding="utf-8")
     with pytest.raises(ConfigError, match=key):
         load_config(p)
+
+
+def test_ct2_int8_dtype_only_for_faster_whisper(tmp_path: Path, repo_root: Path) -> None:
+    """Bảo vệ: asr.dtype "int8_float16" hợp lệ với faster_whisper (Kaggle T4 cạnh vLLM), bị từ chối với engine khác."""
+    text = (repo_root / "configs" / "v0.toml").read_text(encoding="utf-8")
+    text = text.replace('backend = "vllm"', 'backend = "fake"').replace(
+        'dtype = "auto"                         # auto: bfloat16', 'dtype = "int8_float16"  # auto: bfloat16', 1
+    )
+    p = tmp_path / "c.toml"
+    p.write_text(text, encoding="utf-8")
+    assert load_config(p).asr.dtype == "int8_float16"
+    p.write_text(text.replace('engine = "faster_whisper"', 'engine = "hf_seq2seq"', 1), encoding="utf-8")
+    with pytest.raises(ConfigError, match=r"asr\.dtype"):
+        load_config(p)

@@ -76,6 +76,8 @@ class ASRConfig:
 
 ASR_ENGINE_NAMES = frozenset({"faster_whisper", "hf_seq2seq", "chunkformer", "viegem"})
 ASR_DTYPES = frozenset({"auto", "float32", "float16", "bfloat16"})
+# Kiểu tính lượng tử của CTranslate2, chỉ engine faster_whisper dùng được; cần khoảng nửa bộ nhớ của float16.
+ASR_CT2_DTYPES = frozenset({"int8_float16", "int8_bfloat16"})
 # Phải khớp với các trường có giá trị mặc định của ASRConfig, nếu không `_build` sẽ đòi khóa đó trong TOML.
 _ASR_OPTIONAL = frozenset({"engine", "device", "dtype", "batch_size", "generate_kwargs", "sample_rate", "sanitize"})
 
@@ -189,7 +191,8 @@ def load_config(path: Path) -> Config:
     _check(llm.dtype in {"auto", "float16", "bfloat16"}, f"llm.dtype: {llm.dtype!r} not in auto|float16|bfloat16")
     _check(asr.backend in {"gold", "asr"}, f"asr.backend: {asr.backend!r} not in gold|asr")
     _check(asr.engine in ASR_ENGINE_NAMES, f"asr.engine: {asr.engine!r} not in {'|'.join(sorted(ASR_ENGINE_NAMES))}")
-    _check(asr.dtype in ASR_DTYPES, f"asr.dtype: {asr.dtype!r} not in {'|'.join(sorted(ASR_DTYPES))}")
+    allowed = ASR_DTYPES | ASR_CT2_DTYPES if asr.engine == "faster_whisper" else ASR_DTYPES
+    _check(asr.dtype in allowed, f"asr.dtype: {asr.dtype!r} not in {'|'.join(sorted(allowed))} for {asr.engine}")
     _check(not (asr.backend == "asr" and asr.model == ""), "asr.model: required when asr.backend = 'asr'")
     _check(asr.device in {"auto", "cpu", "cuda"}, f"asr.device: {asr.device!r} not in auto|cpu|cuda")
     # TOML không ép kiểu theo annotation của dataclass, nên kiểu của các trường số và bảng phải kiểm tra tay.
