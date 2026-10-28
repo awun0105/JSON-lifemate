@@ -1,0 +1,17 @@
+{
+  "id": "quanlam/lifemate-asr-preflight",
+  "title": "lifemate-asr-preflight",
+  "code_file": "lifemate_asr_preflight.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [
+    "quanlam/zac2026-lifemate"
+  ],
+  "kernel_sources": [],
+  "competition_sources": [],
+  "model_sources": []
+}

@@ -73,3 +73,22 @@ def test_tune_picks_per_stage_and_reuses_runs(tmp_path: Path, repo_root: Path) -
     for k in ("engine", "model", "revision"):
         a.pop(k), b.pop(k)
     assert a == b
+
+
+def test_preflight_runs_each_supported_option_once(tmp_path: Path, repo_root: Path) -> None:
+    """Chạy thử: mỗi lựa chọn engine hỗ trợ được đo một lần trên n mẫu; lựa chọn lỗi được đánh dấu FAIL."""
+    with open(repo_root / "configs" / "v0.toml", "rb") as f:
+        base = tomllib.load(f)
+    ids = tmp_path / "ids.txt"
+    ids.write_text("a\nb\nc\nd\n", encoding="utf-8")
+    seen_ids: list[str] = []
+
+    def runner(cfg: Path, ids_file: str, out: Path, hyps: Path) -> dict[str, Any] | None:
+        """Lựa chọn lm lỗi (giả lập thiếu flashlight-text), còn lại thành công."""
+        seen_ids.append(Path(ids_file).read_text(encoding="utf-8"))
+        gk = tomllib.loads(cfg.read_text(encoding="utf-8"))["asr"]["generate_kwargs"]
+        return None if gk.get("lm") else _report(0.3)
+
+    rows = asr_tune.preflight("parakeet", base, str(ids), 2, tmp_path / "pk", runner)
+    assert {(r["option"], r["ok"]) for r in rows} == {("greedy", True), ("none", True), ("off", True), ("lm", False)}
+    assert len(seen_ids) == 2 and seen_ids[0] == "a\nb\n"

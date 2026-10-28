@@ -221,6 +221,36 @@ def report(
     return {f: _measure(model, gk, base, f, f"{model}__report_{Path(f).stem}", out_dir, runner) for f in ids_files}
 
 
+def preflight(
+    model: str, base: Mapping[str, Any], ids: str, n: int, out_dir: Path, runner: Runner
+) -> list[dict[str, Any]]:
+    """Chạy thử mọi lựa chọn engine hỗ trợ (từng lựa chọn một, trên BASE_GK) với `n` mẫu đầu của `ids`.
+
+    Dùng để bắt lỗi cài đặt, nạp mô hình và tham số trước lần dò thật (ví dụ trên kernel CPU, không tốn GPU).
+    Trả mỗi lựa chọn một dòng `{model, stage, option, ok}`.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    src = Path(ids) if Path(ids).is_absolute() else REPO_ROOT / ids
+    head = [x for x in src.read_text(encoding="utf-8").split() if x][:n]
+    sub = out_dir / "preflight_ids.txt"
+    sub.write_text("".join(f"{x}\n" for x in head), encoding="utf-8")
+    engine = MODELS[model]["engine"]
+    seen: dict[str, bool] = {}
+    rows: list[dict[str, Any]] = []
+    for stage, options in STAGES:
+        for opt, patch in options.items():
+            if not supported(engine, patch):
+                continue
+            cand = {**BASE_GK, **patch}
+            key = json.dumps(cand, sort_keys=True, ensure_ascii=False)
+            if key not in seen:
+                seen[key] = (
+                    _measure(model, cand, base, str(sub), f"{model}__pre_{stage}_{opt}", out_dir, runner) is not None
+                )
+            rows.append({"model": model, "stage": stage, "option": opt, "ok": seen[key]})
+    return rows
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """CLI: python -m lifemate.eval.asr_tune --env kaggle --models <tên trong MODELS> ... --out <thư mục>."""
     ap = argparse.ArgumentParser(prog="lifemate.eval.asr_tune", description=__doc__)
@@ -230,12 +260,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--models", nargs="+", default=list(MODELS), choices=list(MODELS))
     ap.add_argument("--tune-ids", default="configs/splits/asr_tune.txt")
     ap.add_argument("--report-ids", nargs="*", default=["configs/splits/val_seen.txt", "configs/splits/val_unseen.txt"])
-    ap.add_argument("--max-p95", type=float, default=6.0, help="giây; cấu hình có p95 lớn hơn bị loại")
+    ap.add_argument("--max-p95", type=float, default=6.0, help="giây; cấu hình có p95 lớn hơn xếp sau")
+    ap.add_argument("--preflight", type=int, default=0, metavar="N", help="chỉ chạy thử mọi lựa chọn trên N mẫu")
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args(argv)
     with open(args.base, "rb") as f:
         base = tomllib.load(f)
     runner = make_runner(args.env, args.split)
+    if args.preflight:
+        rows = [r for m in args.models for r in preflight(m, base, args.tune_ids, args.preflight, args.out / m, runner)]
+        args.out.mkdir(parents=True, exist_ok=True)
+        (args.out / "preflight.json").write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+        for r in rows:
+            print(f"preflight {r['model']:<16} {r['stage']:<10} {r['option']:<14} {'OK' if r['ok'] else 'FAIL'}")
+        return 0 if all(r["ok"] for r in rows) else 1
     summary: dict[str, Any] = {"tune_ids": args.tune_ids, "max_p95": args.max_p95, "models": {}}
     for model in args.models:
         res = tune(model, base, args.tune_ids, args.out / model, runner, args.max_p95)

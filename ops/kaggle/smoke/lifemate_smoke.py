@@ -23,8 +23,8 @@ Tham số (biến môi trường, đọc lúc chạy): LIFEMATE_REF (git ref, m�
 RUN_GOLD / RUN_ASR_EVAL ("1" để chạy, mặc định "1"), RUN_ASR (agent trên chữ ASR, mặc định "0": T4 15 GB
 không chứa nổi vLLM cùng whisper-large-v3 ở dtype auto), RUN_ASR_CACHE (mặc định "0"),
 ASR_TUNE (danh sách mô hình cho lifemate.eval.asr_tune, ví dụ "large-v3,phowhisper,parakeet"; trống = bỏ qua),
-ASR_EVAL_IDS (mặc định val_seen), RUN_IDS (file danh sách id,
-mặc định là 30 mẫu smoke), RUN_TAG (hậu tố của tên lượt chạy). ops/kaggle/eval đặt các biến này rồi
+ASR_TUNE_PREFLIGHT (N: chỉ chạy thử mọi lựa chọn trên N mẫu), ASR_EVAL_IDS (mặc định val_seen),
+RUN_IDS (file danh sách id, mặc định là 30 mẫu smoke), RUN_TAG (hậu tố của tên lượt chạy). ops/kaggle/eval đặt các biến này rồi
 exec file này.
 """
 
@@ -123,7 +123,7 @@ edit(asr_cfg, r"^gpu_memory_utilization = .*$", "gpu_memory_utilization = 0.72")
 
 # 4. Thư viện. vLLM kéo theo torch cho CUDA 13.0; torchaudio có sẵn trên Kaggle được build cho CUDA 12.8
 # và làm hỏng lệnh import transformers, trong khi LifeMate tự đọc WAV, nên gỡ torchaudio.
-sh("nvidia-smi")
+sh("nvidia-smi", check=False)  # kernel chạy thử trên CPU không có GPU
 sh("pip install -q -r ops/requirements/notebook.txt pytest")
 sh("pip install -q vllm==0.32.0")
 sh("pip install -q faster-whisper==1.2.1")  # engine ASR của configs/v0.toml (CTranslate2 whisper-large-v3)
@@ -132,7 +132,8 @@ sh("pip uninstall -y -q torchaudio", check=False)
 # In phiên bản torch/vLLM/transformers và tên GPU để kiểm tra môi trường.
 sh(
     'python -c "import torch, vllm, transformers; '
-    'print(torch.__version__, vllm.__version__, transformers.__version__, torch.cuda.get_device_name(0))"'
+    'print(torch.__version__, vllm.__version__, transformers.__version__, torch.cuda.is_available())"',
+    check=False,
 )
 # In thông tin môi trường mà LifeMate tự nhận diện.
 sh("python -c \"from pathlib import Path; from lifemate.core.envinfo import detect; print(detect(Path('.')))\"")
@@ -172,7 +173,13 @@ for model in sorted(tune_models, key=lambda m: LATE.get(m, 0)):
     if model == "parakeet":
         sh('pip install -q "nemo_toolkit[asr]==2.6.2"', check=False)
         sh("pip install -q flashlight-text", check=False)  # cho lựa chọn lm (beam + KenLM); thiếu thì chỉ lm lỗi
-    sh(f"python -m lifemate.eval.asr_tune --env kaggle --models {model} --out {WORK}/asr_tune/{model}", check=False)
+    # ASR_TUNE_PREFLIGHT=N: chỉ chạy thử mọi lựa chọn trên N mẫu (kernel CPU), không dò thật.
+    pre = os.environ.get("ASR_TUNE_PREFLIGHT", "")
+    extra = f" --preflight {pre}" if pre else ""
+    sh(
+        f"python -m lifemate.eval.asr_tune --env kaggle --models {model} --out {WORK}/asr_tune/{model}{extra}",
+        check=False,
+    )
 
 # 5b. ASR cache cho dữ liệu fine-tune (SPEC 6.2.1), tắt mặc định: chạy ASR một lần trên train, val_seen và
 # val_unseen rồi lưu chữ vào output của kernel (riêng tư). Tải về bằng `kaggle kernels output` và đặt vào
@@ -216,6 +223,7 @@ for path in (
     sorted(glob.glob(f"{WORK}/runs/*/summary.json"))
     + sorted(glob.glob(f"{WORK}/asr_eval/*.json"))
     + sorted(glob.glob(f"{WORK}/asr_tune/*/summary.json"))
+    + sorted(glob.glob(f"{WORK}/asr_tune/*/preflight.json"))
 ):
     print(f"\n== {path}\n" + Path(path).read_text(encoding="utf-8"), flush=True)
 shutil.rmtree(CODE, ignore_errors=True)

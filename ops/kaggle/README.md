@@ -10,6 +10,8 @@ Kernel Kaggle chạy tự động bằng Kaggle CLI. Mọi kernel đều riêng 
 | `eval/kernel-metadata.json` | Khai báo kernel `lifemate-eval`. |
 | `asr_tune/lifemate_asr_tune.py` | Kernel chỉ chạy ASR: chọn mô hình và cấu hình ASR bằng `lifemate.eval.asr_tune` cho whisper-large-v3, PhoWhisper, ChunkFormer (CTC và RNNT) và Parakeet (thư viện riêng của ChunkFormer và NeMo cài ngay trước khi đo), ghi kết quả vào `asr_tune/<mô hình>/`. |
 | `asr_tune/kernel-metadata.json` | Khai báo kernel `lifemate-asr-tune`. |
+| `asr_preflight/lifemate_asr_preflight.py` | Kernel CPU chạy thử trước `asr_tune`: cùng chuỗi cài đặt, chạy mọi lựa chọn của từng mô hình trên 3 mẫu (`asr_tune --preflight 3`), bắt lỗi cài đặt và tham số mà không tốn GPU. |
+| `asr_preflight/kernel-metadata.json` | Khai báo kernel `lifemate-asr-preflight` (không bật GPU). |
 | `asr_cache/lifemate_asr_cache.py` | Kernel chỉ chạy ASR: dựng cache chữ ASR cho dữ liệu fine-tune (`asr_cache/train_asr.json`, tải về `data/asr/`). |
 | `asr_cache/kernel-metadata.json` | Khai báo kernel `lifemate-asr-cache`. |
 
