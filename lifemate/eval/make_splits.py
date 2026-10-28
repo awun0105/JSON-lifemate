@@ -11,6 +11,7 @@ Cách xây dựng, theo thứ tự:
      chính của cụm (nhóm số lời gọi, cộng hậu tố "_ask"). Nhãn hiếm và cụm lớn được xếp trước.
   4. Kiểm tra rò rỉ: meta.json ghi số id trùng giữa train và hai tập val (phải bằng 0).
   5. Tùy chọn `--smoke`: lấy N id của val_seen, phân tầng theo (loại câu trả lời, có lịch sử hay không).
+     Tùy chọn `--asr-tune`: lấy N id của train cùng cách phân tầng, làm tập chỉnh cấu hình ASR.
 
 Adapted from the team lead's repo ThanhDanh1510/ZaloAI2026 src/preprocessing/dataset/split.py@7033c9f
 (near-duplicate clustering, iterative stratified group k-fold, 6 held-out apps), with one fix: train is built
@@ -182,6 +183,13 @@ def main() -> None:
         metavar="N",
         help="also write smoke.txt: N val_seen ids stratified by (answer type, has history); 0 = skip",
     )
+    ap.add_argument(
+        "--asr-tune",
+        type=int,
+        default=0,
+        metavar="N",
+        help="also write asr_tune.txt: N train ids (same stratification) for choosing the ASR config; 0 = skip",
+    )
     args = ap.parse_args()
     # Thứ tự ưu tiên: --root, rồi data_root của profile --env, rồi thư mục dữ liệu cục bộ mặc định.
     if args.root is None:
@@ -228,6 +236,12 @@ def main() -> None:
         smoke = smoke_sample(val_seen, args.smoke, args.seed)
         (args.out / "smoke.txt").write_text("".join(f"{i}\n" for i in smoke))
         print(f"  smoke      {len(smoke):>5}  -> {args.out / 'smoke.txt'}")
+    # Tập chỉnh cấu hình ASR: lấy từ train (ASR không học trên train nên không rò), split chính không đổi.
+    # Nếu sau này fine-tune ASR trên train thì phải loại các id này khỏi dữ liệu train ASR.
+    if args.asr_tune:
+        tune = smoke_sample(train, args.asr_tune, args.seed)
+        (args.out / "asr_tune.txt").write_text("".join(f"{i}\n" for i in tune))
+        print(f"  asr_tune   {len(tune):>5}  -> {args.out / 'asr_tune.txt'}")
 
     def mix(part):
         """Số mẫu theo loại câu trả lời trong một split."""

@@ -67,3 +67,37 @@ def test_resolve_asr_dtype_rejects(cfg: str, on_gpu: bool, cc: tuple[int, int] |
     """Bắt lỗi: bfloat16 trên GPU đời trước sm80, hoặc dtype nửa độ chính xác trên CPU."""
     with pytest.raises(ValueError, match=r"asr\.dtype"):
         resolve_asr_dtype(cfg, on_gpu, cc)
+
+
+def test_hf_generate_kwargs_maps_shared_config() -> None:
+    """Bảo vệ: cấu hình chung kiểu faster-whisper dịch đúng sang transformers; mặc định vẫn tham lam như cũ."""
+    from lifemate.backends.asr import hf_generate_kwargs
+
+    assert hf_generate_kwargs({"language": "vi", "task": "transcribe"}) == (
+        {"language": "vi", "task": "transcribe", "num_beams": 1, "do_sample": False},
+        "",
+    )
+    shared = {
+        "language": "vi",
+        "temperature": 0.0,
+        "beam_size": 5,
+        "best_of": 5,
+        "condition_on_previous_text": False,
+        "initial_prompt": "Nhắn Zalo cho Lan.",
+        "repetition_penalty": 1.2,
+        "no_repeat_ngram_size": 3,
+        "vad_filter": False,
+    }
+    kwargs, prompt = hf_generate_kwargs(shared)
+    assert prompt == "Nhắn Zalo cho Lan."
+    assert kwargs == {
+        "language": "vi",
+        "temperature": 0.0,
+        "condition_on_prev_tokens": False,
+        "repetition_penalty": 1.2,
+        "no_repeat_ngram_size": 3,
+        "num_beams": 5,
+        "do_sample": False,
+    }
+    with pytest.raises(ValueError, match="vad_filter"):
+        hf_generate_kwargs({"vad_filter": True})

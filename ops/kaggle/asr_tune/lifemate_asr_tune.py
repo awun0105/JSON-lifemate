@@ -1,21 +1,21 @@
-"""Kernel Kaggle so các biến thể cấu hình ASR (kernel riêng tư quanlam/lifemate-asr-sweep).
+"""Kernel Kaggle chọn mô hình và cấu hình ASR công bằng (kernel riêng tư quanlam/lifemate-asr-tune).
 
-Đặt ASR_SWEEP rồi lấy ops/kaggle/smoke/lifemate_smoke.py từ cùng git ref và chạy; mỗi biến thể ghi WER, tỷ lệ
-nghe sai thực thể, số câu rỗng và từng câu nghe ra vào asr_sweep/. Không chạy agent. Danh sách biến thể ở
-ASR_VARIANTS trong lifemate_smoke.py. Đẩy lên: kaggle kernels push -p ops/kaggle/asr_sweep --accelerator NvidiaTeslaT4
+Đặt ASR_TUNE rồi lấy ops/kaggle/smoke/lifemate_smoke.py từ cùng git ref và chạy; kịch bản đó gọi
+`python -m lifemate.eval.asr_tune` (dò từng bước trên configs/splits/asr_tune.txt, cùng hàm mục tiêu cho mọi mô hình,
+đo cấu hình thắng trên val_seen và val_unseen) và ghi kết quả vào asr_tune/. Không chạy agent.
+Đẩy lên: kaggle kernels push -p ops/kaggle/asr_tune --accelerator NvidiaTeslaT4
 """
 
 import os
 import subprocess
 
-# Tham số truyền cho kịch bản smoke: chỉ chạy nhánh ASR trên val_seen, bỏ nhánh gold và bước đo ASR.
+# Tham số truyền cho kịch bản smoke: chỉ chọn cấu hình ASR, không chạy agent hay bước đo ASR riêng.
 RUN = {
     "LIFEMATE_REF": "main",
     "RUN_GOLD": "0",
     "RUN_ASR": "0",
     "RUN_ASR_EVAL": "0",
-    "ASR_SWEEP": "norep_noprompt,hotwords,short_prompt,short_prompt2",
-    "ASR_EVAL_IDS": "configs/splits/val_seen.txt",
+    "ASR_TUNE": "large-v3,phowhisper,chunkformer,parakeet",
 }
 os.environ.update(RUN)
 # Thư mục tạm chứa bản clone dùng để lấy kịch bản smoke.

@@ -10,6 +10,11 @@ Cách xây dựng:
     sau khi gập (bỏ dấu tiếng Việt). Một thực thể bị bỏ sót khi không xuất hiện, theo ranh giới từ, trong văn bản ASR
     cuối đã gập.
   - Độ trễ: phân vị p50/p95 theo hạng gần nhất và giá trị lớn nhất của thời gian chép lời từng mẫu.
+  - `wer_nonum`: WER sau khi bỏ mọi số (chữ số và từ đọc số) ở cả hai phía. Đáp án viết số bằng chữ ("tám giờ"),
+    whisper-large-v3 viết bằng chữ số ("8 giờ"): WER thường phạt sai cách viết chứ không phải sai nghe. Độ đúng
+    của số được đo riêng qua thực thể.
+  - `n_hallucinated`: số câu mà chữ ASR trước bộ lọc (`Transcript.raw`) khớp một mẫu phụ đề bịa.
+  - `terms`: với mỗi tên riêng trong TERMS, [số câu đáp án có tên đó, số câu ASR cũng viết ra tên đó].
 """
 
 from __future__ import annotations
@@ -28,6 +33,52 @@ from lifemate.core.paths import REPO_ROOT
 from lifemate.core.types import Sample, Transcriber, Transcript
 
 _PUNCT = re.compile(r"[^\w\s]|_")
+
+# Từ đọc số tiếng Việt; bỏ cùng chữ số khi tính `wer_nonum` (một số từ như "một", "năm", "ba" cũng có nghĩa khác,
+# nhưng bị bỏ ở cả hai phía nên không thiên vị mô hình nào).
+_NUM_WORDS = frozenset(
+    {
+        "không",
+        "một",
+        "mốt",
+        "hai",
+        "ba",
+        "bốn",
+        "tư",
+        "năm",
+        "lăm",
+        "nhăm",
+        "sáu",
+        "bảy",
+        "bẩy",
+        "tám",
+        "chín",
+        "mười",
+        "mươi",
+        "trăm",
+        "nghìn",
+        "ngàn",
+        "triệu",
+        "tỷ",
+        "tỉ",
+        "linh",
+        "lẻ",
+        "rưỡi",
+        "chục",
+    }
+)
+# Tên riêng hay bị nghe sai (tên app, tên kênh); so trên văn bản đã gập (bỏ dấu, chữ thường).
+TERMS: dict[str, str] = {
+    "zalo": r"\bzalo\b",
+    "vtv": r"\bvtv",
+    "htv": r"\bhtv",
+    "voucher": r"\bvoucher\b",
+    "momo": r"\bmomo\b",
+    "grab": r"\bgrab\b",
+    "shopee": r"\bshopee\b",
+    "youtube": r"\byoutube\b",
+    "spotify": r"\bspotify\b",
+}
 
 
 def _fold(s: str) -> str:
@@ -54,6 +105,11 @@ def normalize_text(s: str) -> str:
     """Chuẩn hóa để tính WER/CER: chữ thường, NFC, bỏ dấu câu, gộp khoảng trắng."""
     t = unicodedata.normalize("NFC", s.lower())
     return " ".join(_PUNCT.sub(" ", t).split())
+
+
+def strip_numbers(normalized: str) -> list[str]:
+    """Các từ của văn bản đã chuẩn hóa, bỏ chữ số và từ đọc số (dùng cho `wer_nonum`)."""
+    return [w for w in normalized.split() if not any(c.isdigit() for c in w) and w not in _NUM_WORDS]
 
 
 def _edit_distance(a: Sequence[str], b: Sequence[str]) -> int:
@@ -181,6 +237,9 @@ class AsrReport:
     p95_s: float
     max_s: float
     entity_details: list[EntityDetail] = field(default_factory=list)
+    wer_nonum: float = 0.0
+    n_hallucinated: int = 0  # câu mà chữ trước bộ lọc khớp mẫu phụ đề bịa (chỉ đếm khi transcript có `raw`)
+    terms: dict[str, list[int]] = field(default_factory=dict)  # tên -> [số câu đáp án có tên, số câu ASR viết đúng]
 
     def to_dict(self) -> dict[str, Any]:
         """Dict sẵn sàng ghi JSON; phần chi tiết chỉ gồm các mẫu có thực thể bị bỏ sót."""
@@ -196,7 +255,7 @@ class AsrReport:
         """Bản tóm tắt ngắn cho người đọc."""
         return (
             f"samples={self.n_samples} utterances={self.n_utterances} empty={self.n_empty}\n"
-            f"WER={self.wer:.4f} CER={self.cer:.4f}\n"
+            f"WER={self.wer:.4f} WER_nonum={self.wer_nonum:.4f} CER={self.cer:.4f} hallucinated={self.n_hallucinated}\n"
             f"entity_miss_rate={self.entity_miss_rate:.4f} ({self.entity_missed}/{self.entity_total})\n"
             f"seconds p50={self.p50_s:.3f} p95={self.p95_s:.3f} max={self.max_s:.3f}"
         )
@@ -212,28 +271,52 @@ def evaluate(
     Transcriber được khởi động (warmup) trước để độ trễ không gồm thời
     gian nạp mô hình.
     """
+    from lifemate.backends.asr_sanitizer import strip_hallucinations
+
     transcriber.warmup()
     transcripts = [transcriber.transcribe(s) for s in samples]
-    w_err = w_n = c_err = c_n = n_utt = n_empty = 0
+    w_err = w_n = c_err = c_n = n_utt = n_empty = nn_err = nn_n = n_hall = 0
+    terms = {name: [0, 0] for name in TERMS}
     for s, t in zip(samples, transcripts, strict=True):
-        # Ghép (tham chiếu, giả thuyết) cho mọi câu có cả hai phía.
-        pairs: list[tuple[str, str, str]] = []
+        # Ghép (tham chiếu, giả thuyết, chữ trước lọc) cho mọi câu có cả hai phía. `raw` theo thứ tự file:
+        # các lượt user trong lịch sử rồi lượt cuối.
+        raw = list(t.raw)
+        pairs: list[tuple[str, str, str, str | None]] = []
+        k = 0
         for i, (turn, hyp) in enumerate(zip(s.history, t.history, strict=True)):
-            if turn.role == "user" and turn.audio_text is not None and hyp is not None:
-                pairs.append((str(i), turn.audio_text, hyp))
+            if turn.role != "user":
+                continue
+            raw_i = raw[k] if k < len(raw) else None
+            k += 1
+            if turn.audio_text is not None and hyp is not None:
+                pairs.append((str(i), turn.audio_text, hyp, raw_i))
         if s.audio_text is not None:
-            pairs.append(("final", s.audio_text, t.final))
+            pairs.append(("final", s.audio_text, t.final, raw[-1] if raw else None))
         # Cộng dồn lỗi và độ dài để ra tỷ lệ trên cả kho, không lấy trung bình theo câu.
-        for turn_key, ref, hyp in pairs:
+        for turn_key, ref, hyp, raw_text in pairs:
             if hyps is not None:
-                hyps.append({"id": s.id, "turn": turn_key, "ref": ref, "hyp": hyp})
+                row: dict[str, Any] = {"id": s.id, "turn": turn_key, "ref": ref, "hyp": hyp}
+                if raw_text is not None:
+                    row["raw"] = raw_text
+                hyps.append(row)
             r, h = normalize_text(ref), normalize_text(hyp)
             n_empty += int(bool(r) and not h)
             w_err += _edit_distance(r.split(), h.split())
             w_n += len(r.split())
+            rn, hn = strip_numbers(r), strip_numbers(h)
+            nn_err += _edit_distance(rn, hn)
+            nn_n += len(rn)
             c_err += _edit_distance(list(r), list(h))
             c_n += len(r)
             n_utt += 1
+            # Câu bịa: bộ lọc tìm thấy cụm phụ đề trong chữ trước lọc.
+            if raw_text is not None and strip_hallucinations(raw_text) != raw_text.strip():
+                n_hall += 1
+            fr, fh = _fold(ref), _fold(hyp)
+            for name, pat in TERMS.items():
+                if re.search(pat, fr):
+                    terms[name][0] += 1
+                    terms[name][1] += int(bool(re.search(pat, fh)))
     missed, total, rate, details = entity_miss_rate(samples, transcripts)
     secs = [t.seconds for t in transcripts]
     return AsrReport(
@@ -249,6 +332,9 @@ def evaluate(
         p95_s=percentile(secs, 95),
         max_s=max(secs, default=0.0),
         entity_details=details,
+        wer_nonum=_rate(nn_err, nn_n),
+        n_hallucinated=n_hall,
+        terms={k: v for k, v in terms.items() if v[0]},
     )
 
 
@@ -268,7 +354,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--split", default="train")
     ap.add_argument("--ids", type=Path, default=None)
     ap.add_argument("--out", type=Path, default=None)
-    ap.add_argument("--hyps", type=Path, default=None, help="jsonl: mỗi câu một dòng {id, turn, ref, hyp}")
+    ap.add_argument("--hyps", type=Path, default=None, help="jsonl: mỗi câu một dòng {id, turn, ref, hyp, raw}")
     args = ap.parse_args(argv)
     repo_root = REPO_ROOT
     cfg = load_config(args.config)

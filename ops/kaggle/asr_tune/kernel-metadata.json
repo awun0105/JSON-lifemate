@@ -1,7 +1,7 @@
 {
-  "id": "quanlam/lifemate-asr-sweep",
-  "title": "lifemate-asr-sweep",
-  "code_file": "lifemate_asr_sweep.py",
+  "id": "quanlam/lifemate-asr-tune",
+  "title": "lifemate-asr-tune",
+  "code_file": "lifemate_asr_tune.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": true,

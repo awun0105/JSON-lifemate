@@ -36,8 +36,8 @@ check: lint typecheck ## lint + typecheck
 test:            ## pytest (offline; bỏ qua test data/tokenizer khi thiếu)
 	uv run pytest -q
 
-splits:          ## Sinh lại configs/splits/ (train, val_seen, val_unseen, smoke)
-	uv run python -m lifemate.eval.make_splits --smoke 30
+splits:          ## Sinh lại configs/splits/ (train, val_seen, val_unseen, smoke, asr_tune)
+	uv run python -m lifemate.eval.make_splits --smoke 30 --asr-tune 300
 
 run:             ## Chạy agent: make run ENV=local SPLIT=train IDS=configs/splits/smoke.txt
 	uv run python -m lifemate.run.cli --config $(CONFIG) --env $(ENV) --split $(SPLIT) --ids $(IDS) --name $(NAME) $(EXTRA)

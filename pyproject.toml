@@ -22,12 +22,6 @@ gpu = [
     "faster-whisper==1.2.1",   # default ASR engine (whisper-large-v3 on CTranslate2), team lead's choice
 ]
 # Optional ASR engines (SPEC 6.1, SPEC appendix E.5); install on the GPU box only when that engine is chosen.
-asr-chunkformer = [
-    "chunkformer",
-]
-asr-viegem = [
-    "soundfile",
-]
 asr-faster-whisper = [
     "faster-whisper==1.2.1",
 ]
@@ -95,5 +89,5 @@ ignore_errors = true
 module = ["zaic_tools", "zaic_tools.*"]
 ignore_missing_imports = true
 [[tool.mypy.overrides]]
-module = ["vllm", "vllm.*", "transformers", "transformers.*", "torch", "torch.*", "structlog", "structlog.*", "chunkformer", "chunkformer.*", "matplotlib", "matplotlib.*"]
+module = ["vllm", "vllm.*", "transformers", "transformers.*", "torch", "torch.*", "structlog", "structlog.*", "chunkformer", "chunkformer.*", "nemo", "nemo.*", "omegaconf", "omegaconf.*", "huggingface_hub", "huggingface_hub.*", "matplotlib", "matplotlib.*"]
 ignore_missing_imports = true

@@ -3,11 +3,10 @@
 Nội dung:
 - `GoldTranscriber`: trả lại `audio_text` gốc của tập train, dùng khi muốn tách lỗi ASR khỏi lỗi LLM.
 - `ASRTranscriber`: chạy ASR thật trên các file WAV của mẫu, mỗi mẫu một lô (batch) gửi xuống backend.
-- Các backend mô hình theo giao thức `ASRBackend`: `FasterWhisperASR`, `HFSeq2SeqASR`, `ChunkFormerASR`,
-  `VieGemASR`.
+- Các backend mô hình theo giao thức `ASRBackend`: `FasterWhisperASR`, `HFSeq2SeqASR`, `ChunkFormerASR`, `NemoCTCASR`.
 
 Cách xây dựng:
-- Thư viện nặng (torch, transformers, faster_whisper, chunkformer, numpy) chỉ được import bên trong hàm khởi tạo
+- Thư viện nặng (torch, transformers, faster_whisper, chunkformer, nemo, numpy) chỉ được import bên trong hàm khởi tạo
   hoặc hàm dùng đến, nên import module này không cần extra `gpu` và test chạy được trên CPU thuần.
 - Backend được chọn theo tên qua registry `ASR_ENGINES` (`[asr].engine`); `make_backend` báo lỗi rõ ràng khi tên
   không có trong registry.
@@ -104,11 +103,36 @@ def resolve_asr_dtype(cfg_dtype: str, on_gpu: bool, compute_capability: tuple[in
     return "bfloat16" if compute_capability is not None and compute_capability >= (8, 0) else "float16"
 
 
-class HFSeq2SeqASR:
-    """Pipeline ASR của transformers, giải mã tham lam (greedy), không cắt đoạn (cần extra `tokenizer` và `gpu`).
+# Khóa chỉ faster-whisper có; transformers không có tương đương nên báo lỗi thay vì lặng lẽ bỏ qua.
+_HF_UNSUPPORTED = frozenset({"vad_filter", "vad_parameters", "hotwords"})
 
-    torch và transformers được import trong `__init__`; `num_beams=1`, `do_sample=False` luôn ghi đè
-    `generate_kwargs` của cấu hình để kết quả tất định.
+
+def hf_generate_kwargs(gk: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    """Dịch `generate_kwargs` kiểu faster-whisper sang tham số `generate` của transformers; trả (kwargs, câu mồi).
+
+    - `beam_size` -> `num_beams` (mặc định 1, tức tham lam); `do_sample=False` luôn bật.
+    - `initial_prompt` tách riêng (nơi gọi đổi thành `prompt_ids`).
+    - `condition_on_previous_text` -> `condition_on_prev_tokens` (chỉ có tác dụng với audio dài hơn 30 giây).
+    - `best_of` bị bỏ: faster-whisper chỉ dùng nó khi lấy mẫu (temperature > 0), giải mã tất định thì vô tác dụng.
+    - `vad_filter`, `vad_parameters`, `hotwords`: ValueError, vì transformers không có.
+    """
+    bad = sorted(k for k in gk if k in _HF_UNSUPPORTED and gk[k] not in (False, None, ""))
+    if bad:
+        raise ValueError(f"hf_seq2seq does not support generate_kwargs {bad} (faster_whisper only)")
+    out = {k: v for k, v in gk.items() if k not in _HF_UNSUPPORTED | {"beam_size", "best_of", "initial_prompt"}}
+    if "condition_on_previous_text" in out:
+        out["condition_on_prev_tokens"] = out.pop("condition_on_previous_text")
+    out["num_beams"] = int(gk.get("beam_size", out.get("num_beams", 1)))
+    out["do_sample"] = False
+    return out, str(gk.get("initial_prompt") or "")
+
+
+class HFSeq2SeqASR:
+    """Pipeline ASR của transformers (PhoWhisper), không cắt đoạn (cần extra `tokenizer` và `gpu`).
+
+    `generate_kwargs` dùng cùng tên khóa với faster-whisper để hai engine chạy chung một bộ cấu hình
+    (`hf_generate_kwargs` dịch sang tên của transformers). Mặc định giải mã tham lam; `do_sample=False` luôn bật
+    để kết quả tất định. torch và transformers được import trong `__init__`.
     """
 
     def __init__(self, cfg: ASRConfig) -> None:
@@ -132,7 +156,12 @@ class HFSeq2SeqASR:
             device=device,
             dtype=getattr(torch, self.dtype),
         )
-        self._generate_kwargs = {**cfg.generate_kwargs, "num_beams": 1, "do_sample": False}
+        self._generate_kwargs, self._prompt = hf_generate_kwargs(cfg.generate_kwargs)
+        if self._prompt:
+            # Câu mồi: transformers nhận dạng token (`prompt_ids`) chứ không nhận chuỗi như faster-whisper.
+            pipe: Any = self._pipe
+            ids = pipe.tokenizer.get_prompt_ids(self._prompt, return_tensors="pt")
+            self._generate_kwargs["prompt_ids"] = ids.to(pipe.device)
 
     def _run(self, items: list[dict[str, Any]]) -> list[str]:
         """Chạy pipeline trên danh sách đầu vào âm thanh; trả văn bản đã bỏ khoảng trắng hai đầu."""
@@ -141,7 +170,11 @@ class HFSeq2SeqASR:
         # Với một đầu vào duy nhất, pipeline trả dict thay vì list
         if isinstance(out, dict):
             out = [out]
-        return [str(o["text"]).strip() for o in out]
+        texts = [str(o["text"]).strip() for o in out]
+        # Phòng khi pipeline trả kèm câu mồi ở đầu văn bản: bỏ đi để chỉ còn lời nghe được.
+        if self._prompt:
+            texts = [t[len(self._prompt) :].strip() if t.startswith(self._prompt) else t for t in texts]
+        return texts
 
     def transcribe_batch(self, wav_paths: Sequence[Path]) -> list[str]:
         """Đọc mọi file WAV rồi chạy pipeline trên cả danh sách."""
@@ -159,9 +192,11 @@ class HFSeq2SeqASR:
 class ChunkFormerASR:
     """ChunkFormer CTC (khanhld/chunkformer-ctc-large-vie) qua gói `chunkformer`; giải mã CTC tham lam.
 
-    `cfg.model` là id trên HF hoặc thư mục snapshot cục bộ; gói bỏ qua `cfg.revision`, nên cần ghim thư mục
-    snapshot trong Docker. `generate_kwargs` có thể ghi đè chunk_size / left_context_size /
-    right_context_size / total_batch_duration.
+    Gói tự tải mô hình nhưng bỏ qua revision, nên engine tải trước snapshot của `cfg.model` đúng `cfg.revision` rồi
+    nạp từ thư mục đó (`cfg.model` cũng có thể là thư mục cục bộ). `generate_kwargs` nhận chunk_size /
+    left_context_size / right_context_size / total_batch_duration; các khóa chung của cấu hình kiểu Whisper
+    (language, task, temperature = 0, beam_size = 1, condition_on_previous_text) bị bỏ qua vì không áp dụng cho CTC.
+    Khóa khác gây ValueError. Giấy phép CC-BY-NC-4.0 (phi thương mại): cần BTC xác nhận trước khi dùng để nộp bài.
     """
 
     _DEFAULTS: ClassVar[dict[str, Any]] = {
@@ -170,13 +205,25 @@ class ChunkFormerASR:
         "right_context_size": 128,
         "total_batch_duration": 1800,
     }
+    _IGNORED: ClassVar[frozenset[str]] = frozenset(
+        {"language", "task", "temperature", "beam_size", "condition_on_previous_text"}
+    )
 
     def __init__(self, cfg: ASRConfig) -> None:
         from chunkformer import ChunkFormerModel
 
+        gk = dict(cfg.generate_kwargs)
+        bad = sorted(k for k in gk if k not in self._IGNORED | self._DEFAULTS.keys())
+        if bad or int(gk.get("beam_size", 1)) != 1 or gk.get("temperature", 0.0) not in (0, 0.0):
+            raise ValueError(f"chunkformer supports only greedy CTC options; got generate_kwargs {sorted(gk)}")
         self._cfg = cfg
-        self._model: Any = ChunkFormerModel.from_pretrained(cfg.model)
-        self._kwargs = {**self._DEFAULTS, **cfg.generate_kwargs}
+        path = cfg.model
+        if not Path(path).is_dir():
+            from huggingface_hub import snapshot_download
+
+            path = snapshot_download(cfg.model, revision=cfg.revision or None)
+        self._model: Any = ChunkFormerModel.from_pretrained(path)
+        self._kwargs = {**self._DEFAULTS, **{k: v for k, v in gk.items() if k in self._DEFAULTS}}
 
     def transcribe_batch(self, wav_paths: Sequence[Path]) -> list[str]:
         """Gói tự đọc file; mỗi đường dẫn một văn bản, theo thứ tự đầu vào."""
@@ -184,10 +231,7 @@ class ChunkFormerASR:
         return [str(t).strip() for t in out]
 
     def warmup(self) -> None:
-        """Chạy một lượt trên 1 giây im lặng ghi ra file WAV tạm.
-
-        Gói chỉ nhận đường dẫn file, không nhận mảng âm thanh, nên phải ghi WAV ra thư mục tạm.
-        """
+        """Chạy một lượt trên 1 giây im lặng ghi ra file WAV tạm (gói chỉ nhận đường dẫn file)."""
         import tempfile
 
         import numpy as np
@@ -203,68 +247,96 @@ class ChunkFormerASR:
             self.transcribe_batch([p])
 
 
-class VieGemASR:
-    """VieGem-ASR (5CD-AI/VieGem-ASR): CTC streaming trên bộ mã hóa âm thanh EmbeddingGemma 2; tham lam, chế độ offline.
+class NemoCTCASR:
+    """Parakeet CTC của NVIDIA (nvidia/parakeet-ctc-0.6b-Vietnamese) qua NeMo (`pip install nemo_toolkit[asr]`).
 
-    `cfg.model` là thư mục snapshot cục bộ chứa `viegem_asr.pt` và thư mục mã `asr/` (repo kèm mã mô hình riêng,
-    không phải kiến trúc transformers). Các file được giải mã lần lượt từng file: mã công bố chỉ nhận một câu nói,
-    và clip ≤ 30 giây giữ chi phí này ở mức thấp.
+    `cfg.model` là repo HF chứa đúng một file `.nemo`, tải theo `cfg.revision`. CTC không có câu mồi, beam search
+    thường hay tham số chống lặp, nên `generate_kwargs` chỉ nhận:
+      - các khóa chung của cấu hình kiểu Whisper (language, task, temperature = 0, beam_size = 1,
+        condition_on_previous_text), bị bỏ qua vì không áp dụng cho CTC;
+      - `lm = true` (tùy chọn): beam search có mô hình ngôn ngữ KenLM 4-gram và lexicon đi kèm repo, với
+        `lm_beam_size` (64), `lm_alpha` (0.3), `lm_beta` (0.5) theo model card; cần thêm gói flashlight-text.
+    Khóa khác (initial_prompt, hotwords, VAD, chống lặp, beam_size > 1) gây ValueError.
     """
 
+    _IGNORED: ClassVar[frozenset[str]] = frozenset(
+        {"language", "task", "temperature", "beam_size", "condition_on_previous_text"}
+    )
+    _LM_KEYS: ClassVar[frozenset[str]] = frozenset({"lm", "lm_beam_size", "lm_alpha", "lm_beta"})
+
     def __init__(self, cfg: ASRConfig) -> None:
-        import sys
-
         import torch
-        from transformers import AutoTokenizer
+        from huggingface_hub import hf_hub_download, list_repo_files
+        from nemo.collections.asr.models import ASRModel
 
-        root = Path(cfg.model)
-        if not (root / "viegem_asr.pt").is_file():
-            raise ValueError(f"asr.model: {root} has no viegem_asr.pt (engine = 'viegem' needs the snapshot folder)")
-        # Mã mô hình nằm trong snapshot (`asr/`), nên thêm thư mục snapshot vào sys.path trước khi import
-        if str(root) not in sys.path:
-            sys.path.insert(0, str(root))
-        from asr.model import CTCModel, ModelConfig, greedy_decode  # type: ignore[import-not-found]
-        from asr.text import Units  # type: ignore[import-not-found]
-
+        gk = dict(cfg.generate_kwargs)
+        bad = sorted(k for k in gk if k not in self._IGNORED | self._LM_KEYS)
+        if bad or int(gk.get("beam_size", 1)) != 1 or gk.get("temperature", 0.0) not in (0, 0.0):
+            raise ValueError(f"nemo_ctc supports only greedy CTC or lm = true; got generate_kwargs {sorted(gk)}")
         self._cfg = cfg
-        use_cuda = cfg.device == "cuda" or (cfg.device == "auto" and torch.cuda.is_available())
-        self._device = torch.device("cuda" if use_cuda else "cpu")
-        ck = torch.load(root / "viegem_asr.pt", map_location="cpu")
-        model_cfg = ModelConfig.from_dict(ck["model_config"])
-        self._units = Units(ck["gemma_ids"])
-        self._tok = AutoTokenizer.from_pretrained(model_cfg.encoder_id)
-        model = CTCModel(model_cfg, self._units.gemma_ids)
-        # strict=False: checkpoint không nhất thiết chứa đủ mọi tham số của CTCModel
-        model.load_state_dict(ck["model"], strict=False)
-        self._model = model.to(self._device).eval()
-        self._greedy_decode = greedy_decode
+        rev = cfg.revision or None
+        files = list_repo_files(cfg.model, revision=rev)
+        nemo_files = [f for f in files if f.endswith(".nemo")]
+        if len(nemo_files) != 1:
+            raise ValueError(f"asr.model: {cfg.model} must hold exactly one .nemo file, found {nemo_files}")
+        on_gpu = cfg.device == "cuda" or (cfg.device == "auto" and torch.cuda.is_available())
+        model: Any = ASRModel.restore_from(
+            hf_hub_download(cfg.model, nemo_files[0], revision=rev), map_location="cuda" if on_gpu else "cpu"
+        )
+        cc = tuple(torch.cuda.get_device_capability(0)) if on_gpu else None
+        self.dtype = resolve_asr_dtype(cfg.dtype, on_gpu, cc)
+        self._autocast = on_gpu and self.dtype != "float32"
         self._torch = torch
+        if gk.get("lm"):
+            from omegaconf import open_dict
 
-    def _one(self, audio: Any) -> str:
-        """Giải mã một câu nói (mảng float32) thành văn bản; trên CUDA chạy autocast bfloat16."""
-        torch = self._torch
-        # Thêm chiều batch = 1; `lens` là độ dài thực của câu nói
-        x = torch.from_numpy(audio)[None].to(self._device)
-        lens = torch.tensor([x.shape[1]], device=self._device)
-        with torch.no_grad():
-            if self._device.type == "cuda":
-                with torch.autocast("cuda", dtype=torch.bfloat16):
-                    logits, out_lens = self._model(x, lens, streaming=False)
-            else:
-                logits, out_lens = self._model(x, lens, streaming=False)
-        ids = self._greedy_decode(logits, out_lens)[0]
-        return str(self._units.decode(self._tok, ids)).strip()
+            dec = model.cfg.decoding
+            with open_dict(dec):
+                dec.strategy = "beam"
+                dec.beam.search_type = "flashlight"
+                dec.beam.beam_size = int(gk.get("lm_beam_size", 64))
+                dec.beam.beam_alpha = float(gk.get("lm_alpha", 0.3))
+                dec.beam.beam_beta = float(gk.get("lm_beta", 0.5))
+                dec.beam.kenlm_path = hf_hub_download(cfg.model, self._one_file(files, ".bin"), revision=rev)
+                dec.beam.flashlight_cfg.lexicon_path = hf_hub_download(
+                    cfg.model, self._one_file(files, ".lexicon"), revision=rev
+                )
+            model.change_decoding_strategy(dec)
+        self._model = model.eval()
+
+    @staticmethod
+    def _one_file(files: Sequence[str], suffix: str) -> str:
+        """Tên file duy nhất có đuôi `suffix` trong repo (mô hình ngôn ngữ, lexicon)."""
+        hits = [f for f in files if f.endswith(suffix)]
+        if len(hits) != 1:
+            raise ValueError(f"expected one {suffix} file in the model repo, found {hits}")
+        return hits[0]
 
     def transcribe_batch(self, wav_paths: Sequence[Path]) -> list[str]:
-        """Giải mã từng file WAV theo thứ tự."""
-        sr = self._cfg.sample_rate
-        return [self._one(read_wav(p, sr)) for p in wav_paths]
+        """NeMo tự đọc file; mỗi đường dẫn một văn bản, theo thứ tự đầu vào (kết quả là Hypothesis hoặc chuỗi)."""
+        torch = self._torch
+        paths = [str(p) for p in wav_paths]
+        with torch.no_grad(), torch.autocast("cuda", dtype=getattr(torch, self.dtype), enabled=self._autocast):
+            out = self._model.transcribe(paths, batch_size=len(paths), verbose=False)
+        if isinstance(out, tuple):  # một số phiên bản trả (best, all)
+            out = out[0]
+        return [str(getattr(o, "text", o)).strip() for o in out]
 
     def warmup(self) -> None:
-        """Chạy một lượt trên 1 giây im lặng."""
+        """Chạy một lượt trên 1 giây im lặng ghi ra file WAV tạm (NeMo nhận đường dẫn file)."""
+        import tempfile
+
         import numpy as np
 
-        self._one(np.zeros(self._cfg.sample_rate, dtype=np.float32))
+        sr = self._cfg.sample_rate
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "silence.wav"
+            with wave.open(str(p), "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(sr)
+                w.writeframes(np.zeros(sr, dtype="<i2").tobytes())
+            self.transcribe_batch([p])
 
 
 class FasterWhisperASR:
@@ -319,7 +391,7 @@ ASR_ENGINES: dict[str, Callable[[ASRConfig], ASRBackend]] = {
     "faster_whisper": FasterWhisperASR,
     "hf_seq2seq": HFSeq2SeqASR,
     "chunkformer": ChunkFormerASR,
-    "viegem": VieGemASR,
+    "nemo_ctc": NemoCTCASR,
 }
 
 
@@ -377,12 +449,13 @@ class ASRTranscriber:
             if len(got) != len(chunk):
                 raise ValueError(f"{sample.id}: ASR returned {len(got)} texts for {len(chunk)} files")
             texts.extend(got)
+        raw = tuple(texts)
         if self._cfg.sanitize:
             texts = [sanitize(t, is_history=i < len(texts) - 1) for i, t in enumerate(texts)]
         # Phân phát lần lượt văn bản lịch sử cho các lượt user; lượt assistant nhận None
         it = iter(texts[:-1])
         history = tuple(next(it) if t.role == "user" else None for t in sample.history)
-        return Transcript(final=texts[-1], history=history, seconds=time.perf_counter() - start)
+        return Transcript(final=texts[-1], history=history, seconds=time.perf_counter() - start, raw=raw)
 
     def warmup(self) -> None:
         """Khởi động backend một lần duy nhất."""

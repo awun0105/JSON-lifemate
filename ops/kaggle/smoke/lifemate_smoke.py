@@ -4,32 +4,31 @@ Nội dung: kịch bản chạy trọn một lượt kiểm tra trên Kaggle, t�
 đến chạy agent với vLLM thật và in báo cáo.
 
 Các bước: tìm dataset dữ liệu riêng tư, clone mã nguồn từ GitHub, cài các thư viện đã khoá phiên bản
-cùng vLLM, chạy các bài kiểm thử offline, đo chất lượng ASR ở float32 so với dtype auto trên val_seen,
+cùng vLLM, chạy các bài kiểm thử offline, đo chất lượng ASR trên val_seen, chọn cấu hình ASR (tùy chọn),
 sau đó chạy 30 mẫu smoke với vLLM thật (transcript gold và/hoặc ASR whisper-large-v3). Kết quả nằm trong
-/kaggle/working/runs và /kaggle/working/asr_eval để tải về bằng `kaggle kernels output`.
+/kaggle/working/runs, asr_eval và asr_tune để tải về bằng `kaggle kernels output`.
 
 Cách hoạt động, theo thứ tự trong file:
   1. Tìm thư mục dữ liệu dưới /kaggle/input, clone mã nguồn ở git ref đã chọn.
   2. Sửa profile Kaggle (đường dẫn dữ liệu thật, nguồn HF token).
-  3. Sinh các config chạy từ configs/v0.toml (bản ASR và bản ASR float32).
+  3. Sinh config chạy agent trên chữ ASR từ configs/v0.toml.
   4. Cài thư viện, gỡ torchaudio, dựng lại danh sách split, chạy pytest.
-  5. Đo chất lượng ASR (nếu RUN_ASR_EVAL=1).
+  5. Đo chất lượng ASR (RUN_ASR_EVAL), chọn cấu hình ASR (ASR_TUNE), dựng cache ASR (RUN_ASR_CACHE).
   6. Chạy agent (gold và/hoặc ASR), đếm các sự kiện deadline trong log.
-  7. In báo cáo, xoá mã nguồn và cache để output chỉ còn runs/ và asr_eval/.
+  7. In báo cáo, xoá mã nguồn và cache để output chỉ còn kết quả.
 
 Đẩy lên:  kaggle kernels push -p ops/kaggle/smoke --accelerator NvidiaTeslaT4
 Dữ liệu:  dataset riêng tư quanlam/zac2026-lifemate (tuyệt đối không công khai).
 Tham số (biến môi trường, đọc lúc chạy): LIFEMATE_REF (git ref, mặc định main),
 RUN_GOLD / RUN_ASR_EVAL ("1" để chạy, mặc định "1"), RUN_ASR (agent trên chữ ASR, mặc định "0": T4 15 GB
 không chứa nổi vLLM cùng whisper-large-v3 ở dtype auto), RUN_ASR_CACHE (mặc định "0"),
-ASR_SWEEP (danh sách biến thể trong ASR_VARIANTS, trống = bỏ qua), ASR_DTYPE (ghi đè asr.dtype của config chạy agent),
-ASR_EVAL_DTYPES ("auto" hoặc "auto,fp32"), ASR_EVAL_IDS (mặc định val_seen), RUN_IDS (file danh sách id,
+ASR_TUNE (danh sách mô hình cho lifemate.eval.asr_tune, ví dụ "large-v3,phowhisper,parakeet"; trống = bỏ qua),
+ASR_EVAL_IDS (mặc định val_seen), RUN_IDS (file danh sách id,
 mặc định là 30 mẫu smoke), RUN_TAG (hậu tố của tên lượt chạy). ops/kaggle/eval đặt các biến này rồi
 exec file này.
 """
 
 import glob
-import json
 import os
 import re
 import shutil
@@ -122,15 +121,6 @@ edit(asr_cfg, r'^backend = "gold".*$', 'backend = "asr"')
 edit(asr_cfg, r"^max_model_len = .*$", "max_model_len = 8192")
 edit(asr_cfg, r"^gpu_memory_utilization = .*$", "gpu_memory_utilization = 0.72")
 
-# Bản float32 để so chất lượng ASR với dtype auto; regex giữ lại phần chú thích "# auto: ..." của dòng.
-asr_fp32 = CODE / "configs/kaggle_asr_fp32.toml"
-shutil.copy(asr_cfg, asr_fp32)
-edit(asr_fp32, r'^dtype = "auto"(\s+# auto: bfloat16.*)$', r'dtype = "float32"\1')
-# ASR_DTYPE (tùy chọn) đổi dtype ASR của config chạy agent, đặt sau khi chép bản fp32. Bản eval 28/10
-# với large-v3 float16 bị hết bộ nhớ GPU cạnh vLLM (253/274 mẫu lỗi); "int8_float16" cần khoảng nửa bộ nhớ.
-if os.environ.get("ASR_DTYPE"):
-    edit(asr_cfg, r'^dtype = "auto"(\s+# auto: bfloat16.*)$', f'dtype = "{os.environ["ASR_DTYPE"]}"\\1')
-
 # 4. Thư viện. vLLM kéo theo torch cho CUDA 13.0; torchaudio có sẵn trên Kaggle được build cho CUDA 12.8
 # và làm hỏng lệnh import transformers, trong khi LifeMate tự đọc WAV, nên gỡ torchaudio.
 sh("nvidia-smi")
@@ -147,82 +137,40 @@ sh(
 # In thông tin môi trường mà LifeMate tự nhận diện.
 sh("python -c \"from pathlib import Path; from lifemate.core.envinfo import detect; print(detect(Path('.')))\"")
 # Danh sách id của các split bị git bỏ qua; dựng lại từ dữ liệu đã gắn (tất định, giống hệt file ở máy local).
-sh(f"python -m lifemate.eval.make_splits --root {data_root} --smoke 30")
+sh(f"python -m lifemate.eval.make_splits --root {data_root} --smoke 30 --asr-tune 300")
 # Chạy kiểm thử offline (bỏ qua nhóm cần dữ liệu và tokenizer); lỗi kiểm thử không dừng kịch bản.
 sh('python -m pytest -q -p no:cacheprovider -m "not data and not tokenizer"', check=False)
 
-# 5. Chất lượng ASR trên cùng một bộ mẫu. ASR_EVAL_DTYPES chọn kiểu số: mặc định chỉ "auto" (float16 trên T4,
-# bfloat16 trên sm80+); thêm "fp32" khi cần so lại với float32 (đã so với PhoWhisper ngày 27/10, chậm gấp ~3 lần).
+# 5. Chất lượng ASR của cấu hình hiện tại (configs/v0.toml) trên cùng một bộ mẫu.
 if flag("RUN_ASR_EVAL"):
     eval_ids = os.environ.get("ASR_EVAL_IDS", "configs/splits/val_seen.txt")
-    cfgs = {"fp32": asr_fp32, "auto": asr_cfg}
-    for name in os.environ.get("ASR_EVAL_DTYPES", "auto").split(","):
+    out = f"{WORK}/asr_eval/{Path(eval_ids).stem}"
+    sh(
+        f"python -m lifemate.eval.eval_asr --config {asr_cfg} --env kaggle --split train "
+        f"--ids {eval_ids} --out {out}.json --hyps {out}.hyps.jsonl",
+        check=False,
+    )
+
+# 5a. Chọn mô hình và cấu hình ASR công bằng (lifemate/eval/asr_tune.py): dò từng bước trên asr_tune.txt, cùng hàm
+# mục tiêu cho mọi mô hình, rồi đo cấu hình thắng một lần trên val_seen và val_unseen.
+# Mỗi mô hình một lệnh. ChunkFormer và Parakeet đo sau cùng, thư viện riêng của chúng cài ngay trước khi đo:
+# chunkformer cần torchaudio (cài bản khớp torch hiện tại, vì bản có sẵn trên Kaggle làm hỏng transformers), NeMo
+# kéo theo nhiều thư viện và có thể đổi phiên bản torch. Cài lỗi thì chỉ mô hình đó hỏng, các mô hình trước đã xong.
+tune_models = [m.strip() for m in os.environ.get("ASR_TUNE", "").split(",") if m.strip()]
+LATE = {"chunkformer": 1, "parakeet": 2}
+for model in sorted(tune_models, key=lambda m: LATE.get(m, 0)):
+    if model == "chunkformer":
         sh(
-            f"python -m lifemate.eval.eval_asr --config {cfgs[name.strip()]} --env kaggle --split train "
-            f"--ids {eval_ids} --out {WORK}/asr_eval/{Path(eval_ids).stem}_{name.strip()}.json",
+            "TV=$(python -c \"import torch; print(torch.__version__.split('+')[0])\"); "
+            "CU=$(python -c \"import torch; print('cu' + torch.version.cuda.replace('.', ''))\"); "
+            'pip install -q "torchaudio==$TV" --index-url "https://download.pytorch.org/whl/$CU"',
             check=False,
         )
-
-# 5a. So các biến thể cấu hình ASR trên cùng bộ mẫu (ASR_SWEEP="lead,norep,..."; trống = bỏ qua). Mỗi biến thể là
-# một bản sao của cấu hình ASR hiện tại (configs/v0.toml) với vài khóa [asr] được sửa; ghi WER/thực thể và từng câu
-# nghe ra (--hyps). Kết quả sweep 28/10 (artifacts/runs/kaggle/asr_sweep_v1): v0 đã bỏ câu mồi và hai tham số
-# chống lặp, nên các biến thể cần những khóa đó tự thêm lại qua "gk" để luôn đo đúng cấu hình như tên gọi.
-LEAD_PROMPT = (
-    "LifeMate: trợ lý ảo tiếng Việt điều khiển smart home, tivi, đặt xe, ngân hàng, HTV7, VTV1, VTV3, deadline, "
-    "voucher, Zalo."
-)
-LEAD_GK = {"repetition_penalty": 1.2, "no_repeat_ngram_size": 3, "initial_prompt": LEAD_PROMPT}
-ASR_VARIANTS = {
-    "lead": {"gk": LEAD_GK},  # tham số giải mã gốc của team lead
-    "norep": {"gk": {"initial_prompt": LEAD_PROMPT}},  # bỏ chống lặp, giữ câu mồi
-    "norep_raw": {"gk": {"initial_prompt": LEAD_PROMPT}, "set": {"sanitize": False}},
-    "norep_noprompt": {},  # = cấu hình hiện tại của v0
-    "norep_novad": {
-        "drop": ["vad_parameters"],
-        "gk": {"vad_filter": False, "initial_prompt": LEAD_PROMPT},
-    },
-    # Sweep v2 (28/10): giữ chính tả tên riêng (Zalo, VTV, HTV) mà không kéo Whisper vào phụ đề YouTube.
-    "hotwords": {"gk": {"hotwords": "Zalo VTV1 VTV3 HTV7 voucher deadline"}},  # danh sách từ, không phải câu
-    "short_prompt": {"gk": {"initial_prompt": "Nhắn Zalo cho Lan. Chuyển sang kênh VTV3."}},  # câu mồi giống lời nói
-    "short_prompt2": {
-        "gk": {"initial_prompt": "Nhắn Zalo cho mẹ. Mở kênh VTV1, VTV3, HTV7. Dùng voucher trước deadline."}
-    },
-    "phowhisper": {
-        "set": {
-            "engine": "hf_seq2seq",
-            "model": "vinai/PhoWhisper-medium",
-            "revision": "55a7e3eb6c906de891f8f06a107754427dd3be79",
-            "sanitize": False,
-            "generate_kwargs": {"language": "vi", "task": "transcribe"},
-        }
-    },
-}
-sweep = [v.strip() for v in os.environ.get("ASR_SWEEP", "").split(",") if v.strip()]
-if sweep:
-    import tomllib
-
-    sys.path.insert(0, str(CODE))
-    from lifemate.train.llm_pipeline import dump_toml
-
-    base = tomllib.loads(asr_cfg.read_text(encoding="utf-8"))
-    eval_ids = os.environ.get("ASR_EVAL_IDS", "configs/splits/val_seen.txt")
-    for name in sweep:
-        spec = ASR_VARIANTS[name]
-        raw = json.loads(json.dumps(base))  # bản sao sâu
-        gk = dict(raw["asr"].get("generate_kwargs") or {})
-        for k in spec.get("drop", []):
-            gk.pop(k, None)
-        gk.update(spec.get("gk", {}))
-        raw["asr"]["generate_kwargs"] = gk
-        raw["asr"].update(spec.get("set", {}))
-        cfg_path = CODE / f"configs/kaggle_asr_{name}.toml"
-        cfg_path.write_text(dump_toml(raw), encoding="utf-8")
-        out = WORK / "asr_sweep" / name
-        sh(
-            f"python -m lifemate.eval.eval_asr --config {cfg_path} --env kaggle --split train --ids {eval_ids} "
-            f"--out {out}.json --hyps {out}.hyps.jsonl",
-            check=False,
-        )
+        sh('pip install -q "chunkformer==1.2.2"', check=False)
+    if model == "parakeet":
+        sh('pip install -q "nemo_toolkit[asr]==2.6.2"', check=False)
+        sh("pip install -q flashlight-text", check=False)  # cho lựa chọn lm (beam + KenLM); thiếu thì chỉ lm lỗi
+    sh(f"python -m lifemate.eval.asr_tune --env kaggle --models {model} --out {WORK}/asr_tune/{model}", check=False)
 
 # 5b. ASR cache cho dữ liệu fine-tune (SPEC 6.2.1), tắt mặc định: chạy ASR một lần trên train, val_seen và
 # val_unseen rồi lưu chữ vào output của kernel (riêng tư). Tải về bằng `kaggle kernels output` và đặt vào
@@ -265,7 +213,7 @@ if (WORK / "runs" / "index.csv").is_file():
 for path in (
     sorted(glob.glob(f"{WORK}/runs/*/summary.json"))
     + sorted(glob.glob(f"{WORK}/asr_eval/*.json"))
-    + sorted(glob.glob(f"{WORK}/asr_sweep/*.json"))
+    + sorted(glob.glob(f"{WORK}/asr_tune/*/summary.json"))
 ):
     print(f"\n== {path}\n" + Path(path).read_text(encoding="utf-8"), flush=True)
 shutil.rmtree(CODE, ignore_errors=True)

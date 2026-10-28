@@ -31,7 +31,7 @@ Cho một yêu cầu bằng giọng nói tiếng Việt, agent phải gọi đú
 | Agent v0 (`lifemate/`), CLI, hạ tầng đo | **Có, 27/10/2026**; đã chạy thật trên Kaggle T4 với hạn 29 s | 218 test pass (28/10); FakeLLM qua CLI được 100,00 (strict và canon) trên `val_seen`, `val_unseen`; `configs/fake.toml` chạy không cần model |
 | Chọn model | **Đã chọn** (mục 6.0, phụ lục E.5): Qwen3-4B-Instruct-2507; ASR whisper-large-v3 bản CTranslate2, không câu mồi (lịch sử ở `decisions.md` D17, D25, D30) | Qwen3, PhoWhisper và large-v3 đã chạy trên Kaggle T4 (`experiments.md`) |
 | vLLM thật | `VLLMBackend` viết theo API 0.32, **chỉ test với engine giả** (Q3) | |
-| ASR | `ASRTranscriber` + 4 engine (`faster_whisper` mặc định, `hf_seq2seq`, `chunkformer`, `viegem`), bộ lọc ảo giác `asr_sanitizer.py`, `eval_asr.py` | large-v3 không câu mồi: WER 29,7%, bỏ sót thực thể 31% trên `val_seen` (ASR sweep v1, `experiments.md`); chưa có baseline agent hợp lệ với ASR thật |
+| ASR | `ASRTranscriber` + 4 engine (`faster_whisper` mặc định, `hf_seq2seq`, `chunkformer`, `nemo_ctc`), bộ lọc ảo giác `asr_sanitizer.py`, `eval_asr.py`, chọn cấu hình ASR `asr_tune.py` | large-v3 không câu mồi: WER 29,7%, bỏ sót thực thể 31% trên `val_seen` (ASR sweep v1, `experiments.md`); chưa có baseline agent hợp lệ với ASR thật |
 | Docker | Dockerfile, entrypoint, `configs/docker.toml`, smoke script; **chưa build** | `docs/docker.md` |
 | Fine-tune | LLM train bằng ms-swift 4.6.0 (`swift_sft.py`, 28/10); dữ liệu trộn 70% chữ ASR, 3% mẫu phục hồi lỗi; template ms-swift đã so khớp với chat template trên 60 mẫu thật; `sft_data` và `asr_data` đã chạy trên dữ liệu thật; **train/merge chưa chạy** | Phụ lục E.5.2 ghi kế hoạch và thứ tự |
 | Môi trường | Profile local/kaggle/colab/rented/runpod/docker, notebook run và train, `ops/scripts/runpod_setup.sh` | Chỉ profile local đã chạy |
@@ -140,7 +140,7 @@ lifemate/                 # code, chia theo vai trò; mỗi gói 2–7 module
 │   └── observers.py      # A10: AgentObserver, Tracer, NullObserver
 ├── backends/             # model thật và giả, sau Protocol LLMBackend / Transcriber
 │   ├── llm.py            # A5: VLLMBackend, FakeLLM
-│   ├── asr.py            # A2: GoldTranscriber, ASRTranscriber, ASR_ENGINES (faster_whisper, hf_seq2seq, chunkformer, viegem)
+│   ├── asr.py            # A2: GoldTranscriber, ASRTranscriber, ASR_ENGINES (faster_whisper, hf_seq2seq, chunkformer, nemo_ctc)
 │   └── asr_sanitizer.py  # lọc câu ảo giác và vòng lặp của Whisper, kiểm tra giữ thực thể (theo team lead)
 ├── io/                   # đọc dữ liệu thi, ghi kết quả
 │   ├── data.py           # A1: đọc <split>.jsonl thành Sample
@@ -719,7 +719,7 @@ guards = ["allowed_tool", "schema", "duplicate_write"]   # "after_ask" có sẵn
 
 [asr]
 backend = "gold"                       # "gold" | "asr" (sau v0)
-engine = "faster_whisper"              # "faster_whisper" | "hf_seq2seq" | "chunkformer" | "viegem" (mục 6.1)
+engine = "faster_whisper"              # "faster_whisper" | "hf_seq2seq" | "chunkformer" | "nemo_ctc" (mục 6.1)
 dtype = "auto"                         # "auto" | "float32" | "float16" | "bfloat16"; auto: bf16 trên sm80+, fp16 trên GPU cũ, fp32 trên CPU
 model = "Systran/faster-whisper-large-v3"   # bắt buộc khi backend = "asr" (mục 6.0)
 revision = "edaa852ec7e145841d8ffdb056a99866b5f0a478"
@@ -883,7 +883,7 @@ Mỗi test ghi rõ ba ý: **bảo vệ** điều gì, **bắt lỗi** khi nào, 
 
 ### 6.1. ASR (A2, A3, B5)
 
-- `ASRTranscriber` cài theo interface `Transcriber`. Model được nạp qua `[asr].engine` (`ASR_ENGINES` trong `asr.py`): `faster_whisper` (CTranslate2, mặc định, whisper-large-v3), `hf_seq2seq` (transformers pipeline, dùng cho PhoWhisper), `chunkformer` (gói `chunkformer`, CTC), `viegem` (code trong snapshot `5CD-AI/VieGem-ASR`, CTC). Engine mới chỉ cần một class có `transcribe_batch` và `warmup` rồi đăng ký vào `ASR_ENGINES`.
+- `ASRTranscriber` cài theo interface `Transcriber`. Model được nạp qua `[asr].engine` (`ASR_ENGINES` trong `asr.py`): `faster_whisper` (CTranslate2, mặc định, whisper-large-v3), `hf_seq2seq` (transformers pipeline, dùng cho PhoWhisper; nhận cùng tên khóa giải mã với faster-whisper qua `hf_generate_kwargs`: `beam_size` thành `num_beams`, `initial_prompt` thành `prompt_ids`), `chunkformer` (gói `chunkformer`, CTC tham lam; tải snapshot đúng revision trước khi nạp), `nemo_ctc` (NeMo, dùng cho `nvidia/parakeet-ctc-0.6b-Vietnamese`; CTC tham lam hoặc beam + KenLM đi kèm repo với `lm = true`). Engine mới chỉ cần một class có `transcribe_batch` và `warmup` rồi đăng ký vào `ASR_ENGINES`.
 - Chạy chung GPU với vLLM. **Thứ tự nạp (B2):** nạp vLLM trước với `gpu_memory_utilization` đã chừa chỗ cho ASR (vLLM tính tỉ lệ trên tổng VRAM lúc khởi động), nạp ASR sau, rồi warm-up cả hai. `Runner` đo VRAM còn trống sau khi nạp xong và ghi vào `config.json`; ASR hết chỗ thì báo lỗi ngay, không chạy mẫu nào. **Đã đo 28/10/2026:** T4 15 GB không đủ cho large-v3 chạy cạnh vLLM (431/452 mẫu lỗi hết bộ nhớ, `experiments.md` base28 eval v2); eval và baseline có ASR thật cần GPU ≥ 24 GB (L4, A30, A100). `asr.dtype` giữ `"auto"`; int8 không dùng cho baseline vì khác cấu hình A30 lúc chấm.
 - Chép chữ cho **mọi** lượt user trong history, tối đa 13 file mỗi mẫu. Thời gian ASR tính vào 30 giây.
 - Tổng thời lượng audio mỗi mẫu (đo 27/10/2026): train p50 13 s, p95 41 s, max 69 s; public p50 13 s, p95 40 s, max 83 s (11 file).
@@ -1463,7 +1463,7 @@ Chọn ngày 27/10/2026 theo điều kiện ở mục 6.0. Số tham số lấy 
 | `Systran/faster-whisper-large-v3` | ASR (mặc định từ 28/10) | 1,55B | 11/2023 | MIT | `edaa852e` |
 | `vinai/PhoWhisper-medium` | ASR (mặc định tới 27/10, vẫn chạy được với `engine = "hf_seq2seq"`) | 0,77B | 18/02/2024 | BSD-3 | `55a7e3eb` |
 
-Tổng 5,57B < 6B (với PhoWhisper là 4,79B), LLM 4,02B < 5B. Ứng viên A/B (chưa dùng khi nộp): LLM `Qwen/Qwen3.5-4B` (4,66B kể cả vision encoder, Apache-2.0, 02/03/2026); ASR `khanhld/chunkformer-ctc-large-vie` (0,11B, CC-BY-NC-4.0, 02/2025) và `5CD-AI/VieGem-ASR` (0,36B, CC-BY-NC-SA-4.0, 19/10/2026). Hai ASR này có `engine` riêng trong `lifemate/backends/asr.py`; giấy phép phi thương mại phải được BTC xác nhận trước khi nộp.
+Tổng 5,57B < 6B (với PhoWhisper là 4,79B), LLM 4,02B < 5B. Ứng viên A/B (chưa dùng khi nộp): LLM `Qwen/Qwen3.5-4B` (4,66B kể cả vision encoder, Apache-2.0, 02/03/2026); ASR `nvidia/parakeet-ctc-0.6b-Vietnamese` (0,6B, NVIDIA Open Model License, 15/01/2026, engine `nemo_ctc`), và `khanhld/chunkformer-ctc-large-vie` (0,11B, CC-BY-NC-4.0, 02/2025, engine `chunkformer`; giấy phép phi thương mại cần BTC xác nhận trước khi nộp), đang được so cùng phương pháp với large-v3 và PhoWhisper (`lifemate/eval/asr_tune.py`). VieGem-ASR đã bỏ khỏi code ngày 28/10/2026 (`decisions.md` D37).
 
 #### E.5.1. Vì sao chọn như vậy
 
@@ -1513,7 +1513,7 @@ Tổng 5,57B < 6B (với PhoWhisper là 4,79B), LLM 4,02B < 5B. Ứng viên A/B 
 
 Điểm yếu của lập luận: với địa chỉ tự do hay tên không có trong danh bạ thì LLM không có gì để đối chiếu, chỉ ASR mới cứu được; bảng lỗi sau LLM v2 sẽ cho biết nhóm này chiếm bao nhiêu.
 
-**Nếu đổi sang ChunkFormer hoặc VieGem-ASR:** cả hai là CTC, không có decoder tự hồi quy, nên fine-tune là train CTC loss trên cùng 3547 cặp với encoder đóng băng phần lớn (VieGem chỉ mở 4 lớp conformer trên cùng như tác giả làm). Cần viết thêm script train riêng vì `lifemate/train/asr.py` hiện chỉ hỗ trợ seq2seq của transformers. Chỉ làm khi số đo cho thấy hai model này thắng PhoWhisper trên `val_unseen` **và** BTC chấp nhận giấy phép phi thương mại.
+**Nếu đổi sang một ASR CTC (ví dụ Parakeet):** mô hình CTC, không có decoder tự hồi quy, nên fine-tune là train CTC loss trên cùng 3547 cặp với encoder đóng băng phần lớn . Cần viết thêm script train riêng vì `lifemate/train/asr.py` hiện chỉ hỗ trợ seq2seq của transformers. Chỉ làm khi số đo cho thấy hai model này thắng PhoWhisper trên `val_unseen` **và** BTC chấp nhận giấy phép phi thương mại.
 
 ### E.6. Vòng private (20/11 – 23/11)
 

@@ -20,7 +20,7 @@ guards = ["allowed_tool", "schema", "duplicate_write"]   # "after_ask" có sẵn
 
 [asr]
 backend = "gold"                       # "gold" | "asr"; đổi sang "asr" khi chạy trên audio thật
-engine = "faster_whisper"              # "faster_whisper" (whisper-large-v3, mặc định) | "hf_seq2seq" (PhoWhisper) | "chunkformer" | "viegem"
+engine = "faster_whisper"              # "faster_whisper" (whisper-large-v3, mặc định) | "hf_seq2seq" (PhoWhisper) | "chunkformer" | "nemo_ctc" (Parakeet CTC)
 model = "Systran/faster-whisper-large-v3"   # whisper-large-v3 bản CTranslate2, 1,54B, MIT; quyết định của team lead (SPEC phụ lục E.5.1)
 revision = "edaa852ec7e145841d8ffdb056a99866b5f0a478"
 device = "auto"                        # "auto" | "cpu" | "cuda"

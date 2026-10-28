@@ -86,6 +86,9 @@ class Transcript:
     final: str
     history: tuple[str | None, ...]
     seconds: float
+    # Chữ ASR trước bộ lọc ảo giác, theo thứ tự file (các lượt user trong lịch sử rồi lượt cuối); rỗng khi không
+    # qua ASR (transcript gold). Chỉ eval_asr đọc trường này để đếm câu bịa; agent dùng `final` và `history`.
+    raw: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

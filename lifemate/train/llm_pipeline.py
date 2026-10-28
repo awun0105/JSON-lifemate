@@ -36,6 +36,7 @@ import structlog
 from lifemate.core.config import load_profile
 from lifemate.core.envinfo import detect
 from lifemate.core.paths import REPO_ROOT
+from lifemate.core.tomlio import dump_toml
 from lifemate.train import sft, sft_data, swift_sft
 from lifemate.train.common import abs_path, sha256_file, write_json_atomic, write_train_config
 
@@ -180,32 +181,6 @@ def stage_merge(ctx: PipelineContext, state: dict[str, Any]) -> None:
         sft.merge_adapter(ctx.cfg.base.model, Path(cand["path"]), out, revision=ctx.cfg.base.revision or None)
         merged.append({**cand, "merged": str(out)})
     state["merge"] = merged
-
-
-def _dump_toml_value(v: Any) -> str:
-    """Chuyển một giá trị Python (bool, số, chuỗi, list, mapping) thành chuỗi TOML; kiểu khác thì ném TypeError."""
-    # Xét bool trước int vì bool là lớp con của int.
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    if isinstance(v, int | float):
-        return repr(v)
-    if isinstance(v, str):
-        return json.dumps(v, ensure_ascii=False)
-    if isinstance(v, list):
-        return "[" + ", ".join(_dump_toml_value(x) for x in v) + "]"
-    if isinstance(v, Mapping):
-        return "{" + ", ".join(f"{k} = {_dump_toml_value(x)}" for k, x in v.items()) + "}"
-    raise TypeError(f"unsupported TOML value: {v!r}")
-
-
-def dump_toml(data: Mapping[str, Mapping[str, Any]]) -> str:
-    """Xuất các bảng cấp cao nhất gồm giá trị đơn, list và bảng inline (đủ cho configs/v0.toml)."""
-    out: list[str] = []
-    for section, table in data.items():
-        out.append(f"[{section}]")
-        out += [f"{k} = {_dump_toml_value(v)}" for k, v in table.items()]
-        out.append("")
-    return "\n".join(out)
 
 
 def run_config_for(ctx: PipelineContext, model_dir: str, out: Path) -> Path:

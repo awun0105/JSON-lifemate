@@ -109,3 +109,28 @@ def test_evaluate_counts_empty_and_records_hyps() -> None:
         {"id": "s2", "turn": "final", "ref": "tắt quạt", "hyp": ""},
     ]
     assert evaluate(samples, GoldTranscriber()).n_empty == 0
+
+
+class _RawASR:
+    """Transcriber giả có chữ trước lọc: lượt cuối bị bịa (bộ lọc xóa hết), số viết bằng chữ số."""
+
+    def warmup(self) -> None:
+        """Không cần khởi động."""
+
+    def transcribe(self, sample: Sample) -> Transcript:
+        """s1: nghe đúng nhưng viết số bằng chữ số; s2: câu bịa phụ đề, sau lọc thành rỗng."""
+        if sample.id == "s1":
+            return Transcript(final="nhắn zalo lúc 8 giờ", history=(), seconds=0.1, raw=("nhắn zalo lúc 8 giờ",))
+        return Transcript(final="", history=(), seconds=0.1, raw=("Hãy subscribe cho kênh lalaschool",))
+
+
+def test_evaluate_nonum_wer_hallucination_and_terms() -> None:
+    """Bảo vệ: wer_nonum bỏ khác biệt cách viết số; câu bịa đếm trên chữ trước lọc; terms đếm tên riêng viết đúng."""
+    samples = [_sample("s1", "Nhắn Zalo lúc tám giờ", []), _sample("s2", "Gọi Zalo cho mẹ", [])]
+    hyps: list[dict[str, Any]] = []
+    rep = evaluate(samples, _RawASR(), hyps)
+    assert rep.n_hallucinated == 1 and rep.n_empty == 1
+    # s1 chỉ khác cách viết số nên không có lỗi; s2 rỗng: 4 từ bị xóa trên tổng 4 + 4 từ không phải số.
+    assert rep.wer_nonum == 4 / 8
+    assert rep.terms == {"zalo": [2, 1]}
+    assert hyps[1]["raw"] == "Hãy subscribe cho kênh lalaschool"

@@ -6,7 +6,7 @@ Mô hình thật, đứng sau các `Protocol` trong `core/types.py`. Thư viện
 |---|---|
 | `__init__.py` | Đánh dấu gói. |
 | `llm.py` | `VLLMBackend`: chạy LLM bằng vLLM, ép đầu ra theo JSON schema, warm-up trước khi chạy, và ngắt yêu cầu khi tới hạn của mẫu. `FakeLLM`: mô hình giả phát lại đáp án, dùng trong test và `configs/fake.toml`. |
-| `asr.py` | Chuyển âm thanh thành chữ. `GoldTranscriber` trả chữ chuẩn có sẵn trong tập train; `ASRTranscriber` gom mọi file âm thanh của một mẫu thành batch; bốn engine: `faster_whisper` (whisper-large-v3 qua CTranslate2, engine đang dùng), `hf_seq2seq` (PhoWhisper qua transformers), `chunkformer`, `viegem`. Kiểu số tự chọn theo GPU. Khi `sanitize = true`, chữ đi qua `asr_sanitizer`. |
+| `asr.py` | Chuyển âm thanh thành chữ. `GoldTranscriber` trả chữ chuẩn có sẵn trong tập train; `ASRTranscriber` gom mọi file âm thanh của một mẫu thành batch; bốn engine: `faster_whisper` (whisper-large-v3 qua CTranslate2, engine đang dùng), `hf_seq2seq` (PhoWhisper qua transformers), `chunkformer` (ChunkFormer CTC), `nemo_ctc` (Parakeet CTC qua NeMo). `hf_seq2seq` nhận cùng tên khóa giải mã với faster-whisper (`hf_generate_kwargs` tự dịch). Kiểu số tự chọn theo GPU. Khi `sanitize = true`, chữ đi qua `asr_sanitizer`. |
 | `asr_sanitizer.py` | Bộ lọc chữ ASR, chuyển thể từ repo của team lead: cắt câu ảo giác kiểu phụ đề YouTube ("hãy đăng ký kênh", "cảm ơn các bạn đã theo dõi"), gộp từ lặp vô hạn, bỏ lượt lịch sử chỉ toàn câu ảo giác. Chữ số chỉ bị gộp khi lặp từ 8 lần, để giữ số điện thoại có nhiều số 0. Kèm `entities_preserved` để kiểm tra chữ ASR còn giữ tên và số của đáp án không. |
 
 ## Quy ước riêng
