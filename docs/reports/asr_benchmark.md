@@ -30,6 +30,9 @@ mục 6.4 được trích nguyên văn từ các file `hyps.jsonl`. Cách xếp 
   - [2.3. Thước đo](#23-thước-đo)
 - [3. Bộ cấu hình chung](#3-bộ-cấu-hình-chung)
 - [4. Mô hình và cấu hình riêng](#4-mô-hình-và-cấu-hình-riêng)
+  - [4.1. Năm mô hình](#41-năm-mô-hình)
+  - [4.2. Cách dò cấu hình cho từng mô hình](#42-cách-dò-cấu-hình-cho-từng-mô-hình)
+  - [4.3. Điều chỉnh kỹ thuật theo engine](#43-điều-chỉnh-kỹ-thuật-theo-engine)
 - [5. Phương pháp thử nghiệm](#5-phương-pháp-thử-nghiệm)
 - [6. Kết quả](#6-kết-quả)
   - [6.1. Đường dò trên tập chỉnh (300 mẫu, 1 024 câu, 123 tên riêng)](#61-đường-dò-trên-tập-chỉnh-300-mẫu-1-024-câu-123-tên-riêng)
@@ -185,6 +188,11 @@ về chữ thường và bỏ dấu câu.
 
 ## 3. Bộ cấu hình chung
 
+**Mục đích.** Muốn biết mô hình nào tốt hơn thì mọi thứ khác ngoài mô hình phải giống nhau. Ví dụ, nếu mô hình A chạy
+trên GPU mạnh còn mô hình B chạy trên GPU yếu, thì B chậm hơn có thể chỉ vì máy. Nếu A bật bộ lọc còn B tắt, thì A ít
+câu bịa hơn có thể chỉ vì bộ lọc. Lần so sánh trước (sweep v1, mục 1) mắc đúng lỗi này. Bảng dưới liệt kê mọi thứ
+được giữ cố định, gọi là "bộ cấu hình chung".
+
 Phần giữ giống hệt cho mọi mô hình:
 
 | Mục | Giá trị | Lý do |
@@ -196,7 +204,38 @@ Phần giữ giống hệt cho mọi mô hình:
 | `condition_on_previous_text` | `false` | Mỗi câu nghe độc lập, câu bịa không lây sang câu sau |
 | Code đo | `lifemate/eval/eval_asr.py` | Cùng cách chuẩn hóa chữ và tính chỉ số |
 
+Giải thích thêm từng dòng:
+
+- **Câu được đo.** Không chỉ đo câu cuối mà đo cả các câu trong lịch sử, vì LLM đọc lại toàn bộ hội thoại để hiểu yêu
+  cầu. Một câu trong lịch sử bị chép sai ("chị Lan" thành "chị lán") có thể làm LLM gọi sai người ở câu cuối.
+- **Phần cứng và `dtype`.** Cả năm mô hình chạy nối tiếp trong cùng một phiên Kaggle với cùng một GPU T4, nên thời gian
+  p95 của các mô hình so được với nhau. `dtype` là độ chính xác của phép tính: `"auto"` để engine tự chọn, trên T4 là
+  float16 (số thực 16 bit, nhanh hơn và tốn ít bộ nhớ hơn float32). Đây cũng là giá trị dùng khi nộp bài. Mỗi lần đưa
+  vào mô hình 8 câu cùng lúc (`batch_size = 8`), âm thanh được đọc ở 16 000 mẫu mỗi giây (`sample_rate = 16000`).
+- **Giải mã tất định.** `temperature` là độ ngẫu nhiên khi chọn chữ. Đặt `0` thì mô hình luôn chọn chữ có xác suất cao
+  nhất, nên chạy lại bao nhiêu lần cũng ra cùng một chữ. Nếu có ngẫu nhiên, hai lần chạy cùng cấu hình có thể chênh
+  nhau, và không biết chênh lệch giữa hai cấu hình là thật hay do may rủi. Ngoại lệ duy nhất là lựa chọn "nhiệt độ thử
+  lại" ở bước 4 (mục 4): ngẫu nhiên chỉ được dùng khi lần giải mã đầu tiên bị hỏng.
+- **Bộ lọc ảo giác.** Bộ lọc chạy trên chữ đầu ra, sau khi mô hình chép xong, nên không cần biết mô hình nào sinh ra
+  chữ đó. Vì vậy có thể bật giống hệt cho cả năm mô hình. Bộ lọc cũng được bật khi nộp bài, nên đo với bộ lọc bật mới
+  phản ánh đúng thứ LLM sẽ nhận.
+- **`condition_on_previous_text = false`.** Khi bật, Whisper dùng chữ của đoạn trước làm câu mồi cho đoạn sau. Nếu đoạn
+  trước bị bịa ("Hãy đăng ký kênh…"), đoạn sau dễ bịa tiếp. Tắt đi thì mỗi câu được nghe riêng, lỗi không lan sang câu
+  khác. Tham số này chỉ có ở Whisper; các mô hình CTC/RNNT vốn đã nghe từng câu riêng nên bỏ qua.
+- **Code đo.** Cả năm mô hình được chấm bằng cùng một script, cùng cách chuẩn hóa chữ (chữ thường, bỏ dấu câu) và cùng
+  công thức tính chỉ số. Nhờ vậy, chênh lệch chỉ số đến từ chữ mô hình chép ra, không đến từ cách chấm.
+
+Các tham số **không** nằm trong bảng trên (cách giải mã, câu mồi, chống lặp, VAD) thì mỗi mô hình được dò riêng, ở mục 4.
+Lý do: mỗi mô hình có điểm mạnh và tính năng khác nhau; ép tất cả dùng một cấu hình giống nhau sẽ thiệt cho mô hình nào
+không hợp với cấu hình đó. Vì vậy mỗi mô hình được dò với cùng cách làm và cùng số bước, rồi mới đem cấu hình tốt nhất
+của từng mô hình ra so.
+
 ## 4. Mô hình và cấu hình riêng
+
+Mục này gồm ba phần: năm mô hình được so là gì (4.1), cách dò cấu hình riêng cho từng mô hình (4.2), và những điều
+chỉnh kỹ thuật cần làm để chạy được từng mô hình (4.3).
+
+### 4.1. Năm mô hình
 
 | Mô hình | Engine | Tham số | Giấy phép, ngày | Revision |
 |---|---|---|---|---|
@@ -206,12 +245,36 @@ Phần giữ giống hệt cho mọi mô hình:
 | `khanhld/chunkformer-rnnt-large-vie` | `chunkformer` | 0,11B | CC-BY-4.0, 10/2025 | `9863592e…` |
 | `nvidia/parakeet-ctc-0.6b-Vietnamese` | `nemo_ctc` (NeMo 2.6.2) | 0,6B | NVIDIA Open Model License, 01/2026 | `b0493142…` |
 
+Giải thích các cột:
+- **Engine:** thư viện dùng để chạy mô hình. Cùng một mô hình có thể chạy bằng nhiều thư viện; bảng ghi thư viện đã dùng.
+- **Tham số:** kích thước mô hình, B là tỉ (billion). Mô hình lớn hơn thường nghe tốt hơn nhưng chậm hơn và tốn bộ nhớ
+  hơn. Ở đây hai ChunkFormer nhỏ hơn large-v3 khoảng 14 lần.
+- **Giấy phép:** điều kiện được phép dùng mô hình. MIT, BSD-3, CC-BY-4.0 cho dùng tự do, chỉ cần ghi nguồn.
+  CC-BY-NC-4.0 cấm dùng thương mại.
+
+Vì sao chọn năm mô hình này:
+- **large-v3:** mô hình đang dùng trong config hiện tại, làm mốc so sánh.
+- **PhoWhisper-medium:** Whisper được huấn luyện thêm trên tiếng Việt; kiểm tra xem huấn luyện thêm có giúp nghe tên
+  riêng tiếng Việt tốt hơn không.
+- **ChunkFormer CTC, ChunkFormer RNNT, Parakeet:** mô hình không phải Whisper, được huấn luyện riêng cho tiếng Việt.
+  Kiểu mô hình CTC/RNNT không "viết tiếp câu" như Whisper, nên được kỳ vọng không bịa câu phụ đề (vấn đề 1 ở mục 1).
+
 Revision là mã phiên bản cố định trên Hugging Face, để chạy lại luôn tải đúng bản đã đo. Cả năm mô hình phát hành
 trước 26/10/2026; cộng với LLM 4,02B đều dưới giới hạn 6B của cuộc thi. ChunkFormer CTC có giấy phép phi thương mại,
 cần BTC xác nhận trước khi dùng để nộp bài.
 
+### 4.2. Cách dò cấu hình cho từng mô hình
+
+**Ý tưởng.** Mỗi mô hình có nhiều "núm vặn" (tham số) ảnh hưởng tới chữ chép ra. Benchmark vặn lần lượt từng núm trên
+tập `asr_tune`, giữ vị trí tốt nhất của mỗi núm, rồi mới sang núm tiếp theo. Giống như chỉnh một chiếc radio: chỉnh
+tần số cho rõ tiếng trước, rồi mới chỉnh âm lượng, rồi chỉnh âm trầm. "Tốt nhất" được quyết định bằng hàm mục tiêu ở
+mục 2.3: ưu tiên đạt ngưỡng thời gian, rồi ít bỏ sót tên riêng và ít câu rỗng nhất.
+
 **Các bước dò.** Dò lần lượt từng bước; mỗi bước giữ lựa chọn thắng của các bước trước. Cách này tốn ít lần chạy hơn
 thử mọi tổ hợp (large-v3 chỉ cần 8 lần đo thay vì 2 × 4 × 2 × 3 = 48). Lựa chọn engine không hỗ trợ thì bỏ qua.
+
+Với mỗi bước, lựa chọn đầu tiên là "giữ nguyên" (không bật gì thêm; ở bước 1 là giải mã tham lam). Nếu không lựa chọn nào tốt hơn thì giữ
+nguyên, nghĩa là chỉ bật thêm một tính năng khi tính năng đó thật sự cải thiện kết quả.
 
 | Bước            | Lựa chọn                                                                                                                       | Lý do thử                                                                                                  |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
@@ -220,8 +283,30 @@ thử mọi tổ hợp (large-v3 chỉ cần 8 lần đo thay vì 2 × 4 × 2 ×
 | 3. Chống lặp    | tắt; `repetition_penalty = 1.2` + `no_repeat_ngram_size = 3`                                                                   | Có trong cấu hình của lead; có thể làm sai âm tiết lặp hợp lệ trong tiếng Việt ("từ từ", "năm năm")        |
 | 4. Riêng engine | không; VAD (cắt khoảng lặng ≥ 500 ms); nhiệt độ thử lại `[0; 0,2; …; 1]`                                                       | Chỉ engine có tính năng đó mới thử                                                                         |
 
+Giải thích thêm từng bước:
+
+1. **Giải mã.** Tham lam chọn ngay chữ có xác suất cao nhất ở mỗi bước, nhanh nhưng có thể đi sai hướng từ sớm. Beam 5
+   giữ 5 câu đang dở dang cùng lúc và cuối cùng chọn câu có tổng xác suất cao nhất, thường chính xác hơn nhưng chậm
+   hơn vài lần. Với Whisper, beam còn có mặt trái: câu phụ đề quen thuộc ("Hãy đăng ký kênh…") có xác suất tổng rất
+   cao, nên beam dễ chọn đúng câu đó.
+2. **Câu mồi.** Whisper đọc câu mồi như thể đó là câu ngay trước đoạn ghi âm, nên câu mồi có chữ "Zalo" thì Whisper dễ
+   viết "Zalo" hơn. Ba kiểu được thử: câu mồi dài dạng liệt kê của lead, câu mồi ngắn giống lời nói thật, và
+   `hotwords` (danh sách từ khóa). Rủi ro: câu mồi lạ có thể đẩy Whisper sang văn phong khác, như phụ đề video.
+3. **Chống lặp.** Khi bị "kẹt", mô hình có thể lặp một cụm từ nhiều lần. `repetition_penalty = 1.2` giảm xác suất của
+   chữ đã xuất hiện; `no_repeat_ngram_size = 3` cấm lặp lại bất kỳ cụm 3 từ nào. Rủi ro: tiếng Việt có lặp hợp lệ, như
+   "từ từ" hay số điện thoại "chín chín chín", và chống lặp có thể làm sai những chỗ đó.
+4. **Riêng engine.** VAD cắt đoạn im lặng trước khi nhận dạng, vì Whisper hay bịa chữ trên đoạn im lặng. Nhiệt độ thử
+   lại giải mã lại câu khi thấy dấu hiệu hỏng (lặp nhiều, xác suất quá thấp), mỗi lần tăng độ ngẫu nhiên thêm 0,2.
+
 Câu mồi của lead: `"LifeMate: trợ lý ảo tiếng Việt điều khiển smart home, tivi, đặt xe, ngân hàng, HTV7, VTV1, VTV3,
 deadline, voucher, Zalo."`
+
+Ví dụ đường dò của large-v3: bước 1 so tham lam với beam 5, giữ tham lam. Bước 2 thử 4 kiểu câu mồi (đều kèm tham
+lam), không kiểu nào tốt hơn nên giữ "không câu mồi". Bước 3 thử bật chống lặp, không tốt hơn nên giữ tắt. Bước 4 thử
+VAD và nhiệt độ thử lại, nhiệt độ thử lại tốt nhất nên giữ. Kết quả đầy đủ ở mục 6.1.
+
+Không phải mô hình nào cũng có đủ các núm vặn trên. Một lựa chọn chỉ được thử khi engine của mô hình hỗ trợ; nếu
+không, bước đó chỉ còn lựa chọn "giữ nguyên". Vì vậy số lần đo của mỗi mô hình khác nhau, nhưng cách dò là một.
 
 **Lựa chọn mỗi mô hình được thử, và lý do:**
 
@@ -233,7 +318,13 @@ deadline, voucher, Zalo."`
 | ChunkFormer RNNT | tham lam | không | tắt | không | Như trên (cùng gói) |
 | Parakeet CTC | tham lam | không | tắt | không | Beam + mô hình ngôn ngữ KenLM đi kèm repo không thử được: gói flashlight-text không build được trên Python 3.13 của Kaggle |
 
-**Chi tiết theo engine, và lý do:**
+Hệ quả: ba mô hình CTC/RNNT chỉ có một cấu hình, nên kết quả của chúng là kết quả "dùng ngay, không chỉnh". Hai
+mô hình Whisper được chỉnh nhiều hơn mà vẫn đứng sau (mục 6), nên kết luận không bị thiên về phía mô hình được chỉnh
+kỹ hơn.
+
+### 4.3. Điều chỉnh kỹ thuật theo engine
+
+Các điều chỉnh dưới đây không đổi cách mô hình nghe, chỉ để chạy được mô hình trong dự án và giữ đúng bộ cấu hình chung.
 
 - **PhoWhisper không chuyển sang CTranslate2** (định dạng của faster-whisper), vì chuyển định dạng có thể làm kết quả
   lệch so với bản gốc. Thay vào đó, engine transformers nhận cùng tên tham số với faster-whisper và tự dịch
