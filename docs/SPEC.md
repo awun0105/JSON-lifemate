@@ -1463,7 +1463,7 @@ Chọn ngày 27/10/2026 theo điều kiện ở mục 6.0. Số tham số lấy 
 | `Systran/faster-whisper-large-v3` | ASR (mặc định từ 28/10) | 1,55B | 11/2023 | MIT | `edaa852e` |
 | `vinai/PhoWhisper-medium` | ASR (mặc định tới 27/10, vẫn chạy được với `engine = "hf_seq2seq"`) | 0,77B | 18/02/2024 | BSD-3 | `55a7e3eb` |
 
-Tổng 5,57B < 6B (với PhoWhisper là 4,79B), LLM 4,02B < 5B. Ứng viên A/B (chưa dùng khi nộp): LLM `Qwen/Qwen3.5-4B` (4,66B kể cả vision encoder, Apache-2.0, 02/03/2026); ASR `nvidia/parakeet-ctc-0.6b-Vietnamese` (0,6B, NVIDIA Open Model License, 15/01/2026, engine `nemo_ctc`), và `khanhld/chunkformer-ctc-large-vie` (0,11B, CC-BY-NC-4.0, 02/2025, engine `chunkformer`; giấy phép phi thương mại cần BTC xác nhận trước khi nộp), đang được so cùng phương pháp với large-v3 và PhoWhisper (`lifemate/eval/asr_tune.py`). VieGem-ASR đã bỏ khỏi code ngày 28/10/2026 (`decisions.md` D37).
+Tổng 5,57B < 6B (với PhoWhisper là 4,79B), LLM 4,02B < 5B. Ứng viên A/B (chưa dùng khi nộp): LLM `Qwen/Qwen3.5-4B` (4,66B kể cả vision encoder, Apache-2.0, 02/03/2026); ASR `nvidia/parakeet-ctc-0.6b-Vietnamese` (0,6B, NVIDIA Open Model License, 15/01/2026, engine `nemo_ctc`), `khanhld/chunkformer-ctc-large-vie` (0,11B, CC-BY-NC-4.0, 02/2025, engine `chunkformer`; giấy phép phi thương mại cần BTC xác nhận trước khi nộp) và `khanhld/chunkformer-rnnt-large-vie` (0,11B, CC-BY-4.0, 10/2025, engine `chunkformer`), đang được so cùng phương pháp với large-v3 và PhoWhisper (`lifemate/eval/asr_tune.py`). VieGem-ASR đã bỏ khỏi code ngày 28/10/2026 (`decisions.md` D37).
 
 #### E.5.1. Vì sao chọn như vậy
 

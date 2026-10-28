@@ -190,13 +190,16 @@ class HFSeq2SeqASR:
 
 
 class ChunkFormerASR:
-    """ChunkFormer CTC (khanhld/chunkformer-ctc-large-vie) qua gói `chunkformer`; giải mã CTC tham lam.
+    """ChunkFormer (khanhld/chunkformer-ctc-large-vie, khanhld/chunkformer-rnnt-large-vie) qua gói `chunkformer`.
+
+    Giải mã tham lam (CTC hoặc RNNT, gói tự nhận loại mô hình từ config).
 
     Gói tự tải mô hình nhưng bỏ qua revision, nên engine tải trước snapshot của `cfg.model` đúng `cfg.revision` rồi
     nạp từ thư mục đó (`cfg.model` cũng có thể là thư mục cục bộ). `generate_kwargs` nhận chunk_size /
     left_context_size / right_context_size / total_batch_duration; các khóa chung của cấu hình kiểu Whisper
     (language, task, temperature = 0, beam_size = 1, condition_on_previous_text) bị bỏ qua vì không áp dụng cho CTC.
-    Khóa khác gây ValueError. Giấy phép CC-BY-NC-4.0 (phi thương mại): cần BTC xác nhận trước khi dùng để nộp bài.
+    Khóa khác gây ValueError. Bản CTC có giấy phép CC-BY-NC-4.0 (phi thương mại, cần BTC xác nhận trước khi nộp);
+    bản RNNT có giấy phép CC-BY-4.0.
     """
 
     _DEFAULTS: ClassVar[dict[str, Any]] = {

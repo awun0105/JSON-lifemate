@@ -157,9 +157,11 @@ if flag("RUN_ASR_EVAL"):
 # chunkformer cần torchaudio (cài bản khớp torch hiện tại, vì bản có sẵn trên Kaggle làm hỏng transformers), NeMo
 # kéo theo nhiều thư viện và có thể đổi phiên bản torch. Cài lỗi thì chỉ mô hình đó hỏng, các mô hình trước đã xong.
 tune_models = [m.strip() for m in os.environ.get("ASR_TUNE", "").split(",") if m.strip()]
-LATE = {"chunkformer": 1, "parakeet": 2}
+LATE = {"chunkformer": 1, "chunkformer-rnnt": 1, "parakeet": 2}
+installed: set[str] = set()
 for model in sorted(tune_models, key=lambda m: LATE.get(m, 0)):
-    if model == "chunkformer":
+    if model.startswith("chunkformer") and "chunkformer" not in installed:
+        installed.add("chunkformer")
         sh(
             "TV=$(python -c \"import torch; print(torch.__version__.split('+')[0])\"); "
             "CU=$(python -c \"import torch; print('cu' + torch.version.cuda.replace('.', ''))\"); "

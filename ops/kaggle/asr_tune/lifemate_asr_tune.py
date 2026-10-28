@@ -15,7 +15,7 @@ RUN = {
     "RUN_GOLD": "0",
     "RUN_ASR": "0",
     "RUN_ASR_EVAL": "0",
-    "ASR_TUNE": "large-v3,phowhisper,chunkformer,parakeet",
+    "ASR_TUNE": "large-v3,phowhisper,chunkformer,chunkformer-rnnt,parakeet",
 }
 os.environ.update(RUN)
 # Thư mục tạm chứa bản clone dùng để lấy kịch bản smoke.

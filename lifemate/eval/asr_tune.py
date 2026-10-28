@@ -15,8 +15,8 @@ Cách làm, theo thứ tự:
   4. Cấu hình thắng của mỗi mô hình được đo lại đúng một lần trên các tập báo cáo (val_seen, val_unseen), là các
      tập không dùng để chọn.
 
-Mô hình: whisper-large-v3 (faster-whisper), PhoWhisper-medium (transformers), ChunkFormer CTC large (gói
-`chunkformer`), Parakeet CTC 0,6B (NeMo). Cấu hình
+Mô hình: whisper-large-v3 (faster-whisper), PhoWhisper-medium (transformers), ChunkFormer CTC large và
+ChunkFormer RNNT large (gói `chunkformer`), Parakeet CTC 0,6B (NeMo). Cấu hình
 có lựa chọn mà engine không hỗ trợ thì mô hình đó chỉ dò trên các lựa chọn còn lại (xem `supported`).
 
 Tập chỉnh là configs/splits/asr_tune.txt (300 mẫu lấy từ train, `make_splits --asr-tune 300`): ASR không học trên
@@ -60,6 +60,11 @@ MODELS: dict[str, dict[str, str]] = {
         "engine": "chunkformer",
         "model": "khanhld/chunkformer-ctc-large-vie",
         "revision": "311fc03558a895dc2b32957f2fb4236c7fb1455b",
+    },
+    "chunkformer-rnnt": {
+        "engine": "chunkformer",
+        "model": "khanhld/chunkformer-rnnt-large-vie",
+        "revision": "9863592e00d6c02634c4ce2db8a4f3414f1ba7d6",
     },
     "parakeet": {
         "engine": "nemo_ctc",
