@@ -1,6 +1,6 @@
 """Chọn mô hình và cấu hình giải mã ASR một cách công bằng: cùng tập chỉnh, cùng cách dò, cùng hàm mục tiêu.
 
-Nội dung: hai mô hình (`MODELS`), các bước dò (`STAGES`), hàm mục tiêu (`objective`), vòng dò từng bước (`tune`),
+Nội dung: các mô hình (`MODELS`), các bước dò (`STAGES`), hàm mục tiêu (`objective`), vòng dò từng bước (`tune`),
 bước báo cáo trên tập giữ riêng (`report`) và CLI. Mỗi lần đo là một lệnh `python -m lifemate.eval.eval_asr`
 trên một config sinh ra từ configs/v0.toml với bảng [asr] thay hoàn toàn.
 
@@ -11,7 +11,7 @@ Cách làm, theo thứ tự:
      lựa chọn có `objective` nhỏ nhất. Lựa chọn engine không hỗ trợ thì bỏ qua (hotwords, VAD, nhiệt độ thử lại
      chỉ có ở faster-whisper). Cấu hình đã đo thì dùng lại kết quả, không đo lại.
   3. Hàm mục tiêu: tỉ lệ bỏ sót thực thể + tỉ lệ câu rỗng (thứ ảnh hưởng điểm thi), hoà thì so `wer_nonum`.
-     Cấu hình có p95 thời gian vượt `max_p95` bị loại.
+     Cấu hình có p95 thời gian vượt `max_p95` xếp sau mọi cấu hình đạt ngưỡng (vẫn so với nhau).
   4. Cấu hình thắng của mỗi mô hình được đo lại đúng một lần trên các tập báo cáo (val_seen, val_unseen), là các
      tập không dùng để chọn.
 
@@ -123,12 +123,17 @@ def supported(engine: str, patch: Mapping[str, Any]) -> bool:
     return not (_FW_ONLY & patch.keys()) and not isinstance(patch.get("temperature"), list)
 
 
-def objective(rep: Mapping[str, Any] | None, max_p95: float) -> tuple[float, float]:
-    """(bỏ sót thực thể + tỉ lệ câu rỗng, wer_nonum); lần đo lỗi hoặc p95 vượt `max_p95` cho (inf, inf)."""
-    if not rep or rep.get("p95_s", math.inf) > max_p95:
-        return (math.inf, math.inf)
+def objective(rep: Mapping[str, Any] | None, max_p95: float) -> tuple[float, float, float]:
+    """(vượt ngưỡng thời gian 0/1, bỏ sót thực thể + tỉ lệ câu rỗng, wer_nonum); nhỏ hơn là tốt hơn.
+
+    Cấu hình có p95 vượt `max_p95` xếp sau mọi cấu hình đạt ngưỡng nhưng vẫn được so với nhau, để mô hình chậm
+    trên T4 (large-v3 p95 khoảng 8 s) vẫn chọn được cấu hình tốt nhất của nó. Lần đo lỗi cho (inf, inf, inf).
+    """
+    if not rep:
+        return (math.inf, math.inf, math.inf)
     empty_rate = rep["n_empty"] / max(1, rep["n_utterances"])
-    return (rep["entity_miss_rate"] + empty_rate, rep.get("wer_nonum", rep["wer"]))
+    over = float(rep.get("p95_s", math.inf) > max_p95)
+    return (over, rep["entity_miss_rate"] + empty_rate, rep.get("wer_nonum", rep["wer"]))
 
 
 def asr_section(model: str, gk: Mapping[str, Any]) -> dict[str, Any]:
@@ -186,7 +191,7 @@ def tune(
     runs: list[dict[str, Any]] = []
     path: list[dict[str, str]] = []
     for stage, options in STAGES:
-        cands: list[tuple[tuple[float, float], str, dict[str, Any]]] = []
+        cands: list[tuple[tuple[float, float, float], str, dict[str, Any]]] = []
         for opt, patch in options.items():
             if not supported(engine, patch):
                 continue

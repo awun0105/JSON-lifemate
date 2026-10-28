@@ -19,10 +19,12 @@ def _report(miss: float, empty: int = 0, p95: float = 1.0, wer: float = 0.3) -> 
 
 
 def test_objective_and_supported() -> None:
-    """Hàm mục tiêu cộng bỏ sót thực thể với tỉ lệ câu rỗng; p95 quá ngưỡng hoặc lần đo lỗi bị loại."""
-    assert asr_tune.objective(_report(0.3, empty=10), 6.0) == (0.4, 0.3)
-    assert asr_tune.objective(_report(0.1, p95=7.0), 6.0) == (math.inf, math.inf)
-    assert asr_tune.objective(None, 6.0) == (math.inf, math.inf)
+    """Hàm mục tiêu cộng bỏ sót thực thể với tỉ lệ câu rỗng; p95 quá ngưỡng xếp sau; lần đo lỗi đứng cuối."""
+    assert asr_tune.objective(_report(0.3, empty=10), 6.0) == (0.0, 0.4, 0.3)
+    # Vượt ngưỡng thời gian: xếp sau cấu hình đạt ngưỡng dù chính xác hơn, nhưng vẫn so được với nhau.
+    slow_good, slow_bad = asr_tune.objective(_report(0.1, p95=7.0), 6.0), asr_tune.objective(_report(0.2, p95=7.0), 6.0)
+    assert asr_tune.objective(_report(0.3), 6.0) < slow_good < slow_bad
+    assert asr_tune.objective(None, 6.0) == (math.inf, math.inf, math.inf)
     assert asr_tune.supported("hf_seq2seq", {"beam_size": 5, "initial_prompt": "x"})
     assert not asr_tune.supported("hf_seq2seq", {"hotwords": "x"})
     assert not asr_tune.supported("hf_seq2seq", {"temperature": [0.0, 0.2]})
