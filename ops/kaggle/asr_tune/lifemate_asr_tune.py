@@ -24,7 +24,8 @@ RUN = {
     "RUN_ASR_EVAL": "0",
     # Đủ năm model: "large-v3,phowhisper,chunkformer,chunkformer-rnnt,parakeet". Lần 1 (v3, v4) xem
     # `docs/reports/asr_benchmark.md`.
-    "ASR_TUNE": "large-v3,phowhisper,chunkformer-rnnt",
+    # Lần 2 chạy hai phiên nối tiếp (tổng khoảng 7,5 giờ trên T4): v5a = "phowhisper,chunkformer-rnnt", v5b = "large-v3".
+    "ASR_TUNE": "phowhisper,chunkformer-rnnt",
     # Benchmark lần 2 (câu chêm tiếng Anh, D40): chỉ dò bước câu mồi (13 tổ hợp câu mồi x lớp bảo vệ câu mồi), large-v3
     # bật VAD từ đầu, hàm mục tiêu có từ tiếng Anh. Dò trên `asr_tune` đầy đủ, đo trên `val_seen`, `val_unseen` đầy đủ
     # (mặc định); số của các tập `*_en_mixed` lấy bằng `rescore_asr` trên tập con. ChunkFormer RNNT không có lựa chọn
