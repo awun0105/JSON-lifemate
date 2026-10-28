@@ -221,8 +221,9 @@ def test_rescore_replay_matches_hyps() -> None:
 
 
 def test_compare_counts_add_up_and_ci_contains_value() -> None:
-    """Tử số và mẫu số chấm theo từng mẫu cộng lại bằng số của cả tập; khoảng tin cậy chứa giá trị đo được, và chênh lệch
-    của hệ thống mốc với chính nó là 0.
+    """Tử số và mẫu số chấm theo từng mẫu cộng lại bằng số của cả tập; khoảng tin cậy chứa giá trị đo được.
+
+    Chênh lệch của hệ thống mốc với chính nó là 0.
     """
     from lifemate.eval.asr_compare import compare
 
