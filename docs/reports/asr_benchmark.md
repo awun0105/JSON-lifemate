@@ -115,11 +115,11 @@ Một mẫu có thể chứa nhiều câu nói (lượt cuối và các lượt 
 
 ### 2.2. Chia tập và lý do
 
-| Tập | Số mẫu | Số câu | Số tên riêng | Lấy từ đâu | Dùng để |
-|---|---|---|---|---|---|
-| `asr_tune.txt` | 300 | 1 024 | 123 | Rút từ tập train (1 093 mẫu) | Dò cấu hình (chọn lựa chọn ở từng bước) |
-| `val_seen.txt` | 274 | 916 | 109 | Fold 0 | Đo cấu hình thắng, app quen |
-| `val_unseen.txt` | 178 | 527 | 54 | Mẫu dùng 6 app bị giữ lại | Đo cấu hình thắng, app lạ |
+| Tập              | Số mẫu | Số câu | Số tên riêng | Lấy từ đâu                   | Dùng để                                 |
+| ---------------- | ------ | ------ | ------------ | ---------------------------- | --------------------------------------- |
+| `asr_tune.txt`   | 300    | 1 024  | 123          | Rút từ tập train (1 093 mẫu) | Dò cấu hình (chọn lựa chọn ở từng bước) |
+| `val_seen.txt`   | 274    | 916    | 109          | Fold 0                       | Đo cấu hình thắng, app quen             |
+| `val_unseen.txt` | 178    | 527    | 54           | Mẫu dùng 6 app bị giữ lại    | Đo cấu hình thắng, app lạ               |
 
 Cách tạo (`lifemate/eval/make_splits.py`, seed cố định 42, chạy ở máy nào cũng ra giống nhau):
 
@@ -192,12 +192,12 @@ cần BTC xác nhận trước khi dùng để nộp bài.
 **Các bước dò.** Dò lần lượt từng bước; mỗi bước giữ lựa chọn thắng của các bước trước. Cách này tốn ít lần chạy hơn
 thử mọi tổ hợp (large-v3 chỉ cần 8 lần đo thay vì 2 × 4 × 2 × 3 = 48). Lựa chọn engine không hỗ trợ thì bỏ qua.
 
-| Bước | Lựa chọn | Lý do thử |
-|---|---|---|
-| 1. Giải mã | tham lam, beam 5 | Beam xem nhiều phương án hơn nhưng chậm hơn và dễ chọn câu "thuộc lòng" có xác suất cao |
-| 2. Câu mồi | không; câu của lead (dài, liệt kê tên riêng); câu ngắn giống lời nói ("Nhắn Zalo cho Lan. Chuyển sang kênh VTV3."); `hotwords` | Câu mồi giúp viết đúng tên riêng nhưng có thể gây bịa; sweep v2 cho thấy câu ngắn viết đúng Zalo nhiều hơn |
-| 3. Chống lặp | tắt; `repetition_penalty = 1.2` + `no_repeat_ngram_size = 3` | Có trong cấu hình của lead; có thể làm sai âm tiết lặp hợp lệ trong tiếng Việt ("từ từ", "năm năm") |
-| 4. Riêng engine | không; VAD (cắt khoảng lặng ≥ 500 ms); nhiệt độ thử lại `[0; 0,2; …; 1]` | Chỉ engine có tính năng đó mới thử |
+| Bước            | Lựa chọn                                                                                                                       | Lý do thử                                                                                                  |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| 1. Giải mã      | tham lam, beam 5                                                                                                               | Beam xem nhiều phương án hơn nhưng chậm hơn và dễ chọn câu "thuộc lòng" có xác suất cao                    |
+| 2. Câu mồi      | không; câu của lead (dài, liệt kê tên riêng); câu ngắn giống lời nói ("Nhắn Zalo cho Lan. Chuyển sang kênh VTV3."); `hotwords` | Câu mồi giúp viết đúng tên riêng nhưng có thể gây bịa; sweep v2 cho thấy câu ngắn viết đúng Zalo nhiều hơn |
+| 3. Chống lặp    | tắt; `repetition_penalty = 1.2` + `no_repeat_ngram_size = 3`                                                                   | Có trong cấu hình của lead; có thể làm sai âm tiết lặp hợp lệ trong tiếng Việt ("từ từ", "năm năm")        |
+| 4. Riêng engine | không; VAD (cắt khoảng lặng ≥ 500 ms); nhiệt độ thử lại `[0; 0,2; …; 1]`                                                       | Chỉ engine có tính năng đó mới thử                                                                         |
 
 Câu mồi của lead: `"LifeMate: trợ lý ảo tiếng Việt điều khiển smart home, tivi, đặt xe, ngân hàng, HTV7, VTV1, VTV3,
 deadline, voucher, Zalo."`
@@ -367,8 +367,9 @@ biết" của bộ tách từ. Xem mục 7.
 ## 7. Phân tích và đánh giá
 
 - **ChunkFormer RNNT tốt nhất xét tổng thể.** WER thấp nhất trên cả ba tập, khoảng 20%. Trên val_unseen, bỏ sót ít
-  nhất (48,1%, bằng PhoWhisper) và viết đúng "Zalo" nhiều nhất (17/19 và 5/6). Không có câu rỗng hay câu bịa, p95
-  2,5 s, chưa tới một nửa ngưỡng. Giấy phép CC-BY-4.0.
+  nhất (48,1%, bằng PhoWhisper) và viết đúng "Zalo" nhiều nhất (17/19 và 5/6). Không có câu rỗng hay câu bịa kiểu
+  phụ đề, p95 2,5 s, chưa tới một nửa ngưỡng. Giấy phép CC-BY-4.0. Có một lỗi lặp trên val_seen: một câu đọc số điện
+  thoại ra chữ "chín" lặp khoảng 250 lần; bộ lọc gộp phần lặp lại nên chữ cuối chỉ còn sai vài từ.
 - **ChunkFormer CTC bỏ sót ít nhất trên val_seen (23,9%), nhưng kém trên val_unseen (55,6%).** Gần như luôn sai tên
   app (Zalo 5/19 và 0/6, ví dụ 4). Khoảng cách giữa hai tập cho thấy lợi thế trên val_seen đến từ vài loại tên riêng
   hay gặp. Giấy phép phi thương mại.
