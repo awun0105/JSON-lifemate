@@ -24,7 +24,8 @@ RUN_GOLD / RUN_ASR_EVAL ("1" để chạy, mặc định "1"), RUN_ASR (agent tr
 không chứa nổi vLLM cùng whisper-large-v3 ở dtype auto), RUN_ASR_CACHE (mặc định "0"),
 ASR_TUNE (danh sách mô hình cho lifemate.eval.asr_tune, ví dụ "large-v3,phowhisper,parakeet"; trống = bỏ qua),
 ASR_TUNE_PREFLIGHT (N: chỉ chạy thử mọi lựa chọn trên N mẫu), ASR_EVAL_IDS (mặc định val_seen),
-RUN_IDS (file danh sách id, mặc định là 30 mẫu smoke), RUN_TAG (hậu tố của tên lượt chạy). ops/kaggle/eval đặt các biến này rồi
+RUN_IDS (file danh sách id, mặc định là 30 mẫu smoke), RUN_TAG (hậu tố của tên lượt chạy).
+ops/kaggle/eval đặt các biến này rồi
 exec file này.
 """
 
