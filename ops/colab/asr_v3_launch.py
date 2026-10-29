@@ -10,7 +10,7 @@ import subprocess
 JOB = "k1"
 CMD = (
     "python -m lifemate.eval.asr_v3 transcribe --env colabcli --ids configs/splits/asr_tune.txt "
-    "--variants E0 E1 E2 --rnnt --rerun 50 --out /content/out/k1"
+    "--variants E0 E1 E2 --rnnt --rerun 50 --resume --out /content/out/k1"
 )
 # Thư viện CUDA 12 cho CTranslate2 (cài ở `asr_v3_setup.py`).
 LIBS = (

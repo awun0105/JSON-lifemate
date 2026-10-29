@@ -126,6 +126,26 @@ def _read_jsonl(path: Path) -> Iterator[dict[str, Any]]:
             yield json.loads(line)
 
 
+def _prepare_outputs(files: Sequence[Path], timing: Path, resume: bool) -> set[str]:
+    """Tạo (hoặc khi `resume`, giữ) các file ra; trả mã các mẫu đã xong.
+
+    Một mẫu là xong khi đã có dòng trong `timing` (dòng này ghi sau cùng). Khi tiếp tục, các dòng của mẫu chưa xong
+    (máy bị ngắt giữa mẫu) bị xoá khỏi mọi file để mẫu đó chạy lại từ đầu.
+    """
+    if not resume or not timing.is_file():
+        for f in [*files, timing]:
+            f.write_text("", encoding="utf-8")
+        return set()
+    done = {str(r["id"]) for r in _read_jsonl(timing)}
+    for f in files:
+        if f.is_file():
+            keep = [r for r in _read_jsonl(f) if str(r["id"]) in done]
+            _write_jsonl(f, keep, mode="w")
+        else:
+            f.write_text("", encoding="utf-8")
+    return done
+
+
 def _whisper_utterance(
     whisper: Any, audio: Any, prompt: str, fixed_prompt: str, is_history: bool
 ) -> tuple[str, str, bool, dict[str, float]]:
@@ -148,9 +168,8 @@ def transcribe_variants(args: argparse.Namespace) -> int:
     fixed_prompt = (REPO_ROOT / FIXED_PROMPT_FILE).read_text(encoding="utf-8").strip()
     prompt_words = frozenset(w.folded for w in find_foreign_words(fixed_prompt))
     data_root, samples, catalog = _load(args.env, args.split, args.ids, args.root)
-    for name in ["rnnt"] * bool(args.rnnt) + [f"v3_{v}" for v in args.variants]:
-        (out / f"{name}.hyps.jsonl").write_text("", encoding="utf-8")
-    (out / "timing.jsonl").write_text("", encoding="utf-8")
+    names = ["rnnt"] * bool(args.rnnt) + [f"v3_{v}" for v in args.variants]
+    done = _prepare_outputs([out / f"{n}.hyps.jsonl" for n in names], out / "timing.jsonl", args.resume)
     summary: dict[str, Any] = {"ids": args.ids, "variants": list(args.variants), "n_samples": len(samples)}
     with GpuMemoryMonitor(out / "gpu_memory.csv") as monitor:
         t0 = time.perf_counter()
@@ -226,6 +245,8 @@ def transcribe_variants(args: argparse.Namespace) -> int:
             return rows, timing
 
         for n, sample in enumerate(samples, 1):
+            if sample.id in done:
+                continue
             rows, timing = run_sample(sample, args.variants)
             for name, name_rows in rows.items():
                 _write_jsonl(out / f"{name}.hyps.jsonl", name_rows)
@@ -268,8 +289,7 @@ def score_candidates(args: argparse.Namespace) -> int:
     rnnt = {(r["id"], r["turn"]): r for r in _read_jsonl(args.rnnt)}
     v3 = {(r["id"], r["turn"]): r for r in _read_jsonl(args.v3)}
     rows_path, timing_path = Path(f"{out}.jsonl"), Path(f"{out}.timing.jsonl")
-    rows_path.write_text("", encoding="utf-8")
-    timing_path.write_text("", encoding="utf-8")
+    done = _prepare_outputs([rows_path], timing_path, args.resume)
     summary: dict[str, Any] = {"ids": args.ids, "rnnt": str(args.rnnt), "v3": str(args.v3)}
     with GpuMemoryMonitor(Path(f"{out}.gpu_memory.csv")) as monitor:
         t0 = time.perf_counter()
@@ -281,6 +301,8 @@ def score_candidates(args: argparse.Namespace) -> int:
         n_regions = 0
         first_rows: list[dict[str, Any]] = []
         for sample in samples:
+            if sample.id in done:
+                continue
             start = time.perf_counter()
             sample_rows: list[dict[str, Any]] = []
             for (key, _ref), path in zip(utterance_keys(sample), locator.wav_paths(sample), strict=True):
@@ -351,6 +373,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         p.add_argument("--ids", required=True)
         p.add_argument("--rerun", type=int, default=0, help="kiểm tra tất định trên N mẫu (transcribe) hoặc N vùng")
         p.add_argument("--out", type=Path, required=True)
+        p.add_argument("--resume", action="store_true", help="giữ kết quả đã có, chỉ chạy các mẫu chưa xong")
         if name == "transcribe":
             p.add_argument("--variants", nargs="+", choices=PROMPT_VARIANTS, default=["E0"])
             p.add_argument("--rnnt", action="store_true", help="chép cả bằng RNNT")
