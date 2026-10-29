@@ -1,7 +1,10 @@
 """Test các file câu mồi ASR (`configs/asr_prompts/`): đọc được qua config, và không trùng lời nói thật.
 
 Lưu ý:
-- Test có marker `data` chấm trên 5 036 câu đáp án của tập train; skip khi thiếu gói dữ liệu.
+- Test có marker `data` chấm trên các câu đáp án của `configs/splits/train.txt` (3 593 câu); skip khi thiếu gói dữ
+  liệu hoặc chưa chạy `make splits`.
+- Chỉ đọc `train`, không đọc `val_seen`, `val_unseen`: viết lại câu mồi theo kết quả test là một bước chọn, nên không
+  được nhìn tập kiểm tra.
 """
 
 import json
@@ -22,10 +25,16 @@ def test_prompts_do_not_echo_real_speech(data_root: Path, repo_root: Path) -> No
 
     Câu mồi giống lời nói thật thì câu nói đúng cũng bị coi là "chép lại câu mồi" và bị chép lại không câu mồi.
     """
+    train_ids_file = repo_root / "configs" / "splits" / "train.txt"
+    if not train_ids_file.is_file():
+        pytest.skip("configs/splits/train.txt missing: run `make splits`")
+    train_ids = set(train_ids_file.read_text(encoding="utf-8").split())
     refs: list[str] = []
     with open(data_root / "train" / "train.jsonl", encoding="utf-8") as f:
         for line in f:
             r = json.loads(line)
+            if r["id"] not in train_ids:
+                continue
             refs.append(r["audio_text"])
             refs += [h["audio_text"] for h in r["history"] if h.get("role") == "user" and h.get("audio_text")]
     for name, path in PROMPT_FILES.items():

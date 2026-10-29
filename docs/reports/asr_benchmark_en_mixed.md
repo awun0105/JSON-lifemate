@@ -161,7 +161,7 @@ thì chỉ số đo một định nghĩa "từ tiếng Anh" còn phép ghép t�
 đó không đứng vững. Danh sách rà tay có thể chỉ ghi vị trí (mã mẫu, lượt, thứ tự từ, nhóm), không chép chữ nào của dữ
 liệu, và để ngoài git giống các file id trong `configs/splits/` (đã được git bỏ qua, sinh lại bằng `make splits`). Việc
 còn thiếu thật sự là **chưa đo độ chính xác của quy tắc**. Muốn đo thì phải rà tay một lần: quy tắc tìm ra 1 953 lần
-xuất hiện của 390 từ khác nhau trong 5 036 câu đáp án của train. Rà 390 từ để tìm từ bị nhận nhầm là việc nhỏ. Tìm từ
+xuất hiện của 390 từ khác nhau trong 5 036 câu đáp án của gói train của BTC. Rà 390 từ để tìm từ bị nhận nhầm là việc nhỏ. Tìm từ
 bị bỏ sót (từ tiếng Anh trông như âm tiết Việt) thì phải đọc toàn bộ câu. Danh sách rà tay khi có sẽ dùng làm nhãn cho
 phía đáp án, còn quy tắc vẫn giữ cho phía chữ ASR. Việc này chưa làm (xem Giới hạn).
 
@@ -285,7 +285,7 @@ Cách từng thử nghiệm dùng dữ liệu:
 | Việc | Dữ liệu | Để làm gì | Lý do chọn |
 |---|---|---|---|
 | Chọn từ cho câu mồi (mục 4.3.1) | 793 mẫu train ngoài `asr_tune`, chữ large-v3 trong `train_asr.json` | Đếm từ tiếng Anh large-v3 hay sai | Nếu chọn từ trên tập dò thì câu mồi khớp sẵn với tập dò, số dò lạc quan; trên val thì lộ đề |
-| Kiểm tra câu mồi không trùng lời nói thật (`tests/test_asr_prompts.py`) | Đáp án của cả 5 036 câu train (gồm cả hai tập val) | Câu mồi không có cụm 4 từ nào trùng lời nói thật | Đây là ràng buộc an toàn cho lớp bảo vệ, không phải bước chọn theo điểm (xem lưu ý dưới) |
+| Kiểm tra câu mồi không trùng lời nói thật (`tests/test_asr_prompts.py`) | Đáp án của 3 593 câu `train.txt` | Câu mồi không có cụm 4 từ nào trùng lời nói thật | Viết lại câu mồi theo kết quả test là một bước chọn, nên không đọc val (xem dưới) |
 | Thử nghiệm A: chấm offline 4 mô hình | Chữ ASR của lần 1 trên `val_seen`, `val_unseen`, chấm lại trên tập con `*_en_mixed` | Xếp hạng trên câu chêm tiếng Anh | Không chọn gì, chỉ đo, nên đo thẳng trên tập kiểm tra |
 | Thử nghiệm B: dò 13 tổ hợp | `asr_tune` **đầy đủ** (300 mẫu, 1 024 câu) | Chọn câu mồi và mức bảo vệ | Hàm mục tiêu cần cả câu thường để phạt câu mồi làm hại câu thuần Việt; tập con chêm tiếng Anh được chấm lại sau để báo cáo phụ |
 | Thử nghiệm B: đo cấu hình thắng | `val_seen`, `val_unseen` **đầy đủ**, đúng một lần; rồi chấm lại tập con `*_en_mixed` | Số cuối của thử nghiệm B | Một lần chạy GPU trả lời cả hai câu hỏi: câu chêm có tốt hơn không, câu thường có bị hại không |
@@ -305,11 +305,16 @@ Cách từng thử nghiệm dùng dữ liệu:
 - **Giữ seen/unseen.** App lạ kéo theo từ lạ (vitamin, homestay, tên hãng bay), nên `val_unseen` cho biết lợi ích có giữ
   được với từ không có trong câu mồi không. Thử nghiệm B cho thấy câu mồi giúp ít hơn hẳn trên `val_unseen`.
 
-**Lưu ý về kiểm tra câu mồi trên cả 5 036 câu.** Test này đọc cả đáp án của hai tập val. Test chỉ đòi câu mồi **không
-trùng** lời nói thật, nên không làm câu mồi giống val hơn. Nếu có ảnh hưởng thì là ngược lại: câu mồi được viết để tránh
-cụm từ của val, nên lớp bảo vệ trên val ít báo nhầm hơn một chút so với dữ liệu hoàn toàn mới. Ảnh hưởng này nhỏ, vì
-lớp bảo vệ chỉ chép lại 0–3 câu trên mỗi tập với câu mồi mới (mục 4.7.3, 4.7.8). Muốn sạch hoàn toàn thì chỉ chạy test
-trên `train.txt`.
+**Kiểm tra câu mồi chỉ đọc `train`.** Bản đầu của test (`tests/test_asr_prompts.py`) đọc đáp án của cả 5 036 câu,
+gồm cả hai tập val. Viết lại câu mồi theo kết quả test là một bước chọn, nên test đã được sửa để chỉ đọc 3 593 câu của
+`train.txt`. Đếm lại cho thấy kết quả hiện tại không đổi: ba câu mồi mới không trùng câu nào của val, kể cả ở cụm 3 từ,
+và vẫn qua test khi chỉ đọc train.
+
+| Câu mồi | Câu trùng cụm 3 từ / 4 từ: train (3 593 câu) | val_seen (916) | val_unseen (527) |
+|---|---|---|---|
+| `en_top10_v1` | 0 / 0 | 0 / 0 | 0 / 0 |
+| `en_top20_v1` | 0 / 0 | 0 / 0 | 0 / 0 |
+| `en_full_v1` | 2 / 0 | 0 / 0 | 0 / 0 |
 
 **Giới hạn.** Tập dò chỉ có 300 mẫu (394 từ ngoại), nên chênh vài từ đã là vài điểm phần trăm. Chọn từ câu mồi dùng chữ
 large-v3 beam 5, không phải cấu hình tham lam + VAD đang dò, nên danh sách "từ hay sai" có thể lệch một ít.
@@ -547,8 +552,8 @@ thống (TOML, bảng `[asr]` chứa mọi thiết lập ASR) trỏ tới file c
 giải mã `initial_prompt` mà Whisper nhận. Hàm báo lỗi khi file thiếu, rỗng, hoặc config khai câu mồi cả hai cách (vừa
 chữ trực tiếp vừa đường dẫn). Đổi câu mồi thì tạo file `_v2`, không sửa file cũ, để mọi kết quả cũ vẫn truy được câu
 mồi đã dùng.
-- `tests/test_asr_prompts.py`: test tự động giữ quy tắc "không trùng lời nói thật". Test đọc chữ chuẩn của toàn bộ 5 036
-câu train và yêu cầu: không câu nào có cụm 4 từ liên tiếp trùng câu mồi, và dưới 0,5% số câu có cụm 3 từ trùng. Câu mồi
+- `tests/test_asr_prompts.py`: test tự động giữ quy tắc "không trùng lời nói thật". Test đọc chữ chuẩn của 3 593 câu
+thuộc `train.txt` (không đọc hai tập val, mục 2.2.4) và yêu cầu: không câu nào có cụm 4 từ liên tiếp trùng câu mồi, và dưới 0,5% số câu có cụm 3 từ trùng. Câu mồi
 mới nào vi phạm thì test báo lỗi. Test chỉ chạy trên máy có gói dữ liệu (đánh dấu `data`).
 
 #### 4.3.2. Lớp bảo vệ câu mồi
