@@ -281,6 +281,10 @@ Theo thứ tự:
 
 Cấu hình hệ thống đang dùng (`configs/v0.toml`) chưa đổi.
 
+Cả ba việc trên, cùng câu mồi theo mẫu và bộ phân loại ghép, được làm ở benchmark lần 3
+(`docs/reports/asr_benchmark_context.md`): lọc từ của câu mồi là thử nghiệm F, đo thời gian và bộ nhớ là thử nghiệm I,
+engine ghép là bước chuẩn bị P7.
+
 ### Đọc tiếp ở đâu
 
 | Muốn biết | Đọc |
