@@ -148,10 +148,14 @@ def stage_e(args: argparse.Namespace) -> dict[str, Any]:
             "assistant_echo": assistant_echo(samples, v3),
             "retries": sum(bool(r.get("retried")) for r in v3),
             "truncated": sum(int(r.get("prompt_tokens", 0)) > 223 for r in v3),
-            "whisper_p50_p95_max": [percentile([t["whisper_s"][v] for t in timing], q) for q in (0.5, 0.95, 1.0)],
-            "merge_p95": percentile([t["merge_s"].get(v, 0.0) for t in timing], 0.95),
+            "whisper_p50_p95_max": [percentile([t["whisper_s"][v] for t in timing], q) for q in (50, 95, 100)],
+            "merge_p95": percentile([t["merge_s"].get(v, 0.0) for t in timing], 95),
+            "total_p50_p95_max": [
+                percentile([t["rnnt_s"] + t["whisper_s"][v] + t["merge_s"].get(v, 0.0) for t in timing], q)
+                for q in (50, 95, 100)
+            ],
         }
-    extra["rnnt_p50_p95_max"] = [percentile([t["rnnt_s"] for t in timing], q) for q in (0.5, 0.95, 1.0)]
+    extra["rnnt_p50_p95_max"] = [percentile([t["rnnt_s"] for t in timing], q) for q in (50, 95, 100)]
     extra["summary"] = json.loads((k1 / "summary.json").read_text(encoding="utf-8"))
     cm = compare(samples, merged)
     ca = compare(samples, alone)
@@ -274,7 +278,7 @@ def stage_select(args: argparse.Namespace) -> dict[str, Any]:
         cmp = compare(d["samples"], {**systems, "RNNT": (d["rnnt"], prompt_text)})
         dec_rows = {n: A.decisions(d["utts"], decs[n]) for n in names}
         acc = A.bootstrap_accuracy(dec_rows, [s.id for s in d["samples"]], names[0])
-        score_p95 = percentile([t["score_s"] for t in d["score_timing"]], 0.95) if d["score_timing"] else 0.0
+        score_p95 = percentile([t["score_s"] for t in d["score_timing"]], 95) if d["score_timing"] else 0.0
         out: dict[str, Any] = {
             n: {
                 **_brief(cmp[n]),
