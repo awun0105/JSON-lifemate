@@ -13,7 +13,7 @@ Cách hoạt động: một câu chép với câu mồi bị coi là hỏng khi 
    faster-whisper dùng để phát hiện câu lặp.
 
 Lưu ý:
-- Lý do và số đo offline trên kết quả lần 1: `docs/reports/asr_benchmark_en_mixed.md` mục 4.2.
+- Lý do và số đo offline trên kết quả lần 1: `docs/reports/benchmark/v2.md` mục 4.2.
 - Người dùng nói thật đúng `ngram` từ có trong câu mồi thì bị báo nhầm; câu đó được chép lại không câu mồi, mất phần
   lợi của câu mồi nhưng không sai thêm.
 """

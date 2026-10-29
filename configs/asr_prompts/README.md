@@ -11,7 +11,7 @@ Câu mồi đóng vai "đoạn chữ ngay trước audio": Whisper bắt chướ
 | `en_top20_v1.txt` | Thêm 3 câu chứa 10 từ kế tiếp, đặt trước `en_top10`. | 106 / 114 |
 | `en_full_v1.txt` | Thêm 5 câu chứa khoảng 20 từ kế tiếp, đặt trước `en_top20`. | 183 / 193 |
 
-Quy tắc viết (benchmark ASR lần 2, `docs/reports/asr_benchmark_en_mixed.md` mục 4):
+Quy tắc viết (benchmark ASR lần 2, `docs/reports/benchmark/v2.md` mục 4):
 
 - Câu tự viết, giữ đúng từ khoá tiếng Anh nhưng đặt trong ngữ cảnh khác dữ liệu, không chép câu nào của dữ liệu thi. Lý do: lớp bảo vệ câu mồi (`asr.prompt_guard_ngram`) coi câu ASR có cụm từ trùng câu mồi là "chép lại câu mồi"; câu mồi giống lời nói thật thì câu nói đúng cũng bị báo nhầm. `tests/test_asr_prompts.py` kiểm tra trên 5 036 câu đáp án: cụm 4 từ không trùng câu nào, cụm 3 từ trùng dưới 0,5% số câu.
 - Câu nói tự nhiên, không viết dạng liệt kê; không để chữ số đi liền tên (lần 1, "VTV3" trong câu mồi làm large-v3 đếm tiếp "VTV4 VTV5…").

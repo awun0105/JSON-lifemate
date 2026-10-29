@@ -23,7 +23,7 @@ RUN = {
     "RUN_ASR": "0",
     "RUN_ASR_EVAL": "0",
     # Đủ năm model: "large-v3,phowhisper,chunkformer,chunkformer-rnnt,parakeet". Lần 1 (v3, v4) xem
-    # `docs/reports/asr_benchmark.md`.
+    # `docs/reports/benchmark/v1.md`.
     # Lần 2 chạy hai phiên nối tiếp (tổng khoảng 7,5 giờ trên T4): v5a = "phowhisper,chunkformer-rnnt",
     # v5b = "large-v3".
     "ASR_TUNE": "large-v3",
