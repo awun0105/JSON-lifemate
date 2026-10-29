@@ -1170,10 +1170,10 @@ cho mẹ."
 2. Dựng hai câu ứng viên, cùng kiểu viết (chữ thường, không dấu câu): A = "nhắn giá lô cho mẹ", B = "nhắn zalo cho mẹ".
 3. Chạy encoder của large-v3 một lần trên âm thanh của câu.
 4. Với câu A: đưa vào decoder các token mở đầu (không có câu mồi) rồi các token của A; decoder trả về xác suất của từng
-   token A, ví dụ "nhắn" 0,9, "giá" 0,05, "lô" 0,3, "cho" 0,9, "mẹ" 0,8, kết thúc 0,9. Điểm A = tổng log ≈ −4,6.
-5. Với câu B, làm như trên: "nhắn" 0,9, "z" 0,6, "alo" 0,95, "cho" 0,9, "mẹ" 0,8, kết thúc 0,9. Điểm B ≈ −1,2.
-6. So: −1,2 > −4,6, tức câu B khớp âm thanh hơn, nên lấy "Zalo". Hiệu điểm 3,4 nghĩa là large-v3 cho B khả năng cao gấp
-   khoảng 30 lần A.
+   token A, ví dụ "nhắn" 0,9, "giá" 0,05, "lô" 0,3, "cho" 0,9, "mẹ" 0,8, kết thúc 0,9. Điểm A = tổng log ≈ −4,7.
+5. Với câu B, làm như trên: "nhắn" 0,9, "z" 0,6, "alo" 0,95, "cho" 0,9, "mẹ" 0,8, kết thúc 0,9. Điểm B ≈ −1,1.
+6. So: −1,1 > −4,7, tức câu B khớp âm thanh hơn, nên lấy "Zalo". Hiệu điểm 3,6 nghĩa là large-v3 cho B khả năng cao gấp
+   khoảng 40 lần A.
 
 Decoder không sinh ra chữ nào ở các bước 4 và 5, chỉ đọc xác suất của chuỗi đã đưa vào, nên không thể ra câu bịa hay câu
 phụ đề. Số trong ví dụ là minh hoạ, không phải số đo.
