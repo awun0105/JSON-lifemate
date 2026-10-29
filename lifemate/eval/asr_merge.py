@@ -8,11 +8,11 @@ Nội dung chính:
 - `align_words`: gióng hàng hai dãy từ theo khoảng cách Levenshtein (số từ phải thêm, xoá, thay), có truy vết.
 - `merge_transcripts`: ghép hai câu theo quy tắc ở dưới.
 - `merge_hyp_rows`: ghép hai danh sách dòng `hyps.jsonl` (mỗi dòng là chữ ASR của một câu) theo từng câu.
-- `CONTEXT_POLICIES`, `sample_context_words`, `english_filter`: siết quy tắc bằng từ điển ngữ cảnh của mẫu (bước 3b).
+- `CONTEXT_POLICIES`, `sample_context_words`, `english_filter`: bộ lọc ngữ cảnh của mẫu (bước 3b).
 - `main`: CLI ghép hai file `hyps.jsonl`; file ra chấm được bằng `lifemate.eval.rescore_asr`.
 
 Cách hoạt động (`merge_transcripts`):
-1. Tách hai câu thành từ (giữ nguyên cách viết để ghép lại), gióng hàng trên dạng đã gập (chữ thường, bỏ dấu, bỏ dấu
+1. Tách hai câu thành từ (giữ nguyên cách viết để ghép lại), gióng hàng trên dạng đã chuẩn hoá (chữ thường, bỏ dấu, bỏ dấu
    câu).
 2. Gom các cặp không khớp nằm giữa hai từ khớp thành một "vùng khác nhau".
 3. Ở mỗi vùng: nếu phía model phụ có từ tiếng Anh (`foreign_words.find_foreign_words`) mà phía model chính không
@@ -49,7 +49,7 @@ _EDGE_PUNCTUATION = re.compile(r"^[^\w]+|[^\w]+$")
 
 
 def _match_key(word: str) -> str:
-    """Dạng so khớp của một từ: bỏ dấu câu hai đầu rồi gập chữ (chữ thường, bỏ dấu tiếng Việt)."""
+    """Dạng so khớp của một từ: bỏ dấu câu hai đầu rồi chuẩn hoá chữ (chữ thường, bỏ dấu tiếng Việt)."""
     return fold_text(_EDGE_PUNCTUATION.sub("", word))
 
 
@@ -84,7 +84,7 @@ def align_words(a: Sequence[str], b: Sequence[str]) -> list[tuple[int | None, in
 
 
 # Cách lọc từ tiếng Anh mới ở bước 3b (tên -> ý nghĩa):
-# "all": không lọc (quy tắc gốc); "context": mọi từ phải có trong từ điển ngữ cảnh; "context_prompt": chỉ từ của câu
+# "all": không lọc; "context": mọi từ phải có trong từ điển ngữ cảnh; "context_prompt": chỉ từ của câu
 # mồi phải có trong ngữ cảnh, từ khác nhận luôn; "context_other": chỉ từ ngoài câu mồi phải có trong ngữ cảnh.
 CONTEXT_POLICIES = ("all", "context", "context_prompt", "context_other")
 
@@ -103,7 +103,7 @@ def _strings(value: Any) -> Iterator[str]:
 
 
 def sample_context_words(sample: Sample, catalog_apps: Mapping[str, Mapping[str, Any]]) -> frozenset[str]:
-    """Từ điển ngữ cảnh của một mẫu: tập từ (đã gập, `folded_words`) có sẵn dạng chữ trong đầu vào lúc thi.
+    """Từ điển ngữ cảnh của một mẫu: tập từ (đã chuẩn hoá, `folded_words`) có sẵn dạng chữ trong đầu vào lúc thi.
 
     Tham số:
         sample: mẫu cần lấy ngữ cảnh.
@@ -129,12 +129,12 @@ def sample_context_words(sample: Sample, catalog_apps: Mapping[str, Mapping[str,
 def english_filter(
     policy: str, context_words: frozenset[str], prompt_words: frozenset[str]
 ) -> Callable[[str], bool] | None:
-    """Bộ lọc bước 3b cho một mẫu: nhận một từ tiếng Anh (đã gập) hay không; `None` khi `policy` là "all".
+    """Bộ lọc bước 3b cho một mẫu: nhận một từ tiếng Anh (đã chuẩn hoá) hay không; `None` khi `policy` là "all".
 
     Tham số:
         policy: một tên trong `CONTEXT_POLICIES`.
         context_words: từ điển ngữ cảnh của mẫu (`sample_context_words`).
-        prompt_words: các từ ngoại (đã gập) của câu mồi mà model phụ đã dùng.
+        prompt_words: các từ ngoại (đã chuẩn hoá) của câu mồi mà model phụ đã dùng.
     """
     if policy == "all":
         return None

@@ -7,11 +7,11 @@ Dùng ở đâu:
 - `lifemate.eval.asr_merge`: nhận ra từ tiếng Anh trong chữ ASR khi ghép hai model (`find_foreign_words`).
 
 Nội dung chính:
-- `ForeignWord`: một từ ngoại tìm được: từ như viết trong câu, dạng đã gập để so khớp, và nhóm.
+- `ForeignWord`: một từ ngoại tìm được: từ như viết trong câu, dạng đã chuẩn hoá để so khớp, và nhóm.
 - `find_foreign_words`: các từ ngoại trong một câu, theo thứ tự xuất hiện.
 - `has_foreign_word`: câu có ít nhất một từ ngoại hay không.
-- `fold_text`, `folded_words`, `folded_word_set`: gập chữ (chữ thường, bỏ dấu, "đ" thành "d") và tách câu thành từ
-  đã gập, cùng cách tách với `find_foreign_words`.
+- `fold_text`, `folded_words`, `folded_word_set`: chuẩn hoá chữ (chữ thường, bỏ dấu, "đ" thành "d") và tách câu thành từ
+  đã chuẩn hoá, cùng cách tách với `find_foreign_words`.
 - `match_words_in_transcript`: từ ngoại nào của đáp án có trong chữ ASR, đếm theo số lần xuất hiện; tuỳ chọn chấp nhận
   cách viết tương đương (`EQUIVALENT_SPELLINGS`) và tên ghép bị tách ("Minh Mart" cho "MinhMart").
 - `equivalent_spellings`, `contains_word`: các cách viết tương đương của một từ; một dãy từ có chứa một từ hay không,
@@ -51,7 +51,7 @@ WORD_GROUPS = ("common", "acronym", "name", "loanword")
 VIETNAMIZED_LOANWORDS = frozenset({"tivi", "gara"})
 # Từ tiếng Anh ghép được thành một âm tiết Việt không dấu, nên quy tắc âm tiết không bắt được; liệt kê tay.
 ENGLISH_SPELLED_LIKE_VIETNAMESE = frozenset({"chat", "top", "hot"})
-# Từ (đã gập) -> các cách viết khác mà LLM vẫn hiểu đúng. Tra theo cả hai chiều (`equivalent_spellings`). Dùng cho số
+# Từ (đã chuẩn hoá) -> các cách viết khác mà LLM vẫn hiểu đúng. Tra theo cả hai chiều (`equivalent_spellings`). Dùng cho số
 # "chép đúng" nới lỏng (`match_words_in_transcript(lenient=True)`) và để không tính nhầm một cách viết khác là từ câu
 # mồi chèn vào (`contains_word`).
 EQUIVALENT_SPELLINGS: dict[str, tuple[str, ...]] = {"tivi": ("tv",), "ok": ("okay", "oke"), "email": ("mail",)}
@@ -75,13 +75,13 @@ _SENTENCE_END = re.compile(r"[.!?…]\s*$")
 
 
 def fold_text(text: str) -> str:
-    """Gập chữ để so khớp: chữ thường, bỏ dấu tiếng Việt, đổi "đ" thành "d"."""
+    """Chuẩn hoá chữ để so khớp: chữ thường, bỏ dấu tiếng Việt, đổi "đ" thành "d"."""
     decomposed = unicodedata.normalize("NFD", text.lower()).replace("đ", "d")
     return "".join(c for c in decomposed if not unicodedata.combining(c))
 
 
 def folded_words(text: str) -> list[str]:
-    """Tách `text` thành dãy từ chỉ gồm chữ cái, đã gập (`fold_text`), giữ thứ tự và từ lặp."""
+    """Tách `text` thành dãy từ chỉ gồm chữ cái, đã chuẩn hoá (`fold_text`), giữ thứ tự và từ lặp."""
     return _LETTER_RUN.findall(fold_text(unicodedata.normalize("NFC", text)))
 
 
@@ -96,7 +96,7 @@ class ForeignWord:
 
     Thuộc tính:
         text: từ như viết trong câu ("Zalo").
-        folded: từ đã gập, dùng để so khớp ("zalo").
+        folded: từ đã chuẩn hoá, dùng để so khớp ("zalo").
         group: một tên trong `WORD_GROUPS`.
     """
 
@@ -110,7 +110,7 @@ def find_foreign_words(text: str, lowercase_vocabulary: Collection[str] = ()) ->
 
     Tham số:
         text: câu tiếng Việt.
-        lowercase_vocabulary: các từ (đã gập) từng xuất hiện viết thường ở đâu đó trong tập đang chấm; dùng để xếp
+        lowercase_vocabulary: các từ (đã chuẩn hoá) từng xuất hiện viết thường ở đâu đó trong tập đang chấm; dùng để xếp
             nhóm từ viết hoa đứng đầu câu.
 
     Trả về:
@@ -189,11 +189,11 @@ def _adjacent_joins(words: Sequence[str]) -> list[str]:
 
 
 def equivalent_spellings(folded: str) -> frozenset[str]:
-    """Các cách viết tương đương của một từ đã gập theo `EQUIVALENT_SPELLINGS`, tra cả hai chiều; luôn gồm chính nó."""
+    """Các cách viết tương đương của một từ đã chuẩn hoá theo `EQUIVALENT_SPELLINGS`, tra cả hai chiều; luôn gồm chính nó."""
     return _SPELLING_FAMILY.get(folded, frozenset({folded}))
 
 
 def contains_word(folded: str, words: Sequence[str]) -> bool:
-    """`True` khi dãy từ đã gập `words` có từ `folded`, tính cả cách viết tương đương và từ bị tách 2 hoặc 3 phần."""
+    """`True` khi dãy từ đã chuẩn hoá `words` có từ `folded`, tính cả cách viết tương đương và từ bị tách 2 hoặc 3 phần."""
     present = set(words) | set(_adjacent_joins(words))
     return any(s in present for s in equivalent_spellings(folded))

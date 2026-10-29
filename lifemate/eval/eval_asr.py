@@ -12,8 +12,8 @@ Cách hoạt động:
 - WER/CER (tỉ lệ lỗi từ / ký tự) tính trên cả kho: cộng tổng số lỗi chỉnh sửa (Levenshtein) rồi chia cho tổng độ
   dài tham chiếu. Tính trên mọi lượt user trong lịch sử và câu cuối, sau khi chuẩn hoá (chữ thường, NFC, bỏ dấu câu).
 - Thực thể: giá trị chuỗi và số trong tham số của lời gọi gold, chỉ giữ những giá trị có xuất hiện trong
-  `audio_text` sau khi gập (bỏ dấu tiếng Việt). Thực thể bị coi là bỏ sót khi không xuất hiện, theo ranh giới từ,
-  trong văn bản ASR cuối đã gập.
+  `audio_text` sau khi chuẩn hoá (bỏ dấu tiếng Việt). Thực thể bị coi là bỏ sót khi không xuất hiện, theo ranh giới từ,
+  trong văn bản ASR cuối đã chuẩn hoá.
 - Độ trễ: p50, p95 theo hạng gần nhất và giá trị lớn nhất của thời gian chép lời từng mẫu.
 - `wer_nonum`: WER sau khi bỏ mọi số (chữ số và từ đọc số) ở cả hai phía. Đáp án viết số bằng chữ ("tám giờ"),
   còn whisper-large-v3 viết bằng chữ số ("8 giờ"). WER thường vì vậy phạt sai cách viết chứ không phải sai nghe.
@@ -24,7 +24,7 @@ Cách hoạt động:
   engine (ví dụ đầu ra NaN), không phải lỗi nghe, nên được đếm riêng dù cũng nằm trong `n_empty`.
 - Từ tiếng Anh chêm trong câu (`lifemate.eval.foreign_words`), tính trên các câu có ít nhất một từ ngoại trong đáp án:
   `en_utterances` (số câu), `en_mixed_wer` (WER trên các câu đó), `en_word_recall` (tỉ lệ từ ngoại của đáp án có mặt
-  trong chữ ASR, so sau khi gập, đếm theo số lần xuất hiện), `en_word_recall_lenient` (chấp nhận "TV" cho "tivi" và
+  trong chữ ASR, so sau khi chuẩn hoá, đếm theo số lần xuất hiện), `en_word_recall_lenient` (chấp nhận "TV" cho "tivi" và
   ngược lại, "Minh Mart" cho "MinhMart"…), `en_groups` (nhóm -> [số từ, số từ chép đúng]), `en_prompt` ("in"/"out" ->
   [số từ, số từ chép đúng], tách theo từ có hay không có trong câu mồi). `vi_only_wer`: WER trên các câu còn lại
   (không có từ ngoại), để biết câu mồi tiếng Anh có làm hại câu thuần Việt không.
@@ -105,7 +105,7 @@ _NUM_WORDS = frozenset(
         "chục",
     }
 )
-# Tên riêng hay bị nghe sai (tên app, tên kênh); so trên văn bản đã gập (bỏ dấu, chữ thường).
+# Tên riêng hay bị nghe sai (tên app, tên kênh); so trên văn bản đã chuẩn hoá (bỏ dấu, chữ thường).
 TERMS: dict[str, str] = {
     "zalo": r"\bzalo\b",
     "vtv": r"\bvtv",
@@ -120,7 +120,7 @@ TERMS: dict[str, str] = {
 
 
 def _fold(s: str) -> str:
-    """Gập văn bản: chữ thường, bỏ dấu tiếng Việt, gộp khoảng trắng.
+    """Chuẩn hoá văn bản: chữ thường, bỏ dấu tiếng Việt, gộp khoảng trắng.
 
     Copied from `_fold` in the competition package zaic_tools (train/zaic_tools/utils.py) so lifemate never imports
     zaic_tools; keep in sync with that file. Nói cách khác: hàm được chép từ `zaic_tools` để lifemate không phải import
@@ -132,7 +132,7 @@ def _fold(s: str) -> str:
 
 
 def _folded_tokens(s: str) -> str:
-    """Gập văn bản thành các từ cách nhau một dấu cách, có thêm dấu cách ở hai đầu.
+    """Chuẩn hoá văn bản thành các từ cách nhau một dấu cách, có thêm dấu cách ở hai đầu.
 
     Dấu cách hai đầu giúp phép so khớp chuỗi con tôn trọng ranh giới từ: tìm `" huy "` sẽ không khớp bên trong
     `" chuyen "`.
@@ -208,13 +208,13 @@ def _values(obj: Any) -> Iterator[str]:
 def entity_values(sample: Sample) -> list[str]:
     """Lấy các giá trị tham số (chuỗi, số) của lời gọi gold có xuất hiện trong văn bản gold của lượt cuối.
 
-    Bỏ qua `sys.ask_missing_info`. So khớp trên văn bản đã gập.
+    Bỏ qua `sys.ask_missing_info`. So khớp trên văn bản đã chuẩn hoá.
 
     Tham số:
         sample: mẫu có nhãn.
 
     Trả về:
-        Các thực thể đã gập, không trùng, theo thứ tự xuất hiện; danh sách rỗng khi mẫu không có nhãn hoặc
+        Các thực thể đã chuẩn hoá, không trùng, theo thứ tự xuất hiện; danh sách rỗng khi mẫu không có nhãn hoặc
         `audio_text`.
     """
     if sample.label is None or sample.audio_text is None:
@@ -252,7 +252,7 @@ def entity_miss_rate(
 ) -> tuple[int, int, float, list[EntityDetail]]:
     """Đếm thực thể gold có trong `audio_text` nhưng vắng trong văn bản ASR cuối.
 
-    Văn bản ASR được gập trước khi so, và thực thể phải khớp nguyên từ.
+    Văn bản ASR được chuẩn hoá trước khi so, và thực thể phải khớp nguyên từ.
 
     Tham số:
         samples: các mẫu có nhãn.

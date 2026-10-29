@@ -89,7 +89,7 @@ def audit_rule(samples: Sequence[Sample], labels: HandLabels) -> dict[str, Any]:
     Trả về:
         Dict gồm `rule_words`, `hand_words` (số lần xuất hiện theo từng cách), `both`, `false_positives` (quy tắc
         nhận nhưng nhãn không), `misses` (nhãn có nhưng quy tắc bỏ sót), `precision`, `recall`, `group_agreement`
-        (tỉ lệ cùng nhóm trong `both`), `false_positive_words`, `missed_words` (từ đã gập -> số lần), và
+        (tỉ lệ cùng nhóm trong `both`), `false_positive_words`, `missed_words` (từ đã chuẩn hoá -> số lần), và
         `group_mismatches` ("từ: nhóm theo quy tắc -> nhóm theo nhãn" -> số lần).
     """
     references = [(sample.id, turn, text) for sample in samples for turn, text in reference_turns(sample)]

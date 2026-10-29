@@ -39,7 +39,7 @@ def test_sentence_initial_capital_uses_lowercase_seen() -> None:
 
 
 def test_folded_word_set_splits_digits_and_folds() -> None:
-    """`folded_word_set` gập dấu và tách chữ số giống cách `find_foreign_words` tách, để "RON95" khớp được "RON"."""
+    """`folded_word_set` bỏ dấu và tách chữ số giống cách `find_foreign_words` tách, để "RON95" khớp được "RON"."""
     assert folded_word_set("Xăng RON95, nhắn Zalo!") == {"xang", "ron", "nhan", "zalo"}
 
 

@@ -6,15 +6,15 @@ phần kết luận và phân tích sẽ được viết sau khi có số.
 Báo cáo trả lời năm câu hỏi:
 
 1. Câu mồi (`initial_prompt`) dựng riêng cho từng mẫu, từ ngữ cảnh có sẵn dạng chữ lúc thi (lượt trợ lý liền trước, app
-   đã cài), có giúp whisper-large-v3 chép đúng thêm những từ tiếng Anh **không có** trong câu mồi cố định của lần 2
-   không? (thử nghiệm E)
+đã cài), có giúp whisper-large-v3 chép đúng thêm những từ tiếng Anh **không có** trong câu mồi cố định của lần 2
+không? (thử nghiệm E)
 2. Lọc từng từ của câu mồi theo độ tin cậy riêng của từ đó có xoá được phần lỗi còn lại ở câu thuần Việt của bản ghép
-   không? (thử nghiệm F)
+không? (thử nghiệm F)
 3. Một bộ phân loại nhỏ học từ dữ liệu có quyết định ghép tốt hơn quy tắc viết tay không? (thử nghiệm G)
 4. Nếu không chốt một bản chữ mà giữ cả hai phương án ở chỗ hai mô hình bất đồng, thì từ đúng nằm trong một trong hai
-   phương án ở bao nhiêu phần trăm số trường hợp, và tốn thêm bao nhiêu token cho LLM? (thử nghiệm H)
-5. Toàn bộ phần ASR (hai mô hình, lớp bảo vệ, phép ghép) chạy hết bao lâu và tốn bao nhiêu bộ nhớ GPU trên phần cứng
-   giống máy chấm (A30), so với giới hạn 30 giây mỗi mẫu? (thử nghiệm I)
+phương án ở bao nhiêu phần trăm số trường hợp, và tốn thêm bao nhiêu token cho LLM? (thử nghiệm H)
+5. Toàn bộ phần ASR (hai mô hình, lớp bảo vệ, phép ghép) chạy hết bao lâu thời gian và tốn bao nhiêu bộ nhớ GPU trên phần cứng  
+giống máy chấm (A30), so với giới hạn 30 giây mỗi mẫu? (thử nghiệm I)
 
 Phạm vi: chỉ đo ASR. Không chạy LLM, không chấm điểm thi. Bước sau lần 3 mới chạy cả hệ thống với LLM để đo thời gian
 và độ chính xác của lời gọi tool (mục "Sau lần 3").
@@ -25,19 +25,56 @@ Tên thử nghiệm nối tiếp lần 2: lần 2 dùng A, B, C, D (`docs/report
 
 Phần này đọc riêng được. Thuật ngữ được giải thích ngay tại chỗ; định nghĩa đầy đủ ở mục 0.3.
 
+### Pipeline của hệ thống
+
+Mỗi mẫu thi gồm file âm thanh của lượt cuối, file âm thanh các lượt hội thoại trước đó, danh sách app đã cài, catalog tool của các app  
+đó và ngữ cảnh người dùng. Lượt người dùng trong lịch sử chỉ có âm thanh, nên cũng phải chép. Giới hạn: 30 giây mỗi mẫu,  
+tổng tham số không quá 6B.
+
+```
+âm thanh (lượt cuối + lượt người dùng trong lịch sử, tới 13 file)
+  → ASR: ChunkFormer RNNT chép chính; whisper-large-v3 có câu mồi chép thêm
+         → bộ lọc ảo giác → lớp bảo vệ câu mồi g4 → ghép hai bản chữ
+  → PromptBuilder: ghép chữ ASR với lịch sử, danh sách app, catalog tool, ngữ cảnh
+  → LLM (Qwen3-4B, chạy bằng vLLM): chọn tool và tham số
+  → lời gọi tool
+```
+
+Phần ASR trên là cấu hình thắng của benchmark lần 2, chưa đưa vào `configs/v0.toml` (file này vẫn dùng large-v3 đứng
+riêng). Điểm thi chấm lời gọi tool, không chấm chữ, nhưng chữ ASR sai từ khoá thì LLM không sửa được. Lần 3 vẫn chỉ đo
+bước ASR.
+
+### Lần 1 và lần 2 đã làm gì
+
+**Lần 1** (`asr_v1.md`) so năm mô hình ASR trên mọi câu, cùng công sức dò cấu hình. **ChunkFormer RNNT** thắng: WER khoảng
+20% trên cả hai tập kiểm tra, so với khoảng 30% của whisper-large-v3; không có câu bịa; p95 2,5 s trên T4. Lần 1 để lại
+bốn điểm: chưa đo riêng từ tiếng Anh; mọi câu mồi đều làm large-v3 kém đi (in lại câu mồi, đếm tiếp danh sách, bịa câu
+phụ đề); cấu hình large-v3 không tất định; mới chọn một mô hình, chưa thử kết hợp.
+
+**Lần 2** (`asr_v2.md`) giải quyết bốn điểm đó bằng bốn thử nghiệm:
+
+
+| Thử nghiệm lần 2                 | Kết quả                                                                                                                                                                                                                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A. Chấm riêng câu chêm tiếng Anh | RNNT vẫn là mô hình đơn tốt nhất, nhưng chỉ chép đúng khoảng một nửa số từ tiếng Anh (49,9% / 51,6%). large-v3 không câu mồi đúng nhiều hơn một chút (51,6% / 56,0%) nhưng phần tiếng Việt sai nhiều hơn 8–12 điểm                                                        |
+| B. Câu mồi mới + lớp bảo vệ      | `en_full_v1` + g4 nâng tỉ lệ chép đúng từ tiếng Anh của large-v3 từ 52% lên 72% (seen) và từ 56% lên 61% (unseen). Lớp bảo vệ chặn được lỗi in lại câu mồi, lặp vô hạn và bịa câu: lỗi câu thuần Việt về ngang mức không câu mồi. g4 thắng g3 vì g3 bắt nhầm câu nói đúng |
+| C. Kiểm chứng tất định           | Chạy lại RNNT (2 467 câu) và large-v3 tham lam + VAD (1 024 câu) trên máy khác cho chữ giống hệt từng ký tự                                                                                                                                                               |
+| D. Ghép hai mô hình              | Ghép RNNT + large-v3 có câu mồi, có bộ lọc ngữ cảnh: chép đúng từ tiếng Anh 72,2% / 63,1%, cao hơn RNNT đứng riêng 22,3 và 11,5 điểm; WER mọi câu 19,4% / 19,5%, thấp hơn RNNT                                                                         |
+
+
 ### Vì sao có lần 3
 
-Hệ thống LifeMate làm hai bước: **ASR** chép lời người dùng thành chữ, rồi **LLM** đọc chữ đó để gọi tool. Lần 2 tìm
-được cấu hình ASR tốt nhất hiện có cho câu tiếng Việt chêm tiếng Anh: **ghép** chữ của ChunkFormer RNNT (giỏi tiếng
-Việt) với chữ của whisper-large-v3 có câu mồi `en_full_v1` (giỏi tiếng Anh hơn), dùng quy tắc ghép đã siết bằng từ điển
-ngữ cảnh. Lần 2 còn để lại bốn việc:
+Lần 2 tìm được cấu hình ASR tốt nhất hiện có cho câu tiếng Việt chêm tiếng Anh: **ghép** chữ của ChunkFormer RNNT (giỏi
+tiếng Việt) với chữ của whisper-large-v3 có câu mồi `en_full_v1` (giỏi tiếng Anh hơn), kèm bộ lọc ngữ cảnh. Lần 2 còn để lại bốn việc. Mỗi việc dẫn tới một cải tiến của lần 3:
 
-| Việc còn lại từ lần 2 | Số đo của lần 2 | Thử nghiệm lần 3 |
-|---|---|---|
-| Câu mồi cố định chỉ giúp các từ **có trong** câu mồi. App lạ dùng nhiều từ không có trong câu mồi | Từ có trong câu mồi: chép đúng 48% → 84% (seen). Từ không có trong câu mồi gần như không đổi. Trên unseen, large-v3 chỉ tăng 56% → 61% | E |
-| Bản ghép vẫn làm câu thuần Việt sai nhiều hơn RNNT | +0,4 điểm WER (seen), +0,3 (unseen). Trên tập dò, 24 trong 30 từ bị lấy nhầm là từ của câu mồi ("Mail" cho "mai") | F, G |
-| Quy tắc ghép viết tay, chỉ dùng được một tín hiệu (từ có trong ngữ cảnh không) | Khi siết, chép đúng từ tiếng Anh trên tập dò giảm 3,3 điểm | G |
-| Chưa đo thời gian và bộ nhớ trên GPU giống máy chấm | Trên T4: RNNT p95 2,5 s, large-v3 p95 8,6–8,8 s mỗi mẫu, chạy riêng từng mô hình | I |
+
+| Việc còn lại từ lần 2                                                                             | Số đo của lần 2                                                                                                                        | Thử nghiệm lần 3 |
+| ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| Câu mồi cố định chỉ giúp các từ **có trong** câu mồi. App lạ dùng nhiều từ không có trong câu mồi | Từ có trong câu mồi: chép đúng 48% → 84% (seen). Từ không có trong câu mồi gần như không đổi. Trên unseen, large-v3 chỉ tăng 56% → 61% | E                |
+| Bản ghép vẫn làm câu thuần Việt sai nhiều hơn RNNT                                                | +0,4 điểm WER (seen), +0,3 (unseen). Trên tập dò, 24 trong 30 từ bị lấy nhầm là từ của câu mồi ("Mail" cho "mai")                      | F, G             |
+| Quy tắc ghép viết tay, chỉ dùng được một tín hiệu (từ có trong ngữ cảnh không)                    | Khi thêm bộ lọc, chép đúng từ tiếng Anh trên tập dò giảm 3,3 điểm                                                                             | G                |
+| Chưa đo thời gian và bộ nhớ trên GPU giống máy chấm                                               | Trên T4: RNNT p95 2,5 s, large-v3 p95 8,6–8,8 s mỗi mẫu, chạy riêng từng mô hình                                                       | I                |
+
 
 Ngoài ra, lần 2 luôn chốt **một** bản chữ trước khi đưa cho LLM. Ở chỗ hai mô hình bất đồng mà quy tắc không đủ bằng
 chứng, một trong hai phương án bị bỏ, dù LLM có thể chọn đúng nhờ danh sách app và kết quả tool. Thử nghiệm H đo xem giữ
@@ -72,85 +109,99 @@ chỉ dùng để chọn từ cho câu mồi) nay là **tập học** cho thử 
 634 mẫu public_test        chỉ đo thời gian và bộ nhớ (I); không đọc chữ ASR, không chọn gì theo tập này
 ```
 
-| Phần dữ liệu | Số mẫu (số câu) | Dùng để | Vì sao tách riêng |
-|---|---|---|---|
-| Tập học (793 mẫu train ngoài `asr_tune`) | 793 (2 569) | Đếm độ tin cậy từng từ của câu mồi; học bộ phân loại ghép | Học trên tập dò hay tập kiểm tra thì quy tắc "biết trước đề" |
-| Tập dò `asr_tune` | 300 (1 024) | Chọn biến thể câu mồi, ngưỡng độ tin cậy, ngưỡng của bộ phân loại | Chọn trên tập nào thì số của tập đó đẹp hơn thực tế, nên cần tập khác để đo |
-| Tập kiểm tra `val_seen` | 274 (916) | Đo kết quả cuối một lần | Chưa dùng để chọn gì ở lần 3 |
-| Tập kiểm tra `val_unseen` | 178 (527) | Đo kết quả cuối một lần, trên app chưa gặp | Đây là chỗ câu mồi cố định của lần 2 giúp ít nhất |
-| `public_test` | 634 (1 933) | Đo thời gian và bộ nhớ | Có mẫu dài nhất (82,8 giây âm thanh mỗi mẫu); thể lệ cấm gán nhãn, nên chỉ chạy, không đọc chữ |
+
+| Phần dữ liệu                             | Số mẫu (số câu) | Dùng để                                                           | Vì sao tách riêng                                                                              |
+| ---------------------------------------- | --------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Tập học (793 mẫu train ngoài `asr_tune`) | 793 (2 569)     | Đếm độ tin cậy từng từ của câu mồi; học bộ phân loại ghép         | Học trên tập dò hay tập kiểm tra thì quy tắc "biết trước đề"                                   |
+| Tập dò `asr_tune`                        | 300 (1 024)     | Chọn biến thể câu mồi, ngưỡng độ tin cậy, ngưỡng của bộ phân loại | Chọn trên tập nào thì số của tập đó đẹp hơn thực tế, nên cần tập khác để đo                    |
+| Tập kiểm tra `val_seen`                  | 274 (916)       | Đo kết quả cuối một lần                                           | Chưa dùng để chọn gì ở lần 3                                                                   |
+| Tập kiểm tra `val_unseen`                | 178 (527)       | Đo kết quả cuối một lần, trên app chưa gặp                        | Đây là chỗ câu mồi cố định của lần 2 giúp ít nhất                                              |
+| `public_test`                            | 634 (1 933)     | Đo thời gian và bộ nhớ                                            | Có mẫu dài nhất (82,8 giây âm thanh mỗi mẫu); thể lệ cấm gán nhãn, nên chỉ chạy, không đọc chữ |
+
 
 **Cách chuẩn bị.**
 
 1. Đặt gói dữ liệu của BTC vào `data/train+public_test/` và chạy `make splits` như lần 2. Danh sách 793 mẫu tập học là
-   `train.txt` bỏ đi `asr_tune.txt`; lệnh sẽ ghi thêm file `configs/splits/asr_learn.txt` (việc chuẩn bị P1, Phụ lục B).
+`train.txt` bỏ đi `asr_tune.txt`; lệnh sẽ ghi thêm file `configs/splits/asr_learn.txt` (việc chuẩn bị P1, Phụ lục B).
 2. Chữ ASR của lần 2 dùng lại được: RNNT trên `asr_tune` và hai tập val, large-v3 có và không câu mồi trên `asr_tune`,
-   large-v3 `en_full_v1` + g4 trên hai tập val.
+large-v3 `en_full_v1` + g4 trên hai tập val.
 3. Phải chạy GPU để có thêm: large-v3 với các biến thể câu mồi mới trên `asr_tune`; RNNT và large-v3 (có và không câu
-   mồi) trên tập học; large-v3 không câu mồi trên hai tập val; toàn bộ phần ASR trên `public_test` và val để đo thời gian.
-   Lịch các phiên GPU ở Phụ lục B.
+mồi) trên tập học; large-v3 không câu mồi trên hai tập val; toàn bộ phần ASR trên `public_test` và val để đo thời gian.
+Lịch các phiên GPU ở Phụ lục B.
 
 ### Các thử nghiệm
 
-| Thử nghiệm | Câu hỏi | Cách làm ngắn gọn | Dữ liệu | Cần GPU? |
-|---|---|---|---|---|
-| E. Câu mồi theo mẫu | Câu mồi dựng từ ngữ cảnh của mẫu có giúp từ tiếng Anh không có trong câu mồi cố định không? | Ba biến thể: thêm câu trả lời của trợ lý liền trước; thêm cả tên app đã cài; thêm danh sách từ khoá qua `hotwords` | Chọn trên `asr_tune`, đo trên val | Có |
-| F. Độ tin cậy từng từ | Lọc từ hay bị viết nhầm của câu mồi có giảm lỗi ở câu thuần Việt không? | Đếm trên tập học: mỗi lần large-v3 viết ra từ đó, có bao nhiêu lần người dùng thật sự nói. Từ hay sai thì chỉ nhận khi có trong ngữ cảnh | Đếm trên tập học, chọn ngưỡng trên `asr_tune`, đo trên val | Có (để có chữ trên tập học) |
-| G. Bộ phân loại ghép | Mô hình nhỏ học từ dữ liệu có quyết định ghép tốt hơn luật viết tay không? | Hồi quy logistic, mỗi đoạn khác nhau là một mẫu học, đầu vào là các tín hiệu của E, F và điểm tin cậy của large-v3 | Học trên tập học, chọn ngưỡng trên `asr_tune`, đo trên val | Có (cùng phiên với F) |
-| H. Giữ hai phương án | Giữ cả hai phương án ở chỗ chưa chắc thì trần chép đúng là bao nhiêu, tốn bao nhiêu token? | Viết chỗ bất đồng thành `{RNNT \| large-v3}`, đo tỉ lệ từ đúng có mặt trong ít nhất một phương án | `asr_tune`, val | Không |
-| I. Thời gian và bộ nhớ | Toàn bộ phần ASR có vừa ngân sách thời gian và bộ nhớ trên A30 không? Cách chạy nào nhanh nhất mà không đổi chữ? | Đo từng mẫu: tuần tự, song song, chép theo lô; đo bộ nhớ đỉnh; chạy lại để kiểm tra tất định | Thời gian trên `public_test` và val; T4 cho mọi thử nghiệm, A30 (hoặc GPU 24 GB gần nhất) cho bản chính thức | Có |
+
+| Thử nghiệm             | Câu hỏi                                                                                                          | Cách làm ngắn gọn                                                                                                                        | Dữ liệu                                                                                                      | Cần GPU?                    |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------- |
+| E. Câu mồi theo mẫu    | Câu mồi dựng từ ngữ cảnh của mẫu có giúp từ tiếng Anh không có trong câu mồi cố định không?                      | Ba biến thể: thêm câu trả lời của trợ lý liền trước; thêm cả tên app đã cài; thêm danh sách từ khoá qua `hotwords`                       | Chọn trên `asr_tune`, đo trên val                                                                            | Có                          |
+| F. Độ tin cậy từng từ  | Lọc từ hay bị viết nhầm của câu mồi có giảm lỗi ở câu thuần Việt không?                                          | Đếm trên tập học: mỗi lần large-v3 viết ra từ đó, có bao nhiêu lần người dùng thật sự nói. Từ hay sai thì chỉ nhận khi có trong ngữ cảnh | Đếm trên tập học, chọn ngưỡng trên `asr_tune`, đo trên val                                                   | Có (để có chữ trên tập học) |
+| G. Bộ phân loại ghép   | Mô hình nhỏ học từ dữ liệu có quyết định ghép tốt hơn luật viết tay không?                                       | Hồi quy logistic, mỗi đoạn khác nhau là một mẫu học, đầu vào là các tín hiệu của E, F và điểm tin cậy của large-v3                       | Học trên tập học, chọn ngưỡng trên `asr_tune`, đo trên val                                                   | Có (cùng phiên với F)       |
+| H. Giữ hai phương án   | Giữ cả hai phương án ở chỗ chưa chắc thì trần chép đúng là bao nhiêu, tốn bao nhiêu token?                       | Viết chỗ bất đồng thành `{RNNT | large-v3}`, đo tỉ lệ từ đúng có mặt trong ít nhất một phương án                                         | `asr_tune`, val                                                                                              | Không                       |
+| I. Thời gian và bộ nhớ | Toàn bộ phần ASR có vừa ngân sách thời gian và bộ nhớ trên A30 không? Cách chạy nào nhanh nhất mà không đổi chữ? | Đo từng mẫu: tuần tự, song song, chép theo lô; đo bộ nhớ đỉnh; chạy lại để kiểm tra tất định                                             | Thời gian trên `public_test` và val; T4 cho mọi thử nghiệm, A30 (hoặc GPU 24 GB gần nhất) cho bản chính thức | Có                          |
+
 
 ### Cách chọn và tiêu chí đặt trước
 
 Giống lần 2: mọi lựa chọn làm trên tập dò, cấu hình thắng đo **đúng một lần** trên hai tập kiểm tra. Tiêu chí của từng
 thử nghiệm được ghi ở đây **trước khi đo**, để không chỉnh tiêu chí theo số:
 
-| Thử nghiệm | Tiêu chí chọn (đo trên tập dò, trừ I) |
-|---|---|
-| E | Chọn biến thể có tỉ lệ chép đúng từ tiếng Anh **của bản ghép** cao nhất, với hai điều kiện: WER câu thuần Việt của bản ghép không tăng so với bản ghép dùng `en_full_v1` (CI 95% của chênh lệch không nằm hẳn trên 0), và p95 thời gian của large-v3 tăng không quá 1 giây |
-| F | Chọn ngưỡng độ tin cậy cho WER câu thuần Việt của bản ghép thấp nhất, với điều kiện chép đúng từ tiếng Anh không giảm có ý nghĩa thống kê so với `context_other` (CI của chênh lệch chứa 0 hoặc nằm trên 0) |
-| G | Dùng bộ phân loại thay quy tắc chỉ khi không thua quy tắc thắng của F ở cả WER câu thuần Việt lẫn chép đúng từ tiếng Anh, và thắng có ý nghĩa thống kê ở ít nhất một trong hai |
-| H | Không chọn gì; chỉ đo trần và chi phí token, để quyết định có đưa định dạng này vào lần chạy hệ thống với LLM không |
-| I | Trên A30: thời gian ASR của mẫu chậm nhất trên `public_test` không quá 10 giây, và bộ nhớ GPU đỉnh của phần ASR không quá 6 GB. Trong các cách chạy đạt hai ngưỡng này và cho chữ giống hệt cách chạy tuần tự, chọn cách có thời gian trung bình thấp nhất |
+
+| Thử nghiệm | Tiêu chí chọn (đo trên tập dò, trừ I)                                                                                                                                                                                                                                      |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| E          | Chọn biến thể có tỉ lệ chép đúng từ tiếng Anh **của bản ghép** cao nhất, với hai điều kiện: WER câu thuần Việt của bản ghép không tăng so với bản ghép dùng `en_full_v1` (CI 95% của chênh lệch không nằm hẳn trên 0), và p95 thời gian của large-v3 tăng không quá 1 giây |
+| F          | Chọn ngưỡng độ tin cậy cho WER câu thuần Việt của bản ghép thấp nhất, với điều kiện chép đúng từ tiếng Anh không giảm có ý nghĩa thống kê so với `context_other` (CI của chênh lệch chứa 0 hoặc nằm trên 0)                                                                |
+| G          | Dùng bộ phân loại thay quy tắc chỉ khi không thua quy tắc thắng của F ở cả WER câu thuần Việt lẫn chép đúng từ tiếng Anh, và thắng có ý nghĩa thống kê ở ít nhất một trong hai                                                                                             |
+| H          | Không chọn gì; chỉ đo trần và chi phí token, để quyết định có đưa định dạng này vào lần chạy hệ thống với LLM không                                                                                                                                                        |
+| I          | Trên A30: thời gian ASR của mẫu chậm nhất trên `public_test` không quá 10 giây, và bộ nhớ GPU đỉnh của phần ASR không quá 6 GB. Trong các cách chạy đạt hai ngưỡng này và cho chữ giống hệt cách chạy tuần tự, chọn cách có thời gian trung bình thấp nhất                 |
+
 
 Lý do của hai ngưỡng ở I nằm ở mục 7.2.
 
 ### Kết quả chính
 
-_Chưa đo._ Bảng sẽ có dạng:
+*Chưa đo.* Bảng sẽ có dạng:
 
-| Hệ thống | Chép đúng từ tiếng Anh (seen / unseen) | WER câu chêm (seen / unseen) | WER câu thuần Việt (seen / unseen) | WER mọi câu (seen / unseen) |
-|---|---|---|---|---|
-| RNNT đứng riêng (lần 2) | 49,9% / 51,6% | 24,8% / 24,1% | 17,7% / 17,5% | 20,0% / 19,8% |
-| Ghép, `en_full_v1`, `context_other` (lần 2) | 72,2% / 63,1% | 22,1% / 22,8% | 18,1% / 17,8% | 19,4% / 19,5% |
-| Ghép, câu mồi thắng của E, `context_other` | chưa đo | chưa đo | chưa đo | chưa đo |
-| Ghép, câu mồi thắng của E, lọc theo độ tin cậy (F) | chưa đo | chưa đo | chưa đo | chưa đo |
-| Ghép, câu mồi thắng của E, bộ phân loại (G) | chưa đo | chưa đo | chưa đo | chưa đo |
+
+| Hệ thống                                           | Chép đúng từ tiếng Anh (seen / unseen) | WER câu chêm (seen / unseen) | WER câu thuần Việt (seen / unseen) | WER mọi câu (seen / unseen) |
+| -------------------------------------------------- | -------------------------------------- | ---------------------------- | ---------------------------------- | --------------------------- |
+| RNNT đứng riêng (lần 2)                            | 49,9% / 51,6%                          | 24,8% / 24,1%                | 17,7% / 17,5%                      | 20,0% / 19,8%               |
+| Ghép, `en_full_v1`, `context_other` (lần 2)        | 72,2% / 63,1%                          | 22,1% / 22,8%                | 18,1% / 17,8%                      | 19,4% / 19,5%               |
+| Ghép, câu mồi thắng của E, `context_other`         | chưa đo                                | chưa đo                      | chưa đo                            | chưa đo                     |
+| Ghép, câu mồi thắng của E, lọc theo độ tin cậy (F) | chưa đo                                | chưa đo                      | chưa đo                            | chưa đo                     |
+| Ghép, câu mồi thắng của E, bộ phân loại (G)        | chưa đo                                | chưa đo                      | chưa đo                            | chưa đo                     |
+
+
+
+
 
 | Thời gian và bộ nhớ trên A30 (`public_test`) | p50 mỗi mẫu | p95 mỗi mẫu | Mẫu chậm nhất | Trung bình | Bộ nhớ GPU đỉnh |
-|---|---|---|---|---|---|
-| RNNT đứng riêng | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
-| Ghép, cách chạy thắng của I | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
+| -------------------------------------------- | ----------- | ----------- | ------------- | ---------- | --------------- |
+| RNNT đứng riêng                              | chưa đo     | chưa đo     | chưa đo       | chưa đo    | chưa đo         |
+| Ghép, cách chạy thắng của I                  | chưa đo     | chưa đo     | chưa đo       | chưa đo    | chưa đo         |
+
 
 ### Kết luận
 
-_Điền sau khi đo._
+*Điền sau khi đo.*
 
 ### Kế hoạch thực hiện và tiến độ
 
 Thứ tự bắt buộc theo phụ thuộc: E phải xong trước F và G, vì F và G cần chữ large-v3 với câu mồi thắng trên tập học. H
 chạy offline sau G. I đo thời gian ở mọi phiên GPU, và có một phiên riêng trên A30 sau khi đã chốt cấu hình.
 
-| Bước | Việc | Ở đâu | Phụ thuộc | Trạng thái |
-|---|---|---|---|---|
-| P1–P9 | Viết code chuẩn bị (Phụ lục B.1), test, chạy thử trên CPU 3 mẫu | Máy dev, kernel preflight Kaggle | | Chưa làm |
-| K1 | Phiên GPU 1: bốn biến thể câu mồi trên `asr_tune` | Kaggle T4, khoảng 1 giờ 30 phút | P1–P9 | Chưa làm |
-| E | Chấm offline, chọn biến thể thắng | Máy dev | K1 | Chưa làm |
-| K2 | Phiên GPU 2: tập học (RNNT, large-v3 có và không câu mồi); val (large-v3 thắng, large-v3 không câu mồi) | Kaggle T4, khoảng 3 giờ 30 phút | E | Chưa làm |
-| F, G | Đếm độ tin cậy, học bộ phân loại, chọn ngưỡng trên `asr_tune`, đo một lần trên val | Máy dev | K2 | Chưa làm |
-| H | Đo trần của hai phương án | Máy dev | G | Chưa làm |
-| R1 | Phiên GPU 3: đo thời gian và bộ nhớ của engine ghép trên `public_test` và val | A30 thuê (RunPod), không có thì GPU 24 GB gần nhất; khoảng 2 giờ | F, G | Chưa làm |
-| Báo cáo | Điền kết quả, kết luận; cập nhật `docs/experiments.md`, `docs/decisions.md`, SPEC | Máy dev | Mọi bước | Chưa làm |
+
+| Bước    | Việc                                                                                                    | Ở đâu                                                            | Phụ thuộc | Trạng thái |
+| ------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | --------- | ---------- |
+| P1–P10  | Viết code chuẩn bị (Phụ lục B.1), test, chạy thử trên CPU 3 mẫu                                         | Máy dev, kernel preflight Kaggle                                 |           | Chưa làm   |
+| K1      | Phiên GPU 1: bốn biến thể câu mồi trên `asr_tune`                                                       | Kaggle T4, khoảng 1 giờ 30 phút                                  | P1–P9     | Chưa làm   |
+| E       | Chấm offline, chọn biến thể thắng                                                                       | Máy dev                                                          | K1        | Chưa làm   |
+| K2      | Phiên GPU 2: tập học (RNNT, large-v3 có và không câu mồi); val (large-v3 thắng, large-v3 không câu mồi) | Kaggle T4, khoảng 3 giờ 30 phút                                  | E         | Chưa làm   |
+| F, G    | Đếm độ tin cậy, học bộ phân loại, chọn ngưỡng trên `asr_tune`, đo một lần trên val                      | Máy dev                                                          | K2        | Chưa làm   |
+| H       | Đo trần của hai phương án                                                                               | Máy dev                                                          | G         | Chưa làm   |
+| R1      | Phiên GPU 3: đo thời gian và bộ nhớ của engine ghép trên `public_test` và val                           | A30 thuê (RunPod), không có thì GPU 24 GB gần nhất; khoảng 2 giờ | F, G      | Chưa làm   |
+| Báo cáo | Điền kết quả, kết luận; cập nhật `docs/experiments.md`, `docs/decisions.md`, SPEC                       | Máy dev                                                          | Mọi bước  | Chưa làm   |
+
 
 Ước tính thời gian GPU dựa trên tốc độ của lần 2 trên T4: large-v3 khoảng 20 phút cho 1 024 câu của `asr_tune`, tức
 khoảng 1,2 giây mỗi câu. Chi tiết từng phiên ở Phụ lục B.2.
@@ -164,24 +215,28 @@ nổi vLLM cùng whisper-large-v3 (`ops/kaggle/README.md`).
 
 ### Đọc tiếp ở đâu
 
-| Muốn biết | Đọc |
-|---|---|
-| Thuật ngữ, dữ liệu, thước đo, cách đo thời gian | Mục 0, 2 |
-| Câu mồi theo mẫu được dựng thế nào | Mục 3 (thử nghiệm E) |
-| Độ tin cậy từng từ được đếm thế nào | Mục 4 (thử nghiệm F) |
-| Bộ phân loại ghép học gì, từ dữ liệu nào | Mục 5 (thử nghiệm G) |
-| Định dạng hai phương án cho LLM | Mục 6 (thử nghiệm H) |
-| Đo thời gian, bộ nhớ, và ngưỡng | Mục 7 (thử nghiệm I) |
-| Code cần viết và lịch các phiên GPU | Phụ lục A, B |
+
+| Muốn biết                                       | Đọc                  |
+| ----------------------------------------------- | -------------------- |
+| Thuật ngữ, dữ liệu, thước đo, cách đo thời gian | Mục 0, 2             |
+| Câu mồi theo mẫu được dựng thế nào              | Mục 3 (thử nghiệm E) |
+| Độ tin cậy từng từ được đếm thế nào             | Mục 4 (thử nghiệm F) |
+| Bộ phân loại ghép học gì, từ dữ liệu nào        | Mục 5 (thử nghiệm G) |
+| Định dạng hai phương án cho LLM                 | Mục 6 (thử nghiệm H) |
+| Đo thời gian, bộ nhớ, và ngưỡng                 | Mục 7 (thử nghiệm I) |
+| Code cần viết và lịch các phiên GPU             | Phụ lục A, B         |
+
 
 **Kết quả thô.** Không có trên git. Các thư mục dự kiến:
 
-| Thư mục | Nội dung |
-|---|---|
+
+| Thư mục                                                 | Nội dung                                                                                                                          |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `artifacts/runs/kaggle/asr/<ngày>_v3_k1_sample_prompt/` | Phiên K1: `<biến thể>__asr_tune.hyps.jsonl` (chữ từng câu, kèm câu mồi đã dùng và điểm tin cậy), `.json` (chỉ số), `timing.jsonl` |
-| `artifacts/runs/kaggle/asr/<ngày>_v3_k2_learn/` | Phiên K2: chữ RNNT và large-v3 trên tập học và val |
-| `artifacts/runs/local/asr/<ngày>_v3_offline/` | Chấm offline E, F, G, H: chữ đã ghép, bảng so sánh có khoảng tin cậy, bảng độ tin cậy từng từ, hệ số của bộ phân loại |
-| `artifacts/runs/runpod/asr/<ngày>_v3_r1_timing/` | Phiên R1: `timing.jsonl`, `gpu_memory.csv`, so chữ giữa các cách chạy |
+| `artifacts/runs/kaggle/asr/<ngày>_v3_k2_learn/`         | Phiên K2: chữ RNNT và large-v3 trên tập học và val                                                                                |
+| `artifacts/runs/local/asr/<ngày>_v3_offline/`           | Chấm offline E, F, G, H: chữ đã ghép, bảng so sánh có khoảng tin cậy, bảng độ tin cậy từng từ, hệ số của bộ phân loại             |
+| `artifacts/runs/runpod/asr/<ngày>_v3_r1_timing/`        | Phiên R1: `timing.jsonl`, `gpu_memory.csv`, so chữ giữa các cách chạy                                                             |
+
 
 ## Mục lục
 
@@ -207,65 +262,71 @@ thanh thành chữ, rồi **LLM** đọc chữ đó và gọi tool. Điểm thi 
 (`docs/overview.md`) đặt ba giới hạn liên quan trực tiếp tới lần 3:
 
 - **30 giây mỗi mẫu** cho toàn bộ hệ thống (ASR, LLM, tool). Mẫu quá giờ nhận 0 điểm. Khi bằng điểm, đội có thời gian
-  trung bình mỗi mẫu thấp hơn xếp trên.
+trung bình mỗi mẫu thấp hơn xếp trên.
 - **Máy chấm**: một GPU NVIDIA A30 (24 GB), CPU Intel Xeon Gold 6442Y 16 nhân, 64 GB RAM.
 - **Tất định**: cố định mọi seed và giải mã tất định cho cả ASR lẫn LLM. Kết quả chạy lại khác bản đã nộp thì BTC chạy 5
-  lần và lấy trung bình.
+lần và lấy trung bình.
 
 Ngoài ra, hệ thống không được đọc `state.json` hay bất kỳ file nào trong thư mục môi trường của BTC; mọi dữ liệu app chỉ
 lấy qua tool. Vì vậy ASR chỉ thấy được những gì có trong đầu vào của mẫu (mục 0.2).
 
 ### 0.2. Dữ liệu của một mẫu lúc thi
 
-| Phần | Có dạng gì lúc thi | Ví dụ | Lần 3 dùng ở đâu |
-|---|---|---|---|
-| Lượt cuối của người dùng | Chỉ âm thanh | Câu vừa nói | Chép bằng ASR |
-| Lượt người dùng trong lịch sử | Chỉ âm thanh (`public_test`: 1 299 lượt, chỉ có trường `audio`) | Các câu đã nói trước | Chép bằng ASR |
-| Lượt trợ lý trong lịch sử | Chữ: câu trả lời (`text`), lời gọi tool, kết quả tool | "Gửi cho Sarah hay Sara?" | Câu mồi theo mẫu (E), từ điển ngữ cảnh (F, G) |
-| `installed_apps` | Danh sách mã app | `zalo`, `bike_rental` | Câu mồi theo mẫu (E), từ điển ngữ cảnh |
-| Catalog tool | Chữ: tên tiếng Việt của app (`name_vi`), mô tả, tool, tham số | | Từ điển ngữ cảnh; danh sách từ khoá (E3) |
-| Các trường khác của ngữ cảnh | Chữ: giờ, múi giờ, vị trí, hồ sơ người dùng | | Từ điển ngữ cảnh |
+
+| Phần                          | Có dạng gì lúc thi                                              | Ví dụ                     | Lần 3 dùng ở đâu                              |
+| ----------------------------- | --------------------------------------------------------------- | ------------------------- | --------------------------------------------- |
+| Lượt cuối của người dùng      | Chỉ âm thanh                                                    | Câu vừa nói               | Chép bằng ASR                                 |
+| Lượt người dùng trong lịch sử | Chỉ âm thanh (`public_test`: 1 299 lượt, chỉ có trường `audio`) | Các câu đã nói trước      | Chép bằng ASR                                 |
+| Lượt trợ lý trong lịch sử     | Chữ: câu trả lời (`text`), lời gọi tool, kết quả tool           | "Gửi cho Sarah hay Sara?" | Câu mồi theo mẫu (E), từ điển ngữ cảnh (F, G) |
+| `installed_apps`              | Danh sách mã app                                                | `zalo`, `bike_rental`     | Câu mồi theo mẫu (E), từ điển ngữ cảnh        |
+| Catalog tool                  | Chữ: tên tiếng Việt của app (`name_vi`), mô tả, tool, tham số   |                           | Từ điển ngữ cảnh; danh sách từ khoá (E3)      |
+| Các trường khác của ngữ cảnh  | Chữ: giờ, múi giờ, vị trí, hồ sơ người dùng                     |                           | Từ điển ngữ cảnh                              |
+
 
 Số liệu, tính trên dữ liệu của BTC:
 
-| Tập | Số mẫu | Số câu người dùng | Câu mỗi mẫu: trung bình / p95 / tối đa | Câu có lượt trợ lý liền trước | Giây âm thanh mỗi mẫu: trung bình / p95 / tối đa |
-|---|---|---|---|---|---|
-| `asr_tune` | 300 | 1 024 | 3,4 / 11 / 13 | 724 (71%) | 16,2 / 42,0 / 61,1 |
-| Tập học | 793 | 2 569 | | 1 776 (69%) | |
-| `val_seen` | 274 | 916 | 3,3 / 10 / 13 | 642 (70%) | 16,2 / 37,1 / 64,6 |
-| `val_unseen` | 178 | 527 | 3,0 / 10 / 13 | 349 (66%) | 16,4 / 38,8 / 69,4 |
-| `public_test` | 634 | 1 933 | 3,0 / 10 / 13 | | 15,7 / 38,3 / 82,8 |
+
+| Tập           | Số mẫu | Số câu người dùng | Câu mỗi mẫu: trung bình / p95 / tối đa | Câu có lượt trợ lý liền trước | Giây âm thanh mỗi mẫu: trung bình / p95 / tối đa |
+| ------------- | ------ | ----------------- | -------------------------------------- | ----------------------------- | ------------------------------------------------ |
+| `asr_tune`    | 300    | 1 024             | 3,4 / 11 / 13                          | 724 (71%)                     | 16,2 / 42,0 / 61,1                               |
+| Tập học       | 793    | 2 569             |                                        | 1 776 (69%)                   |                                                  |
+| `val_seen`    | 274    | 916               | 3,3 / 10 / 13                          | 642 (70%)                     | 16,2 / 37,1 / 64,6                               |
+| `val_unseen`  | 178    | 527               | 3,0 / 10 / 13                          | 349 (66%)                     | 16,4 / 38,8 / 69,4                               |
+| `public_test` | 634    | 1 933             | 3,0 / 10 / 13                          |                               | 15,7 / 38,3 / 82,8                               |
+
 
 "Câu có lượt trợ lý liền trước" là câu người dùng nói ngay sau một lượt trợ lý; đây là các câu mà câu mồi theo mẫu (E1)
 có thêm thông tin. Câu trả lời của trợ lý dài trung vị 14–19 từ, p95 34–43 từ, tối đa 71 từ.
 
 ### 0.3. Thuật ngữ
 
-Các thuật ngữ đã định nghĩa ở lần 2 (WER, từ ngoại và 4 nhóm, câu chêm, câu thuần Việt, gập chữ, chép đúng từ ngoại, câu
+Các thuật ngữ đã định nghĩa ở lần 2 (WER, từ ngoại và 4 nhóm, câu chêm, câu thuần Việt, chuẩn hoá chữ, chép đúng từ ngoại, câu
 mồi, lớp bảo vệ g4, tập dò, tập kiểm tra, seen, unseen, CI, bootstrap, oracle) giữ nguyên nghĩa, xem mục 0.3 của
 `docs/reports/benchmark/asr_v2.md`. Thuật ngữ mới của lần 3:
 
-| Thuật ngữ | Nghĩa |
-|---|---|
-| Câu mồi cố định | Câu mồi giống nhau cho mọi câu, như `en_full_v1` của lần 2 |
-| Câu mồi theo mẫu | Câu mồi dựng riêng cho từng câu, từ thông tin dạng chữ của mẫu (mục 3) |
-| Từ điển ngữ cảnh | Tập các từ (đã gập) có trong thông tin dạng chữ của mẫu: catalog của app đã cài, ngữ cảnh người dùng, lượt trợ lý trong lịch sử. Có từ lần 2 (mục 6.8 của báo cáo lần 2) |
-| `context_other` | Quy tắc ghép đã siết của lần 2: từ tiếng Anh ngoài câu mồi chỉ được lấy từ large-v3 khi có trong từ điển ngữ cảnh; từ của câu mồi nhận hết |
-| `hotwords` | Tham số của faster-whisper nhận một chuỗi từ khoá để ưu tiên khi giải mã. Lần 1 thử với một danh sách cố định và loại vì kém nhất; lần 3 thử với danh sách riêng theo mẫu |
-| Độ tin cậy của một từ câu mồi | Trong các lần large-v3 (có câu mồi) viết ra từ đó, tỉ lệ lần người dùng thật sự nói từ đó. Đếm trên tập học (mục 4) |
-| Đoạn khác nhau | Một chỗ mà chữ RNNT và chữ large-v3 viết khác nhau, nằm giữa hai từ khớp, sau khi đặt hai bản cạnh nhau từ ứng với từ (mục 6.3 của báo cáo lần 2) |
-| Bộ phân loại | Một mô hình nhỏ nhận các tín hiệu của một đoạn khác nhau và trả về xác suất "nên lấy chữ của large-v3" (mục 5) |
-| Hồi quy logistic | Bộ phân loại đơn giản nhất: cộng các tín hiệu theo trọng số rồi đổi thành xác suất từ 0 tới 1. Trọng số học từ dữ liệu. Ít tham số, nên học được từ vài trăm mẫu |
-| Đặc trưng | Một tín hiệu dạng số đưa vào bộ phân loại, ví dụ "từ có trong từ điển ngữ cảnh không" (1 hoặc 0) |
-| Nhãn tự động | Đáp án cho từng đoạn khác nhau ("lấy large-v3 thì đúng hơn hay sai hơn"), tính máy móc bằng cách so với đáp án của BTC; không cần người gán |
-| Điểm tin cậy của large-v3 | `avg_logprob` (trung bình log xác suất của các token, càng gần 0 càng chắc) và `no_speech_prob` (xác suất đoạn đó không có lời nói) mà faster-whisper trả về cho mỗi đoạn âm thanh |
-| Hai phương án | Cách viết chỗ bất đồng thành `{chữ RNNT \| chữ large-v3}` để LLM tự chọn (mục 6) |
-| Trần của hai phương án | Tỉ lệ từ tiếng Anh của đáp án có mặt trong ít nhất một phương án. Là mức tối đa LLM có thể đạt nếu luôn chọn đúng |
-| p50, p95, tối đa | Thời gian chép lời **một mẫu** (lượt cuối và mọi lượt người dùng trong lịch sử) mà 50%, 95%, 100% số mẫu nhanh hơn |
-| RTF | Hệ số thời gian thực: số giây xử lý chia số giây âm thanh. RTF 0,2 nghĩa là 10 giây âm thanh xử lý mất 2 giây |
-| Bộ nhớ GPU đỉnh | Lượng bộ nhớ GPU lớn nhất mà tiến trình ASR chiếm trong suốt lần chạy, đọc bằng `nvidia-smi` (mục 2.4) |
+
+| Thuật ngữ                        | Nghĩa                                                                                                                                                                                                |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Câu mồi cố định                  | Câu mồi giống nhau cho mọi câu, như `en_full_v1` của lần 2                                                                                                                                           |
+| Câu mồi theo mẫu                 | Câu mồi dựng riêng cho từng câu, từ thông tin dạng chữ của mẫu (mục 3)                                                                                                                               |
+| Từ điển ngữ cảnh                 | Tập các từ (đã chuẩn hoá) có trong thông tin dạng chữ của mẫu: catalog của app đã cài, ngữ cảnh người dùng, lượt trợ lý trong lịch sử. Có từ lần 2 (mục 6.8 của báo cáo lần 2)                             |
+| `context_other`                  | Bộ lọc ngữ cảnh của lần 2: từ tiếng Anh ngoài câu mồi chỉ được lấy từ large-v3 khi có trong từ điển ngữ cảnh; từ của câu mồi nhận hết                                                           |
+| `hotwords`                       | Tham số của faster-whisper nhận một chuỗi từ khoá để ưu tiên khi giải mã. Lần 1 thử với một danh sách cố định và loại vì kém nhất; lần 3 thử với danh sách riêng theo mẫu                            |
+| Độ tin cậy của một từ câu mồi    | Trong các lần large-v3 (có câu mồi) viết ra từ đó, tỉ lệ lần người dùng thật sự nói từ đó. Đếm trên tập học (mục 4)                                                                                  |
+| Đoạn khác nhau                   | Một chỗ mà chữ RNNT và chữ large-v3 viết khác nhau, nằm giữa hai từ khớp, sau khi đặt hai bản cạnh nhau từ ứng với từ (mục 6.3 của báo cáo lần 2)                                                    |
+| Bộ phân loại                     | Một mô hình nhỏ nhận các tín hiệu của một đoạn khác nhau và trả về xác suất "nên lấy chữ của large-v3" (mục 5)                                                                                       |
+| Hồi quy logistic                 | Bộ phân loại đơn giản nhất: cộng các tín hiệu theo trọng số rồi đổi thành xác suất từ 0 tới 1. Trọng số học từ dữ liệu. Ít tham số, nên học được từ vài trăm mẫu                                     |
+| Đặc trưng                        | Một tín hiệu dạng số đưa vào bộ phân loại, ví dụ "từ có trong từ điển ngữ cảnh không" (1 hoặc 0)                                                                                                     |
+| Nhãn tự động                     | Đáp án cho từng đoạn khác nhau ("lấy large-v3 thì đúng hơn hay sai hơn"), tính máy móc bằng cách so với đáp án của BTC; không cần người gán                                                          |
+| Điểm tin cậy của large-v3        | `avg_logprob` (trung bình log xác suất của các token, càng gần 0 càng chắc) và `no_speech_prob` (xác suất đoạn đó không có lời nói) mà faster-whisper trả về cho mỗi đoạn âm thanh                   |
+| Hai phương án                    | Cách viết chỗ bất đồng thành `{chữ RNNT | chữ large-v3}` để LLM tự chọn (mục 6)                                                                                                                      |
+| Trần của hai phương án           | Tỉ lệ từ tiếng Anh của đáp án có mặt trong ít nhất một phương án. Là mức tối đa LLM có thể đạt nếu luôn chọn đúng                                                                                    |
+| p50, p95, tối đa                 | Thời gian chép lời **một mẫu** (lượt cuối và mọi lượt người dùng trong lịch sử) mà 50%, 95%, 100% số mẫu nhanh hơn                                                                                   |
+| RTF                              | Hệ số thời gian thực: số giây xử lý chia số giây âm thanh. RTF 0,2 nghĩa là 10 giây âm thanh xử lý mất 2 giây                                                                                        |
+| Bộ nhớ GPU đỉnh                  | Lượng bộ nhớ GPU lớn nhất mà tiến trình ASR chiếm trong suốt lần chạy, đọc bằng `nvidia-smi` (mục 2.4)                                                                                               |
 | Chạy tuần tự, song song, theo lô | Tuần tự: chép hết bằng RNNT rồi mới chép bằng large-v3. Song song: hai mô hình chạy cùng lúc trên cùng GPU, mỗi mô hình một luồng. Theo lô: large-v3 nhận nhiều câu một lúc thay vì từng câu (mục 7) |
-| A30, T4 | A30: GPU của máy chấm, 24 GB, thế hệ Ampere, hỗ trợ bfloat16. T4: GPU miễn phí của Kaggle, 15 GB (16 GB danh nghĩa), thế hệ Turing, không hỗ trợ bfloat16 |
+| A30, T4                          | A30: GPU của máy chấm, 24 GB, thế hệ Ampere, hỗ trợ bfloat16. T4: GPU miễn phí của Kaggle, 15 GB (16 GB danh nghĩa), thế hệ Turing, không hỗ trợ bfloat16                                            |
+
 
 ### 0.4. Cách đọc các chỗ nhắc tới code
 
@@ -281,12 +342,14 @@ Thứ ba, chưa biết phần ASR hai mô hình có vừa 30 giây mỗi mẫu t
 
 **Suy từ mục tiêu thật.** Điểm thi chấm lời gọi tool. LLM cần bốn loại thông tin từ lời nói:
 
-| Thông tin | Ví dụ | Cách chấm | ASR cần chính xác tới đâu |
-|---|---|---|---|
-| Ý định: chọn app và tool | "nhắn Zalo", "đặt xe" | Tên tool phải đúng | Đủ để nhận ra ý định, không cần đúng chính tả |
+
+| Thông tin                 | Ví dụ                               | Cách chấm                                                        | ASR cần chính xác tới đâu                              |
+| ------------------------- | ----------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------ |
+| Ý định: chọn app và tool  | "nhắn Zalo", "đặt xe"               | Tên tool phải đúng                                               | Đủ để nhận ra ý định, không cần đúng chính tả          |
 | Đối tượng có mã (`x-ref`) | liên hệ "Sarah", thiết bị "đèn bếp" | Mã phải đúng, mà mã lấy từ kết quả tool chứ không lấy từ lời nói | Đủ gần để LLM chọn đúng trong danh sách mà tool trả về |
-| Giá trị chính xác | 500 nghìn, 3 giờ chiều, 26 độ | Phải khớp tuyệt đối | Rất cao |
-| Văn bản tự do (`fuzzy`) | Nội dung tin nhắn | Đạt khi token-F1 > 0,6 | Sai vài từ vẫn qua |
+| Giá trị chính xác         | 500 nghìn, 3 giờ chiều, 26 độ       | Phải khớp tuyệt đối                                              | Rất cao                                                |
+| Văn bản tự do (`fuzzy`)   | Nội dung tin nhắn                   | Đạt khi token-F1 &gt; 0,6                                        | Sai vài từ vẫn qua                                     |
+
 
 Từ bảng này: chính tả tiếng Anh quan trọng nhất ở loại đầu (tên app, tên dịch vụ) và một phần loại hai. Những từ này
 thường **có trong ngữ cảnh của mẫu** (catalog của app đã cài, lượt trợ lý vừa nhắc). Danh bạ, thiết bị, playlist chỉ xuất
@@ -296,33 +359,37 @@ ASR thấy được (E, F, G), và chuẩn bị đường để LLM tự sửa �
 **Mục tiêu.**
 
 1. Đo xem câu mồi theo mẫu có tăng tỉ lệ chép đúng từ tiếng Anh, nhất là trên `val_unseen`, mà không làm câu thuần Việt
-   sai thêm không (E).
+sai thêm không (E).
 2. Đóng phần lỗi còn lại ở câu thuần Việt của bản ghép bằng độ tin cậy từng từ (F) hoặc bộ phân loại (G).
 3. Đo trần và chi phí của cách giữ hai phương án cho LLM (H).
 4. Đo thời gian và bộ nhớ của toàn bộ phần ASR trên GPU giống máy chấm, chọn cách chạy nhanh nhất mà vẫn cho cùng chữ
-   (I).
+(I).
 5. Viết engine ghép vào hệ thống thật (`lifemate/backends/asr.py`), để thử nghiệm I đo đúng thứ sẽ nộp và để bước sau
-   chạy được cả hệ thống với LLM.
+chạy được cả hệ thống với LLM.
 
 **Ngoài phạm vi lần 3, và lý do.**
 
-| Ý tưởng | Lý do chưa làm |
-|---|---|
+
+| Ý tưởng                                                                              | Lý do chưa làm                                                                                                                                                                         |
+| ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Cộng điểm cho từ trong danh sách ngay trong bộ giải mã của RNNT (contextual biasing) | Gói `chunkformer` chỉ có giải mã tham lam; phải tự viết beam search có cộng điểm cho RNNT. Với Whisper, lần 3 thử dạng tương đương có sẵn: câu mồi theo mẫu và `hotwords` theo mẫu (E) |
-| Thêm lớp cross-attention vào danh sách từ bên trong ASR (kiểu CLAS, TCPGen) | Phải fine-tune mô hình ASR; dự án chỉ có khoảng 3 600 câu train và còn 18 ngày tới hạn nộp 16/11 |
-| Tiền huấn luyện biểu diễn tự giám sát (JEPA) | Cần rất nhiều âm thanh không nhãn và nhiều GPU; các mô hình ASR đang dùng đã tiền huấn luyện sẵn |
-| Fine-tune LLM trên định dạng hai phương án | Thuộc phần fine-tune LLM (SFT). Lần 3 chỉ đo trần (H); nếu trần đủ cao thì định dạng này được đưa vào dữ liệu SFT ở bước sau |
+| Thêm lớp cross-attention vào danh sách từ bên trong ASR (kiểu CLAS, TCPGen)          | Phải fine-tune mô hình ASR; dự án chỉ có khoảng 3 600 câu train và còn 18 ngày tới hạn nộp 16/11                                                                                       |
+| Tiền huấn luyện biểu diễn tự giám sát (JEPA)                                         | Cần rất nhiều âm thanh không nhãn và nhiều GPU; các mô hình ASR đang dùng đã tiền huấn luyện sẵn                                                                                       |
+| Fine-tune LLM trên định dạng hai phương án                                           | Thuộc phần fine-tune LLM (SFT). Lần 3 chỉ đo trần (H); nếu trần đủ cao thì định dạng này được đưa vào dữ liệu SFT ở bước sau                                                           |
+
 
 **Các công cụ chuẩn bị trước.**
 
-| Công cụ | Mục | Dùng ở thử nghiệm |
-|---|---|---|
-| Công cụ của lần 2: quy tắc tìm từ ngoại, bộ chỉ số tiếng Anh, chấm lại offline, bảng so sánh có CI, quy tắc ghép, từ điển ngữ cảnh | 2.2 | E, F, G, H |
-| Câu mồi theo mẫu, lớp bảo vệ chỉ so phần cố định, điểm tin cậy của large-v3 trong `hyps.jsonl` | 3.3 | E, G |
-| Bảng độ tin cậy từng từ và cách lọc `context_reliable` | 4.3 | F, G |
-| Đặc trưng, nhãn tự động, hồi quy logistic | 5.3 | G |
-| Định dạng hai phương án, đếm trần và token | 6.3 | H |
-| Engine ghép trong hệ thống thật, ghi thời gian từng mô hình, đọc bộ nhớ GPU | 2.4, 7.3 | I, và mọi phiên GPU |
+
+| Công cụ                                                                                                                            | Mục      | Dùng ở thử nghiệm   |
+| ---------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------- |
+| Công cụ của lần 2: quy tắc tìm từ ngoại, bộ chỉ số tiếng Anh, chấm lại offline, bảng so sánh có CI, quy tắc ghép, từ điển ngữ cảnh | 2.2      | E, F, G, H          |
+| Câu mồi theo mẫu, lớp bảo vệ chỉ so phần cố định, điểm tin cậy của large-v3 trong `hyps.jsonl`                                     | 3.3      | E, G                |
+| Bảng độ tin cậy từng từ và cách lọc `context_reliable`                                                                             | 4.3      | F, G                |
+| Đặc trưng, nhãn tự động, hồi quy logistic                                                                                          | 5.3      | G                   |
+| Định dạng hai phương án, đếm trần và token                                                                                         | 6.3      | H                   |
+| Engine ghép trong hệ thống thật, ghi thời gian từng mô hình, đọc bộ nhớ GPU                                                        | 2.4, 7.3 | I, và mọi phiên GPU |
+
 
 ## 2. Dữ liệu, thước đo và công cụ dùng chung
 
@@ -335,28 +402,36 @@ gian không được dùng để chọn gì về chất lượng.
 **Giải pháp.**
 
 1. **Tập học = 793 mẫu train ngoài `asr_tune`.** Lần 2 chỉ đọc chữ large-v3 của các mẫu này (bộ đệm
-   `data/asr/train_asr.json`, large-v3 beam 5 không câu mồi) để chọn từ cho câu mồi. Lần 3 dùng chính các mẫu này để
-   đếm độ tin cậy và học bộ phân loại. Lý do: đây là phần duy nhất có đáp án mà chưa dùng để dò hay đo. Bộ đệm cũ không
-   dùng được cho F và G vì chép bằng beam 5 không câu mồi, khác cấu hình sẽ dùng lúc thi (giải mã tham lam + VAD + câu
-   mồi); nên phiên K2 chép lại tập học bằng đúng cấu hình đó.
+`data/asr/train_asr.json`, large-v3 beam 5 không câu mồi) để chọn từ cho câu mồi. Lần 3 dùng chính các mẫu này để
+đếm độ tin cậy và học bộ phân loại. Lý do: đây là phần duy nhất có đáp án mà chưa dùng để dò hay đo. Bộ đệm cũ không
+dùng được cho F và G vì chép bằng beam 5 không câu mồi, khác cấu hình sẽ dùng lúc thi (giải mã tham lam + VAD + câu
+mồi); nên phiên K2 chép lại tập học bằng đúng cấu hình đó.
 2. **Câu mồi viết lại theo tập học là một bước chọn.** Nếu E hoặc F dẫn tới viết lại câu mồi cố định, việc viết lại chỉ
-   được dựa vào tập học, như lần 2.
+được dựa vào tập học, như lần 2.
 3. **`public_test` chỉ để đo thời gian và bộ nhớ.** Chạy ASR trên `public_test` là chạy suy luận, không phải gán nhãn,
-   nên không trái thể lệ. Để không vô tình chọn theo tập này: không tính chỉ số chất lượng nào, không đọc chữ ASR, không
-   lưu chữ ASR của tập này ra file kết quả (chỉ lưu thời gian và bộ nhớ).
+nên không trái thể lệ. Để không vô tình chọn theo tập này: không tính chỉ số chất lượng nào, không đọc chữ ASR, không
+lưu chữ ASR của tập này ra file kết quả (chỉ lưu thời gian và bộ nhớ).
 4. **Không dùng `public_test` cho bất kỳ dữ liệu học nào**, theo `AGENTS.md`.
+5. **Từ điển ngữ cảnh chỉ lấy giá trị, bỏ khoá JSON.** Ở lần 2, `sample_context_words` lấy cả khoá của catalog và của
+`context` (`type`, `description`, `properties`, `content`, `name`…), nên các từ này có trong từ điển của mọi mẫu và
+large-v3 bịa ra đúng các từ này thì bộ lọc vẫn nhận. Khoá là tên trường do người viết schema đặt, không phải nội dung
+người dùng có thể nhắc tới. Đếm offline trên tập dò: bỏ khoá bớt 1 từ lấy nhầm ("group") và không mất từ đúng nào. Lần 3
+dùng từ điển bỏ khoá cho mọi thử nghiệm, kể cả mốc so sánh `context_other`; mốc này được chấm lại offline trên `asr_tune`
+và val trước khi chạy E (việc P10).
 
-| Việc | Dữ liệu | Để làm gì | Lý do chọn |
-|---|---|---|---|
-| E: dò biến thể câu mồi | `asr_tune` đầy đủ (1 024 câu) | Chọn biến thể | Cần cả câu thường để thấy câu mồi có làm câu thuần Việt sai thêm không |
-| E: đo biến thể thắng | `val_seen`, `val_unseen` đầy đủ, một lần | Số cuối | Như lần 2 |
-| F: đếm độ tin cậy | Tập học, chữ large-v3 với câu mồi thắng của E | Bảng độ tin cậy từng từ | Phải cùng cấu hình câu mồi với lúc dùng |
-| F: chọn ngưỡng | `asr_tune` | Ngưỡng độ tin cậy | Chọn trên tập không dùng để đếm |
-| G: học bộ phân loại | Tập học: chữ RNNT, chữ large-v3 có và không câu mồi | Trọng số của hồi quy logistic | Học trên tập không dùng để dò hay đo |
-| G: chọn ngưỡng xác suất | `asr_tune` | Ngưỡng quyết định | Như F |
-| H: đo trần | `asr_tune`, val | Trần và chi phí token | Không chọn gì |
-| I: thời gian trên T4 | Mọi phiên GPU | So chi phí giữa các biến thể | Đo kèm, không tốn thêm phiên |
-| I: thời gian chính thức | `public_test` và val, trên A30 | Số thời gian và bộ nhớ cuối | `public_test` giống bộ thi thật nhất về độ dài âm thanh |
+
+| Việc                    | Dữ liệu                                             | Để làm gì                     | Lý do chọn                                                             |
+| ----------------------- | --------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------- |
+| E: dò biến thể câu mồi  | `asr_tune` đầy đủ (1 024 câu)                       | Chọn biến thể                 | Cần cả câu thường để thấy câu mồi có làm câu thuần Việt sai thêm không |
+| E: đo biến thể thắng    | `val_seen`, `val_unseen` đầy đủ, một lần            | Số cuối                       | Như lần 2                                                              |
+| F: đếm độ tin cậy       | Tập học, chữ large-v3 với câu mồi thắng của E       | Bảng độ tin cậy từng từ       | Phải cùng cấu hình câu mồi với lúc dùng                                |
+| F: chọn ngưỡng          | `asr_tune`                                          | Ngưỡng độ tin cậy             | Chọn trên tập không dùng để đếm                                        |
+| G: học bộ phân loại     | Tập học: chữ RNNT, chữ large-v3 có và không câu mồi | Trọng số của hồi quy logistic | Học trên tập không dùng để dò hay đo                                   |
+| G: chọn ngưỡng xác suất | `asr_tune`                                          | Ngưỡng quyết định             | Như F                                                                  |
+| H: đo trần              | `asr_tune`, val                                     | Trần và chi phí token         | Không chọn gì                                                          |
+| I: thời gian trên T4    | Mọi phiên GPU                                       | So chi phí giữa các biến thể  | Đo kèm, không tốn thêm phiên                                           |
+| I: thời gian chính thức | `public_test` và val, trên A30                      | Số thời gian và bộ nhớ cuối   | `public_test` giống bộ thi thật nhất về độ dài âm thanh                |
+
 
 ### 2.2. Thước đo
 
@@ -367,20 +442,22 @@ số của large-v3 đứng riêng được báo kèm để giải thích.
 
 Chỉ số mới:
 
-| Chỉ số (tên dự kiến trong file kết quả) | Cách tính | Vì sao cần |
-|---|---|---|
-| Chép đúng theo có/không có trong ngữ cảnh (`en_context`) | Như `en_word_recall`, tách theo từ của đáp án **có** và **không có** trong từ điển ngữ cảnh của mẫu | Câu mồi theo mẫu chỉ có thể giúp từ có trong ngữ cảnh. Tách ra để biết mức tăng đến từ đâu |
-| Chép đúng theo có/không có trong câu mồi cố định (`en_prompt`) | Như lần 2, nhưng "câu mồi" là phần cố định | So được với lần 2 |
-| Chép lại lượt trợ lý (`assistant_echo`) | Số câu mà chữ ASR có 4 từ liên tiếp trùng câu trả lời của trợ lý liền trước, trong khi đáp án không có 4 từ đó | Câu mồi theo mẫu chứa lời trợ lý. Đây là dấu hiệu large-v3 in lại lời trợ lý thay vì nghe |
-| Từ bị lấy nhầm khi ghép (`merge_wrong_english`) | Số từ tiếng Anh mới mà phép ghép lấy từ large-v3 nhưng không có trong đáp án câu đó; tách theo từ của câu mồi / ngoài câu mồi | Đo trực tiếp thứ F và G muốn giảm. Lần 2 đếm tay bằng script; lần 3 đưa vào code |
-| Từ đúng bị bỏ khi ghép (`merge_missed_english`) | Số từ tiếng Anh mới của large-v3 có trong đáp án mà phép ghép không lấy | Mặt kia của đánh đổi |
-| Trần của hai phương án (`alternatives_ceiling`) | Mục 6 | H |
-| Token thêm cho LLM (`alternatives_tokens`) | Mục 6 | H |
-| Thời gian từng mô hình mỗi mẫu (`asr_s.rnnt`, `asr_s.whisper`, `asr_s.guard`, `asr_s.merge`) | Đồng hồ thực (`time.perf_counter`) quanh từng bước, cộng theo mẫu | Biết bước nào tốn thời gian |
-| Thời gian ASR mỗi mẫu (`asr_s.total`): p50, p95, tối đa, trung bình | Từ lúc bắt đầu đọc file âm thanh đầu tiên tới khi có chữ ghép của mọi câu trong mẫu | Ngân sách 30 giây là theo mẫu. Trung bình dùng khi bằng điểm |
-| RTF | Tổng thời gian ASR chia tổng số giây âm thanh của tập | So được giữa các tập có độ dài khác nhau |
-| Thời gian nạp mô hình (`load_s`) | Từ lúc tạo engine tới khi khởi động (`warmup`) xong | Không tính vào từng mẫu, nhưng cộng vào tổng thời gian chạy Docker |
-| Bộ nhớ GPU đỉnh (`gpu_peak_mb`) | Mục 2.4 | Phần còn lại cho vLLM |
+
+| Chỉ số (tên dự kiến trong file kết quả)                                                      | Cách tính                                                                                                                     | Vì sao cần                                                                                 |
+| -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Chép đúng theo có/không có trong ngữ cảnh (`en_context`)                                     | Như `en_word_recall`, tách theo từ của đáp án **có** và **không có** trong từ điển ngữ cảnh của mẫu                           | Câu mồi theo mẫu chỉ có thể giúp từ có trong ngữ cảnh. Tách ra để biết mức tăng đến từ đâu |
+| Chép đúng theo có/không có trong câu mồi cố định (`en_prompt`)                               | Như lần 2, nhưng "câu mồi" là phần cố định                                                                                    | So được với lần 2                                                                          |
+| Chép lại lượt trợ lý (`assistant_echo`)                                                      | Số câu mà chữ ASR có 4 từ liên tiếp trùng câu trả lời của trợ lý liền trước, trong khi đáp án không có 4 từ đó                | Câu mồi theo mẫu chứa lời trợ lý. Đây là dấu hiệu large-v3 in lại lời trợ lý thay vì nghe  |
+| Từ bị lấy nhầm khi ghép (`merge_wrong_english`)                                              | Số từ tiếng Anh mới mà phép ghép lấy từ large-v3 nhưng không có trong đáp án câu đó; tách theo từ của câu mồi / ngoài câu mồi | Đo trực tiếp thứ F và G muốn giảm. Lần 2 đếm tay bằng script; lần 3 đưa vào code           |
+| Từ đúng bị bỏ khi ghép (`merge_missed_english`)                                              | Số từ tiếng Anh mới của large-v3 có trong đáp án mà phép ghép không lấy                                                       | Mặt kia của đánh đổi                                                                       |
+| Trần của hai phương án (`alternatives_ceiling`)                                              | Mục 6                                                                                                                         | H                                                                                          |
+| Token thêm cho LLM (`alternatives_tokens`)                                                   | Mục 6                                                                                                                         | H                                                                                          |
+| Thời gian từng mô hình mỗi mẫu (`asr_s.rnnt`, `asr_s.whisper`, `asr_s.guard`, `asr_s.merge`) | Đồng hồ thực (`time.perf_counter`) quanh từng bước, cộng theo mẫu                                                             | Biết bước nào tốn thời gian                                                                |
+| Thời gian ASR mỗi mẫu (`asr_s.total`): p50, p95, tối đa, trung bình                          | Từ lúc bắt đầu đọc file âm thanh đầu tiên tới khi có chữ ghép của mọi câu trong mẫu                                           | Ngân sách 30 giây là theo mẫu. Trung bình dùng khi bằng điểm                               |
+| RTF                                                                                          | Tổng thời gian ASR chia tổng số giây âm thanh của tập                                                                         | So được giữa các tập có độ dài khác nhau                                                   |
+| Thời gian nạp mô hình (`load_s`)                                                             | Từ lúc tạo engine tới khi khởi động (`warmup`) xong                                                                           | Không tính vào từng mẫu, nhưng cộng vào tổng thời gian chạy Docker                         |
+| Bộ nhớ GPU đỉnh (`gpu_peak_mb`)                                                              | Mục 2.4                                                                                                                       | Phần còn lại cho vLLM                                                                      |
+
 
 **Giới hạn.** `assistant_echo` dựa vào trùng 4 từ, nên bỏ sót trường hợp large-v3 in lại lời trợ lý nhưng đổi vài từ.
 
@@ -403,20 +480,19 @@ trên A30.
 **Giải pháp.**
 
 - **Đo trên engine thật.** Engine ghép (sẽ viết, Phụ lục B.1, P7) chạy RNNT, large-v3, lớp bảo vệ và phép ghép trong
-  cùng một tiến trình, đúng như lúc nộp. Mọi phiên GPU của lần 3 chạy qua engine này, nên thời gian đo được ở K1, K2 là
-  thời gian thật trên T4, và R1 là thời gian thật trên A30.
+cùng một tiến trình, đúng như lúc nộp. Mọi phiên GPU của lần 3 chạy qua engine này, nên thời gian đo được ở K1, K2 là
+thời gian thật trên T4, và R1 là thời gian thật trên A30.
 - **Thời gian mỗi mẫu.** `lifemate/backends/asr.py` › `ASRTranscriber.transcribe` đã ghi `Transcript.seconds` (đồng hồ
-  thực từ lúc bắt đầu tới khi có chữ của mọi câu). Engine ghép ghi thêm thời gian của từng bước vào một dict
-  (`tên bước → giây`) và một dòng `timing.jsonl` cho mỗi mẫu: `{id, n_utterances, audio_s, asr_s: {rnnt, whisper,
-  guard, merge, total}}`.
+thực từ lúc bắt đầu tới khi có chữ của mọi câu). Engine ghép ghi thêm thời gian của từng bước vào một dict
+(`tên bước → giây`) và một dòng `timing.jsonl` cho mỗi mẫu: `{id, n_utterances, audio_s, asr_s: {rnnt, whisper, guard, merge, total}}`.
 - **Khởi động trước khi đo.** Mỗi mô hình chạy một lần trên 1 giây im lặng (`warmup`) trước mẫu đầu tiên, và lần đó
-  không tính. Lý do: lần chạy đầu của GPU tốn thêm thời gian dựng kernel, không lặp lại ở các mẫu sau.
+không tính. Lý do: lần chạy đầu của GPU tốn thêm thời gian dựng kernel, không lặp lại ở các mẫu sau.
 - **Bộ nhớ GPU.** large-v3 chạy trên CTranslate2, không phải PyTorch, nên `torch.cuda.max_memory_allocated` không thấy
-  bộ nhớ của large-v3. Vì vậy đọc bằng `nvidia-smi --query-gpu=memory.used --format=csv -lms 200` chạy nền trong suốt
-  phiên, ghi `gpu_memory.csv`; bộ nhớ đỉnh là giá trị lớn nhất trừ giá trị trước khi nạp mô hình (**(sẽ viết)**
-  `lifemate/eval/gpu_memory.py` › `GpuMemoryMonitor`).
+bộ nhớ của large-v3. Vì vậy đọc bằng `nvidia-smi --query-gpu=memory.used --format=csv -lms 200` chạy nền trong suốt
+phiên, ghi `gpu_memory.csv`; bộ nhớ đỉnh là giá trị lớn nhất trừ giá trị trước khi nạp mô hình (**(sẽ viết)**
+`lifemate/eval/gpu_memory.py` › `GpuMemoryMonitor`).
 - **Kiểm tra tất định.** Mỗi cách chạy mới (song song, theo lô) được chạy lại lần hai trên 50 mẫu và so chữ từng ký tự
-  với lần một và với cách chạy tuần tự (`lifemate/eval/asr_compare.py`, so `hyps.jsonl`).
+với lần một và với cách chạy tuần tự (`lifemate/eval/asr_compare.py`, so `hyps.jsonl`).
 
 **Lý do chọn `public_test` để đo thời gian chính thức.** Thời gian phụ thuộc số câu và độ dài âm thanh của mẫu. Mẫu dài
 nhất của `public_test` có 82,8 giây âm thanh, dài hơn mẫu dài nhất của mọi tập train (69,4 giây). Bộ thi thật có cùng
@@ -425,7 +501,7 @@ cấu trúc với `public_test`, nên phân phối thời gian trên `public_tes
 **Giới hạn.**
 
 - Lần 3 chưa chạy vLLM cùng lúc. Khi LLM chạy song song trên cùng GPU, ASR có thể chậm hơn vì tranh GPU. Lần chạy hệ
-  thống sau lần 3 sẽ đo phần này.
+thống sau lần 3 sẽ đo phần này.
 - Thời gian đọc file âm thanh phụ thuộc ổ đĩa của máy chấm, không đo được trước.
 - Nếu không thuê được A30, số trên GPU 24 GB khác chỉ là ước lượng; tên GPU được ghi kèm mọi số.
 
@@ -453,12 +529,14 @@ thể chính đưa thông tin vào dưới dạng **câu nói tự nhiên** (l�
 
 **Ba biến thể và một đối chứng.** Với mỗi câu người dùng `u` của mẫu (lượt trong lịch sử hoặc lượt cuối):
 
-| Biến thể | Câu mồi của câu `u` | `hotwords` |
-|---|---|---|
-| E0 (đối chứng, lần 2) | `en_full_v1` | không |
-| E1 "lời trợ lý" | `en_full_v1`, rồi câu trả lời (`text`) của lượt trợ lý **liền trước** `u` | không |
-| E2 "app và lời trợ lý" | `en_full_v1`, rồi một câu nêu tên tiếng Việt (`name_vi`) của các app đã cài, rồi câu trả lời của lượt trợ lý liền trước `u` | không |
-| E3 "từ khoá theo mẫu" | Như E1 | Các từ ngoại (theo quy tắc tìm từ ngoại của lần 2, giữ cách viết gốc) trong catalog của các app đã cài, nối bằng dấu cách |
+
+| Biến thể               | Câu mồi của câu `u`                                                                                                         | `hotwords`                                                                                                                |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| E0 (đối chứng, lần 2)  | `en_full_v1`                                                                                                                | không                                                                                                                     |
+| E1 "lời trợ lý"        | `en_full_v1`, rồi câu trả lời (`text`) của lượt trợ lý **liền trước** `u`                                                   | không                                                                                                                     |
+| E2 "app và lời trợ lý" | `en_full_v1`, rồi một câu nêu tên tiếng Việt (`name_vi`) của các app đã cài, rồi câu trả lời của lượt trợ lý liền trước `u` | không                                                                                                                     |
+| E3 "từ khoá theo mẫu"  | Như E1                                                                                                                      | Các từ ngoại (theo quy tắc tìm từ ngoại của lần 2, giữ cách viết gốc) trong catalog của các app đã cài, nối bằng dấu cách |
+
 
 Câu không có lượt trợ lý liền trước (lượt đầu tiên của hội thoại) dùng `en_full_v1` như E0, cộng phần tên app ở E2.
 
@@ -470,16 +548,16 @@ câu bị cắt và số token bị cắt được ghi lại.
 **Code.**
 
 - **(sẽ viết)** `lifemate/backends/asr_prompt.py` › `build_sample_prompts(sample, catalog_apps, fixed_prompt, variant)`:
-  nhận một mẫu, catalog (từ điển mã app → mục catalog), câu mồi cố định và tên biến thể; trả về danh sách câu mồi, một
-  câu mồi cho mỗi câu người dùng theo đúng thứ tự file âm thanh của `ASRTranscriber.wav_paths` (lịch sử trước, lượt cuối
-  sau). Hàm chỉ đọc `sample.context`, `sample.history` (lượt trợ lý) và catalog; không đọc lượt người dùng và không đọc
-  file môi trường của BTC.
+nhận một mẫu, catalog (từ điển mã app → mục catalog), câu mồi cố định và tên biến thể; trả về danh sách câu mồi, một
+câu mồi cho mỗi câu người dùng theo đúng thứ tự file âm thanh của `ASRTranscriber.wav_paths` (lịch sử trước, lượt cuối
+sau). Hàm chỉ đọc `sample.context`, `sample.history` (lượt trợ lý) và catalog; không đọc lượt người dùng và không đọc
+file môi trường của BTC.
 - **(sẽ viết)** `build_sample_hotwords(sample, catalog_apps)`: trả về chuỗi từ khoá của E3.
 - **(sẽ sửa)** `lifemate/backends/asr.py` › `FasterWhisperASR.transcribe_batch(wav_paths, prompts=None, hotwords=None)`:
-  nhận thêm câu mồi và từ khoá riêng cho từng file. `ASRTranscriber` gọi `build_sample_prompts` khi
-  `[asr].prompt_mode = "sample"` (khoá config mới; mặc định `"fixed"` giữ đúng hành vi cũ).
+nhận thêm câu mồi và từ khoá riêng cho từng file. `ASRTranscriber` gọi `build_sample_prompts` khi
+`[asr].prompt_mode = "sample"` (khoá config mới; mặc định `"fixed"` giữ đúng hành vi cũ).
 - **(sẽ sửa)** `hyps.jsonl` có thêm trường `prompt` (câu mồi đã dùng cho câu đó) và `scores` (`avg_logprob`,
-  `no_speech_prob` của từng đoạn, cho thử nghiệm G). File kết quả không lên git, nên chứa chữ của dữ liệu cũng được.
+`no_speech_prob` của từng đoạn, cho thử nghiệm G). File kết quả không lên git, nên chứa chữ của dữ liệu cũng được.
 
 **Lớp bảo vệ khi câu mồi có lời trợ lý.** Lớp bảo vệ g4 của lần 2 coi câu có 4 từ liên tiếp trùng câu mồi là "in lại câu
 mồi" và chép lại không câu mồi. Với câu mồi có lời trợ lý, người dùng hay **nhắc lại đúng lời trợ lý** ("Gửi cho Sarah
@@ -496,19 +574,19 @@ câu mồi chung.
 ### 3.4. Lý do
 
 - **Lời trợ lý thay vì danh sách từ.** Whisper học câu mồi như đoạn nói trước đó, nên bắt chước cách viết của câu tự
-  nhiên tốt hơn danh sách; danh sách làm mô hình chép lại danh sách (lần 1).
+nhiên tốt hơn danh sách; danh sách làm mô hình chép lại danh sách (lần 1).
 - **Giữ `en_full_v1` ở đầu.** Bỏ hẳn phần cố định thì mất mức tăng đã đo được của lần 2 ở các câu không có lượt trợ lý
-  liền trước (30% số câu).
+liền trước (30% số câu).
 - **Tên app ở E2.** App lạ của bộ thi thật kéo theo tên app lạ; tên app có trong `installed_apps` của chính mẫu đó.
 - **Thử `hotwords` theo mẫu (E3) dù `hotwords` cố định thua ở lần 1.** Lần 1 thua vì danh sách cố định dài và không liên
-  quan tới câu đang chép; danh sách theo mẫu ngắn và liên quan hơn. Trước khi chạy, cần đọc lại cách faster-whisper bản
-  đang ghim dùng `hotwords` khi đã có `initial_prompt` (P2, Phụ lục B.1), vì hai tham số có thể dùng chung phần token của
-  câu mồi.
+quan tới câu đang chép; danh sách theo mẫu ngắn và liên quan hơn. Trước khi chạy, cần đọc lại cách faster-whisper bản
+đang ghim dùng `hotwords` khi đã có `initial_prompt` (P2, Phụ lục B.1), vì hai tham số có thể dùng chung phần token của
+câu mồi.
 
 ### 3.5. Dữ liệu và số lần đo
 
 - Dò: bốn biến thể trên `asr_tune` đầy đủ (1 024 câu), phiên K1. E0 chạy lại cùng phiên dù đã có chữ từ lần 2, để thời
-  gian bốn biến thể đo trên cùng một máy.
+gian bốn biến thể đo trên cùng một máy.
 - Đo: biến thể thắng trên `val_seen` và `val_unseen` đầy đủ, một lần, phiên K2.
 - Mỗi biến thể được ghép với RNNT bằng `context_other` rồi chấm, vì tiêu chí chọn tính trên bản ghép.
 
@@ -526,43 +604,49 @@ không quá 1 giây so với E0. Không biến thể nào đạt thì giữ E0.
 
 **Tập dò (`asr_tune`), large-v3 đứng riêng:**
 
+
 | Biến thể | Chép đúng từ tiếng Anh | Từ có trong ngữ cảnh | Từ không có trong ngữ cảnh | WER câu thuần Việt | Chèn từ câu mồi | Chép lại lời trợ lý | Chép lại (lớp bảo vệ) | Câu bị cắt câu mồi | p95 (s) |
-|---|---|---|---|---|---|---|---|---|---|
-| E0 | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | 0 | chưa đo |
-| E1 | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
-| E2 | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
-| E3 | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
+| -------- | ---------------------- | -------------------- | -------------------------- | ------------------ | --------------- | ------------------- | --------------------- | ------------------ | ------- |
+| E0       | chưa đo                | chưa đo              | chưa đo                    | chưa đo            | chưa đo         | chưa đo             | chưa đo               | 0                  | chưa đo |
+| E1       | chưa đo                | chưa đo              | chưa đo                    | chưa đo            | chưa đo         | chưa đo             | chưa đo               | chưa đo            | chưa đo |
+| E2       | chưa đo                | chưa đo              | chưa đo                    | chưa đo            | chưa đo         | chưa đo             | chưa đo               | chưa đo            | chưa đo |
+| E3       | chưa đo                | chưa đo              | chưa đo                    | chưa đo            | chưa đo         | chưa đo             | chưa đo               | chưa đo            | chưa đo |
+
 
 **Tập dò, bản ghép (RNNT + biến thể, `context_other`), chênh lệch so với E0 kèm CI 95%:**
 
+
 | Biến thể | Chép đúng từ tiếng Anh | WER câu thuần Việt | WER câu chêm | WER mọi câu |
-|---|---|---|---|---|
-| E0 | chưa đo | chưa đo | chưa đo | chưa đo |
-| E1 | chưa đo | chưa đo | chưa đo | chưa đo |
-| E2 | chưa đo | chưa đo | chưa đo | chưa đo |
-| E3 | chưa đo | chưa đo | chưa đo | chưa đo |
+| -------- | ---------------------- | ------------------ | ------------ | ----------- |
+| E0       | chưa đo                | chưa đo            | chưa đo      | chưa đo     |
+| E1       | chưa đo                | chưa đo            | chưa đo      | chưa đo     |
+| E2       | chưa đo                | chưa đo            | chưa đo      | chưa đo     |
+| E3       | chưa đo                | chưa đo            | chưa đo      | chưa đo     |
+
 
 **Tập kiểm tra, biến thể thắng (đo một lần):**
 
-| Tập | Hệ thống | Chép đúng từ tiếng Anh | Từ có / không có trong ngữ cảnh | WER câu thuần Việt | WER câu chêm | WER mọi câu |
-|---|---|---|---|---|---|---|
-| val_seen | Ghép, E0 (lần 2) | 72,2 | chưa đo | 18,1 | 22,1 | 19,4 |
-| | Ghép, biến thể thắng | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
-| val_unseen | Ghép, E0 (lần 2) | 63,1 | chưa đo | 17,8 | 22,8 | 19,5 |
-| | Ghép, biến thể thắng | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
+
+| Tập         | Hệ thống             | Chép đúng từ tiếng Anh | Từ có / không có trong ngữ cảnh | WER câu thuần Việt | WER câu chêm | WER mọi câu |
+| ----------- | -------------------- | ---------------------- | ------------------------------- | ------------------ | ------------ | ----------- |
+| val\_seen   | Ghép, E0 (lần 2)     | 72,2                   | chưa đo                         | 18,1               | 22,1         | 19,4        |
+|             | Ghép, biến thể thắng | chưa đo                | chưa đo                         | chưa đo            | chưa đo      | chưa đo     |
+| val\_unseen | Ghép, E0 (lần 2)     | 63,1                   | chưa đo                         | 17,8               | 22,8         | 19,5        |
+|             | Ghép, biến thể thắng | chưa đo                | chưa đo                         | chưa đo            | chưa đo      | chưa đo     |
+
 
 ### 3.8. Phân tích
 
-_Điền sau khi đo._
+*Điền sau khi đo.*
 
 ### 3.9. Kết luận
 
-_Điền sau khi đo._
+*Điền sau khi đo.*
 
 ### 3.10. Giới hạn
 
 - Câu trả lời của trợ lý trong dữ liệu train do BTC viết. Lúc thi, lượt trợ lý trong lịch sử cũng do BTC cung cấp, nên
-  hai phía cùng nguồn; chỉ lượt cuối là câu hệ thống phải tự xử lý.
+hai phía cùng nguồn; chỉ lượt cuối là câu hệ thống phải tự xử lý.
 - 30% số câu không có lượt trợ lý liền trước, nên E1 và E3 không đổi gì ở các câu đó.
 - Mẫu không có lịch sử chỉ còn tên app (E2) và từ khoá catalog (E3).
 
@@ -585,43 +669,44 @@ hay sai.
 
 ### 4.3. Giải pháp và thuật toán
 
-**Đếm.** Trên tập học, với mỗi từ ngoại `w` của câu mồi (đã gập), đếm:
+**Đếm.** Trên tập học, với mỗi từ ngoại `w` của câu mồi (đã chuẩn hoá), đếm:
 
 - `written(w)`: số câu mà chữ large-v3 (có câu mồi, biến thể thắng của E) có `w`, và chữ RNNT cùng câu **không** có `w`.
-  Điều kiện thứ hai giữ đúng tình huống phép ghép phải quyết định: chỉ khi RNNT không có từ đó thì phép ghép mới cân nhắc
-  lấy từ large-v3.
-- `correct(w)`: trong số câu đó, số câu mà đáp án có `w` (so sau khi gập chữ, kể cả cách viết tương đương của lần 2).
+Điều kiện thứ hai giữ đúng tình huống phép ghép phải quyết định: chỉ khi RNNT không có từ đó thì phép ghép mới cân nhắc
+lấy từ large-v3.
+- `correct(w)`: trong số câu đó, số câu mà đáp án có `w` (so sau khi chuẩn hoá chữ, kể cả cách viết tương đương của lần 2).
 
 Độ tin cậy là `(correct(w) + 1) / (written(w) + 2)`. Cộng 1 và 2 (làm mượt Laplace) để từ ít gặp có độ tin cậy gần 0,5
 thay vì 0 hoặc 1: một từ chỉ gặp 1 lần và đúng 1 lần không nên được tin tuyệt đối. Từ chưa gặp lần nào có độ tin cậy 0,5.
 
 **Lọc.** Cách lọc mới `context_reliable` cho bước 3b của phép ghép:
 
-| Loại từ tiếng Anh mới | `context_other` (lần 2) | `context_reliable` |
-|---|---|---|
-| Từ của câu mồi, độ tin cậy từ ngưỡng θ trở lên | nhận | nhận |
-| Từ của câu mồi, độ tin cậy dưới θ | nhận | chỉ nhận khi có trong ngữ cảnh |
-| Từ ngoài câu mồi | chỉ nhận khi có trong ngữ cảnh | chỉ nhận khi có trong ngữ cảnh |
+
+| Loại từ tiếng Anh mới                          | `context_other` (lần 2)        | `context_reliable`             |
+| ---------------------------------------------- | ------------------------------ | ------------------------------ |
+| Từ của câu mồi, độ tin cậy từ ngưỡng θ trở lên | nhận                           | nhận                           |
+| Từ của câu mồi, độ tin cậy dưới θ              | nhận                           | chỉ nhận khi có trong ngữ cảnh |
+| Từ ngoài câu mồi                               | chỉ nhận khi có trong ngữ cảnh | chỉ nhận khi có trong ngữ cảnh |
+
 
 Ngưỡng θ được chọn trên `asr_tune` trong các giá trị 0,3; 0,4; 0,5; 0,6; 0,7; 0,8.
 
 **Code.**
 
 - **(sẽ viết)** `lifemate/eval/prompt_word_reliability.py` › `count_prompt_words(samples, primary_rows, secondary_rows)`:
-  nhận các mẫu và hai danh sách dòng `hyps.jsonl` (RNNT, large-v3); trả về từ điển `từ đã gập → (written, correct)`.
-  `reliability(counts)` trả về từ điển `từ đã gập → độ tin cậy`. CLI ghi bảng ra JSON (không lên git, vì tên từ lấy từ câu
-  mồi tự viết nhưng số đếm lấy từ dữ liệu thi).
-- **(sẽ sửa)** `lifemate/eval/asr_merge.py` › `english_filter(policy, context_words, prompt_words, reliability=None,
-  threshold=None)`: thêm `context_reliable` vào `CONTEXT_POLICIES`.
+nhận các mẫu và hai danh sách dòng `hyps.jsonl` (RNNT, large-v3); trả về từ điển `từ đã chuẩn hoá → (written, correct)`.
+`reliability(counts)` trả về từ điển `từ đã chuẩn hoá → độ tin cậy`. CLI ghi bảng ra JSON (không lên git, vì tên từ lấy từ câu
+mồi tự viết nhưng số đếm lấy từ dữ liệu thi).
+- **(sẽ sửa)** `lifemate/eval/asr_merge.py` › `english_filter(policy, context_words, prompt_words, reliability=None, threshold=None)`: thêm `context_reliable` vào `CONTEXT_POLICIES`.
 
 ### 4.4. Lý do
 
 - **Đếm trên tập học, không trên tập dò hay val.** Nếu đếm trên tập dò rồi chọn θ cũng trên tập dò, bảng độ tin cậy khớp
-  sẵn với chính các câu dùng để chọn.
+sẵn với chính các câu dùng để chọn.
 - **Đếm với đúng cấu hình câu mồi sẽ dùng.** Độ tin cậy của một từ phụ thuộc câu mồi: cùng từ "Mail" có thể bị kéo ra
-  nhiều hơn khi câu mồi có nhiều câu về email. Vì vậy đếm trên chữ large-v3 với biến thể thắng của E.
+nhiều hơn khi câu mồi có nhiều câu về email. Vì vậy đếm trên chữ large-v3 với biến thể thắng của E.
 - **Chỉ đếm khi RNNT không có từ đó.** Khi RNNT cũng có từ đó, phép ghép không lấy gì từ large-v3, nên các lần đó không
-  nói gì về quyết định cần học.
+nói gì về quyết định cần học.
 
 ### 4.5. Dữ liệu và số lần đo
 
@@ -641,49 +726,55 @@ thì giữ `context_other`.
 
 **Bảng độ tin cậy trên tập học** (các từ của câu mồi có `written` từ 3 trở lên):
 
-| Từ | Số lần large-v3 viết ra khi RNNT không có | Số lần đúng | Độ tin cậy |
-|---|---|---|---|
-| chưa đo | | | |
+
+| Từ      | Số lần large-v3 viết ra khi RNNT không có | Số lần đúng | Độ tin cậy |
+| ------- | ----------------------------------------- | ----------- | ---------- |
+| chưa đo |                                           |             |            |
+
 
 **Tập dò, chọn θ** (bản ghép, chênh lệch so với `context_other` kèm CI 95%):
 
-| θ | WER câu thuần Việt | Chép đúng từ tiếng Anh | Từ câu mồi bị lấy nhầm | Từ câu mồi đúng bị bỏ |
-|---|---|---|---|---|
-| `context_other` | chưa đo | chưa đo | chưa đo | chưa đo |
-| 0,3 | chưa đo | chưa đo | chưa đo | chưa đo |
-| 0,4 | chưa đo | chưa đo | chưa đo | chưa đo |
-| 0,5 | chưa đo | chưa đo | chưa đo | chưa đo |
-| 0,6 | chưa đo | chưa đo | chưa đo | chưa đo |
-| 0,7 | chưa đo | chưa đo | chưa đo | chưa đo |
-| 0,8 | chưa đo | chưa đo | chưa đo | chưa đo |
+
+| θ               | WER câu thuần Việt | Chép đúng từ tiếng Anh | Từ câu mồi bị lấy nhầm | Từ câu mồi đúng bị bỏ |
+| --------------- | ------------------ | ---------------------- | ---------------------- | --------------------- |
+| `context_other` | chưa đo            | chưa đo                | chưa đo                | chưa đo               |
+| 0,3             | chưa đo            | chưa đo                | chưa đo                | chưa đo               |
+| 0,4             | chưa đo            | chưa đo                | chưa đo                | chưa đo               |
+| 0,5             | chưa đo            | chưa đo                | chưa đo                | chưa đo               |
+| 0,6             | chưa đo            | chưa đo                | chưa đo                | chưa đo               |
+| 0,7             | chưa đo            | chưa đo                | chưa đo                | chưa đo               |
+| 0,8             | chưa đo            | chưa đo                | chưa đo                | chưa đo               |
+
 
 **Tập kiểm tra, θ thắng (đo một lần):**
 
-| Tập | Hệ thống | Chép đúng từ tiếng Anh | WER câu thuần Việt | WER câu chêm | WER mọi câu |
-|---|---|---|---|---|---|
-| val_seen | RNNT | 49,9 | 17,7 | 24,8 | 20,0 |
-| | Ghép, `context_other` | chưa đo | chưa đo | chưa đo | chưa đo |
-| | Ghép, `context_reliable` | chưa đo | chưa đo | chưa đo | chưa đo |
-| val_unseen | RNNT | 51,6 | 17,5 | 24,1 | 19,8 |
-| | Ghép, `context_other` | chưa đo | chưa đo | chưa đo | chưa đo |
-| | Ghép, `context_reliable` | chưa đo | chưa đo | chưa đo | chưa đo |
+
+| Tập         | Hệ thống                 | Chép đúng từ tiếng Anh | WER câu thuần Việt | WER câu chêm | WER mọi câu |
+| ----------- | ------------------------ | ---------------------- | ------------------ | ------------ | ----------- |
+| val\_seen   | RNNT                     | 49,9                   | 17,7               | 24,8         | 20,0        |
+|             | Ghép, `context_other`    | chưa đo                | chưa đo            | chưa đo      | chưa đo     |
+|             | Ghép, `context_reliable` | chưa đo                | chưa đo            | chưa đo      | chưa đo     |
+| val\_unseen | RNNT                     | 51,6                   | 17,5               | 24,1         | 19,8        |
+|             | Ghép, `context_other`    | chưa đo                | chưa đo            | chưa đo      | chưa đo     |
+|             | Ghép, `context_reliable` | chưa đo                | chưa đo            | chưa đo      | chưa đo     |
+
 
 Hàng `context_other` trên val dùng câu mồi thắng của E, nên có thể khác số của lần 2.
 
 ### 4.8. Phân tích
 
-_Điền sau khi đo._
+*Điền sau khi đo.*
 
 ### 4.9. Kết luận
 
-_Điền sau khi đo._
+*Điền sau khi đo.*
 
 ### 4.10. Giới hạn
 
 - Từ của câu mồi ít gặp trên tập học có độ tin cậy gần 0,5 do làm mượt, nên θ = 0,5 là ranh giới nhạy: θ dưới 0,5 nhận
-  mọi từ chưa gặp, θ trên 0,5 đòi ngữ cảnh cho mọi từ chưa gặp.
+mọi từ chưa gặp, θ trên 0,5 đòi ngữ cảnh cho mọi từ chưa gặp.
 - Khi câu mồi theo mẫu thắng ở E, phần riêng của câu mồi thay đổi theo mẫu; bảng độ tin cậy chỉ đếm từ của phần cố định,
-  vì từ của phần riêng luôn có trong ngữ cảnh.
+vì từ của phần riêng luôn có trong ngữ cảnh.
 
 ## 5. Thử nghiệm G: bộ phân loại cho quyết định ghép
 
@@ -703,7 +794,7 @@ vài trăm đoạn, và trọng số đọc được (biết tín hiệu nào qu
 
 ### 5.3. Giải pháp và thuật toán
 
-**Mẫu học.** Mỗi đoạn khác nhau mà large-v3 có ít nhất một từ tiếng Anh mới (đúng các đoạn mà quy tắc gốc `all` cân nhắc
+**Mẫu học.** Mỗi đoạn khác nhau mà large-v3 có ít nhất một từ tiếng Anh mới (đúng các đoạn mà bản ghép không lọc `all` cân nhắc
 lấy). Các đoạn khác giữ chữ RNNT như cũ.
 
 **Nhãn tự động.** Với mỗi đoạn, gióng chữ ghép với đáp án của câu và đếm số lỗi (thêm, xoá, thay) rơi vào đoạn đó trong
@@ -712,17 +803,19 @@ lỗi) được bỏ khỏi dữ liệu học, vì không có câu trả lời �
 
 **Đặc trưng** (mỗi đoạn một vector số):
 
-| Đặc trưng | Giá trị | Lấy từ |
-|---|---|---|
-| Có từ tiếng Anh mới trong từ điển ngữ cảnh | 0/1 | `sample_context_words` (lần 2) |
-| Có từ tiếng Anh mới thuộc câu mồi | 0/1 | Trường `prompt` của `hyps.jsonl` |
-| Độ tin cậy thấp nhất của các từ câu mồi trong đoạn | 0–1; 1 nếu không có từ câu mồi | Bảng của F |
-| large-v3 không câu mồi cũng có từ tiếng Anh mới đó | 0/1 | Chữ large-v3 không câu mồi (phiên K2) |
-| `avg_logprob` của đoạn âm thanh chứa câu đó | số âm | Trường `scores` |
-| `no_speech_prob` của đoạn âm thanh | 0–1 | Trường `scores` |
-| Số từ phía RNNT, số từ phía large-v3 | số nguyên | Phép gióng |
-| Tỉ lệ từ phía RNNT là âm tiết Việt có dấu | 0–1 | Quy tắc tìm từ ngoại (lần 2) |
-| Câu là lượt cuối hay lượt trong lịch sử | 0/1 | `hyps.jsonl` |
+
+| Đặc trưng                                          | Giá trị                        | Lấy từ                                |
+| -------------------------------------------------- | ------------------------------ | ------------------------------------- |
+| Có từ tiếng Anh mới trong từ điển ngữ cảnh         | 0/1                            | `sample_context_words` (lần 2)        |
+| Có từ tiếng Anh mới thuộc câu mồi                  | 0/1                            | Trường `prompt` của `hyps.jsonl`      |
+| Độ tin cậy thấp nhất của các từ câu mồi trong đoạn | 0–1; 1 nếu không có từ câu mồi | Bảng của F                            |
+| large-v3 không câu mồi cũng có từ tiếng Anh mới đó | 0/1                            | Chữ large-v3 không câu mồi (phiên K2) |
+| `avg_logprob` của đoạn âm thanh chứa câu đó        | số âm                          | Trường `scores`                       |
+| `no_speech_prob` của đoạn âm thanh                 | 0–1                            | Trường `scores`                       |
+| Số từ phía RNNT, số từ phía large-v3               | số nguyên                      | Phép gióng                            |
+| Tỉ lệ từ phía RNNT là âm tiết Việt có dấu          | 0–1                            | Quy tắc tìm từ ngoại (lần 2)          |
+| Câu là lượt cuối hay lượt trong lịch sử            | 0/1                            | `hyps.jsonl`                          |
+
 
 **Học.** Hồi quy logistic có phạt L2, chuẩn hoá đặc trưng về trung bình 0 và độ lệch 1 trên tập học. Hệ số phạt chọn bằng
 kiểm định chéo 5 phần **theo mẫu** trên tập học (các đoạn của cùng một mẫu luôn nằm cùng một phần), trong các giá trị
@@ -734,25 +827,24 @@ kiểm định chéo 5 phần **theo mẫu** trên tập học (các đoạn c�
 
 **Code.**
 
-- **(sẽ viết)** `lifemate/eval/merge_classifier.py` › `region_features(sample, primary, secondary, unprompted, scores,
-  context_words, prompt_words, reliability)`: trả về danh sách đoạn, mỗi đoạn kèm vector đặc trưng.
+- **(sẽ viết)** `lifemate/eval/merge_classifier.py` › `region_features(sample, primary, secondary, unprompted, scores, context_words, prompt_words, reliability)`: trả về danh sách đoạn, mỗi đoạn kèm vector đặc trưng.
 - `region_labels(regions, reference)`: trả về nhãn 0/1 hoặc `None` (đoạn hoà).
 - `fit_logistic(features, labels, l2)`: trả về trọng số và tham số chuẩn hoá. `predict(model, features)`: xác suất.
 - CLI `train` (ghi mô hình ra JSON, vài chục số) và `apply` (ghép với bộ phân loại, ghi `hyps.jsonl`).
 - **(sẽ sửa)** `lifemate/eval/asr_merge.py` › `merge_transcripts` nhận một hàm quyết định cho từng đoạn, để luật và bộ phân
-  loại dùng chung một code gióng.
+loại dùng chung một code gióng.
 
 ### 5.4. Lý do
 
 - **Hồi quy logistic, không phải MLP hay attention.** Số đoạn học được ước tính chỉ vài trăm tới khoảng một nghìn: trên
-  tập dò của lần 2, quy tắc gốc lấy khoảng 260 từ tiếng Anh mới từ large-v3, và tập học lớn gấp khoảng 2,5 lần tập dò. Mô hình nhiều tham số sẽ học thuộc tập học. Hồi quy logistic có
-  khoảng 10 trọng số, đọc được, và có thể chuyển về luật nếu cần.
+tập dò của lần 2, bản ghép không lọc lấy khoảng 260 từ tiếng Anh mới từ large-v3, và tập học lớn gấp khoảng 2,5 lần tập dò. Mô hình nhiều tham số sẽ học thuộc tập học. Hồi quy logistic có
+khoảng 10 trọng số, đọc được, và có thể chuyển về luật nếu cần.
 - **Bỏ đoạn hoà.** Đoạn hoà thường là hai cách viết cùng sai hoặc cùng đúng một từ; ép nhãn cho chúng chỉ thêm nhiễu.
 - **Kiểm định chéo theo mẫu.** Các câu cùng mẫu cùng người nói và cùng ngữ cảnh; chia theo đoạn sẽ cho kết quả kiểm định
-  lạc quan.
+lạc quan.
 - **Có đặc trưng large-v3 không câu mồi.** Từ chỉ xuất hiện khi có câu mồi, còn không câu mồi thì large-v3 nghe ra chữ
-  Việt, nhiều khả năng là bị câu mồi kéo. Đổi lại phải chạy large-v3 hai lần mỗi câu; thời gian thêm được đo ở I, và nếu
-  vượt ngân sách thì đặc trưng này bị bỏ (học lại mô hình không có đặc trưng đó).
+Việt, nhiều khả năng là bị câu mồi kéo. Đổi lại phải chạy large-v3 hai lần mỗi câu; thời gian thêm được đo ở I, và nếu
+vượt ngân sách thì đặc trưng này bị bỏ (học lại mô hình không có đặc trưng đó).
 
 ### 5.5. Dữ liệu và số lần đo
 
@@ -774,48 +866,56 @@ không câu mồi mà bộ phân loại vẫn đạt tiêu chí, thì dùng bả
 
 **Dữ liệu học:**
 
-| | Số đoạn | Nhãn 1 (lấy large-v3 đúng hơn) | Nhãn 0 | Đoạn hoà (bỏ) |
-|---|---|---|---|---|
-| Tập học | chưa đo | chưa đo | chưa đo | chưa đo |
-| `asr_tune` | chưa đo | chưa đo | chưa đo | chưa đo |
+
+|            | Số đoạn | Nhãn 1 (lấy large-v3 đúng hơn) | Nhãn 0  | Đoạn hoà (bỏ) |
+| ---------- | ------- | ------------------------------ | ------- | ------------- |
+| Tập học    | chưa đo | chưa đo                        | chưa đo | chưa đo       |
+| `asr_tune` | chưa đo | chưa đo                        | chưa đo | chưa đo       |
+
 
 **Trọng số** (sau chuẩn hoá; dương là nghiêng về lấy large-v3):
 
+
 | Đặc trưng | Trọng số |
-|---|---|
-| chưa đo | |
+| --------- | -------- |
+| chưa đo   |          |
+
 
 **Tập dò, chọn `p`** (bản ghép, chênh lệch so với quy tắc thắng của F kèm CI 95%):
 
-| Cách quyết định | WER câu thuần Việt | Chép đúng từ tiếng Anh | Từ bị lấy nhầm | Từ đúng bị bỏ |
-|---|---|---|---|---|
-| Quy tắc thắng của F | chưa đo | chưa đo | chưa đo | chưa đo |
-| Bộ phân loại, `p` = 0,3 … 0,7 | chưa đo | chưa đo | chưa đo | chưa đo |
-| Bộ phân loại không có đặc trưng large-v3 không câu mồi | chưa đo | chưa đo | chưa đo | chưa đo |
+
+| Cách quyết định                                        | WER câu thuần Việt | Chép đúng từ tiếng Anh | Từ bị lấy nhầm | Từ đúng bị bỏ |
+| ------------------------------------------------------ | ------------------ | ---------------------- | -------------- | ------------- |
+| Quy tắc thắng của F                                    | chưa đo            | chưa đo                | chưa đo        | chưa đo       |
+| Bộ phân loại, `p` = 0,3 … 0,7                          | chưa đo            | chưa đo                | chưa đo        | chưa đo       |
+| Bộ phân loại không có đặc trưng large-v3 không câu mồi | chưa đo            | chưa đo                | chưa đo        | chưa đo       |
+
 
 **Tập kiểm tra (đo một lần):**
 
-| Tập | Hệ thống | Chép đúng từ tiếng Anh | WER câu thuần Việt | WER câu chêm | WER mọi câu |
-|---|---|---|---|---|---|
-| val_seen | Ghép, quy tắc thắng của F | chưa đo | chưa đo | chưa đo | chưa đo |
-| | Ghép, bộ phân loại | chưa đo | chưa đo | chưa đo | chưa đo |
-| val_unseen | Ghép, quy tắc thắng của F | chưa đo | chưa đo | chưa đo | chưa đo |
-| | Ghép, bộ phân loại | chưa đo | chưa đo | chưa đo | chưa đo |
+
+| Tập         | Hệ thống                  | Chép đúng từ tiếng Anh | WER câu thuần Việt | WER câu chêm | WER mọi câu |
+| ----------- | ------------------------- | ---------------------- | ------------------ | ------------ | ----------- |
+| val\_seen   | Ghép, quy tắc thắng của F | chưa đo                | chưa đo            | chưa đo      | chưa đo     |
+|             | Ghép, bộ phân loại        | chưa đo                | chưa đo            | chưa đo      | chưa đo     |
+| val\_unseen | Ghép, quy tắc thắng của F | chưa đo                | chưa đo            | chưa đo      | chưa đo     |
+|             | Ghép, bộ phân loại        | chưa đo                | chưa đo            | chưa đo      | chưa đo     |
+
 
 ### 5.8. Phân tích
 
-_Điền sau khi đo._
+*Điền sau khi đo.*
 
 ### 5.9. Kết luận
 
-_Điền sau khi đo._
+*Điền sau khi đo.*
 
 ### 5.10. Giới hạn
 
 - Nhãn tự động dựa vào đáp án của BTC và cách gióng từ; một đoạn có thể đúng về ý (LLM vẫn gọi đúng tool) mà vẫn có nhãn 0
-  vì sai chính tả.
+vì sai chính tả.
 - Mục tiêu học là ít lỗi chữ hơn, không phải gọi đúng tool hơn. Hai mục tiêu thường cùng chiều nhưng không trùng nhau; lần
-  chạy hệ thống với LLM sẽ kiểm tra.
+chạy hệ thống với LLM sẽ kiểm tra.
 
 ## 6. Thử nghiệm H: giữ hai phương án cho LLM
 
@@ -856,11 +956,11 @@ chắc. `alternatives_tokens(rows, tokenizer)`: trả về p50, p95, tối đa c
 ### 6.4. Lý do
 
 - **Chỉ đo trần, chưa đo LLM.** Lần 3 không chạy LLM (phạm vi). Nếu trần chỉ cao hơn bản đã chốt vài điểm thì không đáng
-  thêm định dạng mới vào dữ liệu fine-tune.
+thêm định dạng mới vào dữ liệu fine-tune.
 - **Chỉ đưa hai phương án ở đoạn không chắc.** Đưa ở mọi đoạn khác nhau thì số token tăng và LLM phải chọn cả ở những chỗ
-  phép ghép đã chắc.
+phép ghép đã chắc.
 - **Khoảng `[0,2; 0,8]`.** Ngoài khoảng này bộ phân loại đủ chắc để chốt. Khoảng này đặt trước, không dò; nếu thử nghiệm
-  H được đưa vào hệ thống, khoảng sẽ được chọn lại bằng điểm của agent.
+H được đưa vào hệ thống, khoảng sẽ được chọn lại bằng điểm của agent.
 
 ### 6.5. Dữ liệu
 
@@ -868,19 +968,21 @@ chắc. `alternatives_tokens(rows, tokenizer)`: trả về p50, p95, tối đa c
 
 ### 6.6. Kết quả
 
-| Tập | Chép đúng, bản đã chốt | Trần với hai phương án | Từ sai đưa thêm | Câu thuần Việt có đoạn không chắc | Token thêm mỗi mẫu: p50 / p95 / tối đa |
-|---|---|---|---|---|---|
-| `asr_tune` | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
-| val_seen | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
-| val_unseen | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
+
+| Tập         | Chép đúng, bản đã chốt | Trần với hai phương án | Từ sai đưa thêm | Câu thuần Việt có đoạn không chắc | Token thêm mỗi mẫu: p50 / p95 / tối đa |
+| ----------- | ---------------------- | ---------------------- | --------------- | --------------------------------- | -------------------------------------- |
+| `asr_tune`  | chưa đo                | chưa đo                | chưa đo         | chưa đo                           | chưa đo                                |
+| val\_seen   | chưa đo                | chưa đo                | chưa đo         | chưa đo                           | chưa đo                                |
+| val\_unseen | chưa đo                | chưa đo                | chưa đo         | chưa đo                           | chưa đo                                |
+
 
 ### 6.7. Phân tích
 
-_Điền sau khi đo._
+*Điền sau khi đo.*
 
 ### 6.8. Kết luận
 
-_Điền sau khi đo._
+*Điền sau khi đo.*
 
 ### 6.9. Giới hạn
 
@@ -902,25 +1004,27 @@ mỗi mẫu. Chưa biết tổng khi chạy cùng nhau, chưa biết trên A30, 
 
 - Ngân sách tính theo mẫu chậm nhất, không theo trung bình hay p95, vì một mẫu quá 30 giây là mất trọn điểm mẫu đó.
 - 10 giây là một phần ba của 30 giây. Hai phần ba còn lại dành cho LLM và tool, vì agent thường cần nhiều lượt sinh
-  trong một mẫu (gọi tool, đọc kết quả, rồi gọi tiếp), và thời gian của LLM trên A30 chưa được đo.
+trong một mẫu (gọi tool, đọc kết quả, rồi gọi tiếp), và thời gian của LLM trên A30 chưa được đo.
 - Ngưỡng này đặt trước và sẽ được xem lại ở lần chạy hệ thống với LLM, khi đo được thời gian thật của LLM.
 
 **Bộ nhớ: phần ASR chiếm không quá 6 GB GPU.**
 
 - A30 có 24 GB. Trọng số Qwen3-4B ở bfloat16 chiếm khoảng 8 GB (4,02 tỉ tham số × 2 byte). Phần còn lại dành cho bộ nhớ
-  đệm KV của vLLM (cần cho ngữ cảnh tới 16K token) và phần dư của CUDA.
+đệm KV của vLLM (cần cho ngữ cảnh tới 16K token) và phần dư của CUDA.
 - 6 GB cho ASR để lại khoảng 10 GB cho bộ nhớ đệm KV và phần dư. Trên T4 (15 GB) vLLM và large-v3 không chạy chung được
-  (`ops/kaggle/README.md`), nên con số trên A30 phải đo thật.
+(`ops/kaggle/README.md`), nên con số trên A30 phải đo thật.
 
 ### 7.3. Các cách chạy được so
 
-| Cách chạy | Mô tả | Có thể đổi chữ không | Code |
-|---|---|---|---|
-| I1 tuần tự | RNNT chép hết các câu của mẫu, rồi large-v3 chép từng câu, rồi lớp bảo vệ, rồi ghép | Không (đây là chuẩn để so) | **(sẽ viết)** engine ghép `MergedASR` trong `lifemate/backends/asr.py` |
-| I2 song song | RNNT và large-v3 chạy cùng lúc, mỗi mô hình một luồng, trên cùng GPU | Không nên đổi; kiểm tra bằng so chữ | Như I1, thêm `ThreadPoolExecutor` hai luồng |
-| I3 theo lô | large-v3 nhận mọi câu của mẫu một lúc (`BatchedInferencePipeline` của faster-whisper) | Có thể: cách chia đoạn và thứ tự tính khác | Như I1, khoá config chọn pipeline theo lô |
-| I4 `int8_float16` | large-v3 lưu trọng số 8 bit (`compute_type`), tính bằng 16 bit | Có: độ chính xác số khác | Đổi `[asr].dtype` của large-v3 |
-| I5 bỏ large-v3 không câu mồi | Chỉ khi G cần đặc trưng large-v3 không câu mồi: đo thêm phần thời gian của lần chạy thứ hai này | Không | Như I1 |
+
+| Cách chạy                    | Mô tả                                                                                           | Có thể đổi chữ không                       | Code                                                                   |
+| ---------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------- |
+| I1 tuần tự                   | RNNT chép hết các câu của mẫu, rồi large-v3 chép từng câu, rồi lớp bảo vệ, rồi ghép             | Không (đây là chuẩn để so)                 | **(sẽ viết)** engine ghép `MergedASR` trong `lifemate/backends/asr.py` |
+| I2 song song                 | RNNT và large-v3 chạy cùng lúc, mỗi mô hình một luồng, trên cùng GPU                            | Không nên đổi; kiểm tra bằng so chữ        | Như I1, thêm `ThreadPoolExecutor` hai luồng                            |
+| I3 theo lô                   | large-v3 nhận mọi câu của mẫu một lúc (`BatchedInferencePipeline` của faster-whisper)           | Có thể: cách chia đoạn và thứ tự tính khác | Như I1, khoá config chọn pipeline theo lô                              |
+| I4 `int8_float16`            | large-v3 lưu trọng số 8 bit (`compute_type`), tính bằng 16 bit                                  | Có: độ chính xác số khác                   | Đổi `[asr].dtype` của large-v3                                         |
+| I5 bỏ large-v3 không câu mồi | Chỉ khi G cần đặc trưng large-v3 không câu mồi: đo thêm phần thời gian của lần chạy thứ hai này | Không                                      | Như I1                                                                 |
+
 
 Cách nào đổi chữ thì phải đo lại chất lượng (chép đúng từ tiếng Anh, WER câu thuần Việt của bản ghép) trên `asr_tune`, và
 chỉ được dùng khi chất lượng không giảm có ý nghĩa thống kê.
@@ -928,18 +1032,18 @@ chỉ được dùng khi chất lượng không giảm có ý nghĩa thống kê
 ### 7.4. Lý do
 
 - **Song song (I2).** RNNT nhỏ (0,11 tỉ tham số) và nhanh; chạy cạnh large-v3 có thể giấu gần hết thời gian của RNNT nếu
-  GPU còn rảnh. Chữ không nên đổi vì mỗi mô hình vẫn tính như cũ, nhưng phải kiểm tra vì thứ tự tính trên GPU có thể khác.
+GPU còn rảnh. Chữ không nên đổi vì mỗi mô hình vẫn tính như cũ, nhưng phải kiểm tra vì thứ tự tính trên GPU có thể khác.
 - **Theo lô (I3).** large-v3 hiện chép từng câu một; một mẫu có tới 13 câu. Lô nhiều câu dùng GPU hiệu quả hơn, nhưng cách
-  chia đoạn bên trong pipeline theo lô khác pipeline thường, nên chữ có thể đổi.
+chia đoạn bên trong pipeline theo lô khác pipeline thường, nên chữ có thể đổi.
 - **8 bit (I4).** Giảm bộ nhớ và có thể nhanh hơn; đổi lại độ chính xác số giảm, phải đo lại chữ.
 - **Không đo LLM ở lần 3.** Giữ lần 3 trong phạm vi ASR; tranh GPU giữa ASR và vLLM đo ở lần chạy hệ thống.
 
 ### 7.5. Dữ liệu và phiên chạy
 
 - T4 (phiên K1, K2): mọi biến thể của E và mọi lần chạy trên tập học và val đều ghi `timing.jsonl`; chỉ dùng để so chi phí
-  giữa các biến thể.
+giữa các biến thể.
 - A30 hoặc GPU 24 GB gần nhất (phiên R1): cấu hình cuối sau F và G, các cách chạy I1–I5 trên `public_test` (634 mẫu) và
-  `val_seen` + `val_unseen` (452 mẫu); chạy lại 50 mẫu để kiểm tra tất định; ghi bộ nhớ đỉnh.
+`val_seen` + `val_unseen` (452 mẫu); chạy lại 50 mẫu để kiểm tra tất định; ghi bộ nhớ đỉnh.
 
 ### 7.6. Chỉ số và tiêu chí
 
@@ -955,52 +1059,58 @@ large-v3 ở lượt lịch sử.
 
 **T4, theo biến thể câu mồi (phiên K1, `asr_tune`):**
 
+
 | Biến thể | large-v3 p50 / p95 / tối đa (s) | Lớp bảo vệ: số câu chép lại, giây thêm | RNNT p95 (s) | Ghép p95 (s) | Tổng p95 / tối đa (s) |
-|---|---|---|---|---|---|
-| E0 | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
-| E1 | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
-| E2 | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
-| E3 | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
+| -------- | ------------------------------- | -------------------------------------- | ------------ | ------------ | --------------------- |
+| E0       | chưa đo                         | chưa đo                                | chưa đo      | chưa đo      | chưa đo               |
+| E1       | chưa đo                         | chưa đo                                | chưa đo      | chưa đo      | chưa đo               |
+| E2       | chưa đo                         | chưa đo                                | chưa đo      | chưa đo      | chưa đo               |
+| E3       | chưa đo                         | chưa đo                                | chưa đo      | chưa đo      | chưa đo               |
+
 
 **A30 (phiên R1), cấu hình cuối:**
 
-| Cách chạy | Tập | p50 / p95 / tối đa / trung bình (s) | RTF | Bộ nhớ GPU đỉnh (GB) | Câu khác chữ so với I1 | Nạp mô hình (s) |
-|---|---|---|---|---|---|---|
-| RNNT đứng riêng | `public_test` | chưa đo | chưa đo | chưa đo | | chưa đo |
-| I1 tuần tự | `public_test` | chưa đo | chưa đo | chưa đo | 0 (chuẩn) | chưa đo |
-| I2 song song | `public_test` | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
-| I3 theo lô | `public_test` | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
-| I4 `int8_float16` | `public_test` | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
-| I5 (nếu G dùng) | `public_test` | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
-| Cách thắng | val | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
+
+| Cách chạy         | Tập           | p50 / p95 / tối đa / trung bình (s) | RTF     | Bộ nhớ GPU đỉnh (GB) | Câu khác chữ so với I1 | Nạp mô hình (s) |
+| ----------------- | ------------- | ----------------------------------- | ------- | -------------------- | ---------------------- | --------------- |
+| RNNT đứng riêng   | `public_test` | chưa đo                             | chưa đo | chưa đo              |                        | chưa đo         |
+| I1 tuần tự        | `public_test` | chưa đo                             | chưa đo | chưa đo              | 0 (chuẩn)              | chưa đo         |
+| I2 song song      | `public_test` | chưa đo                             | chưa đo | chưa đo              | chưa đo                | chưa đo         |
+| I3 theo lô        | `public_test` | chưa đo                             | chưa đo | chưa đo              | chưa đo                | chưa đo         |
+| I4 `int8_float16` | `public_test` | chưa đo                             | chưa đo | chưa đo              | chưa đo                | chưa đo         |
+| I5 (nếu G dùng)   | `public_test` | chưa đo                             | chưa đo | chưa đo              | chưa đo                | chưa đo         |
+| Cách thắng        | val           | chưa đo                             | chưa đo | chưa đo              | chưa đo                | chưa đo         |
+
 
 **Kiểm tra tất định (50 mẫu, chạy hai lần):**
 
+
 | Cách chạy | Câu khác chữ giữa hai lần |
-|---|---|
-| I1 – I5 | chưa đo |
+| --------- | ------------------------- |
+| I1 – I5   | chưa đo                   |
+
 
 ### 7.8. Phân tích
 
-_Điền sau khi đo._
+*Điền sau khi đo.*
 
 ### 7.9. Kết luận
 
-_Điền sau khi đo._
+*Điền sau khi đo.*
 
 ### 7.10. Giới hạn
 
 - Chưa có vLLM chạy cùng (mục 2.4).
 - `nvidia-smi` đọc bộ nhớ của cả GPU, không riêng tiến trình; phiên đo phải không có tiến trình GPU nào khác.
 - Thời gian nạp mô hình không tính vào từng mẫu ở lần 3. Cách BTC tính giờ khi chạy Docker (từ lúc nạp mô hình hay từ mẫu
-  đầu tiên) cần đối chiếu lại với `docs/overview.md` ở lần chạy hệ thống.
+đầu tiên) cần đối chiếu lại với `docs/overview.md` ở lần chạy hệ thống.
 
 ## Giới hạn đã biết
 
 - Tập dò chỉ có 300 mẫu (394 từ ngoại), nên chênh vài từ đã là vài điểm phần trăm; E, F, G chọn nối tiếp trên cùng tập
-  dò, nên số tập dò của bước sau lạc quan hơn (mục 2.3).
+dò, nên số tập dò của bước sau lạc quan hơn (mục 2.3).
 - Mọi chỉ số chất lượng dựa vào quy tắc tìm từ ngoại của lần 2 (rà tay: đúng 99,7% khi nhận, tìm được 94,3%; 90,6% trên
-  `val_unseen`). Từ tiếng Anh trông như âm tiết Việt ("team", "gym") không được tính là từ tiếng Anh.
+`val_unseen`). Từ tiếng Anh trông như âm tiết Việt ("team", "gym") không được tính là từ tiếng Anh.
 - Mục tiêu cuối là gọi đúng tool. Lần 3 đo chữ; ảnh hưởng tới lời gọi tool đo ở lần chạy hệ thống với LLM.
 - Thời gian đo không có LLM chạy cùng.
 
@@ -1008,66 +1118,76 @@ _Điền sau khi đo._
 
 ### A.1. Code có sẵn, dùng lại từ lần 2
 
-| File › tên | Loại | Đầu vào → đầu ra | Việc làm |
-|---|---|---|---|
-| `lifemate/eval/foreign_words.py` › `find_foreign_words` | hàm | câu, tập từ viết thường → danh sách từ ngoại (cách viết gốc, dạng gập, nhóm) | Quy tắc tìm từ ngoại (báo cáo lần 2, mục 2.1) |
-| `lifemate/eval/eval_asr.py` › `evaluate` | hàm | mẫu, transcriber, câu mồi → `AsrReport` | Chấm mọi chỉ số ASR |
-| `lifemate/eval/rescore_asr.py` › `ReplayTranscriber` | lớp | `hyps.jsonl` → chữ từng câu | Chấm lại offline |
-| `lifemate/eval/asr_compare.py` › `compare` | hàm | mẫu, các hệ thống → chỉ số, CI, CI của chênh lệch | Bootstrap có ghép cặp theo mẫu |
-| `lifemate/eval/asr_merge.py` › `merge_transcripts` | hàm | chữ RNNT, chữ large-v3, bộ lọc → chữ ghép | Quy tắc ghép |
-| `lifemate/eval/asr_merge.py` › `sample_context_words` | hàm | mẫu, catalog → `frozenset[str]` từ đã gập | Từ điển ngữ cảnh |
-| `lifemate/eval/asr_merge.py` › `english_filter`, `CONTEXT_POLICIES` | hàm, hằng số | cách lọc, ngữ cảnh, từ câu mồi → hàm nhận/loại một từ | Bộ lọc bước 3b |
-| `lifemate/backends/asr.py` › `ASRTranscriber` | lớp | mẫu → `Transcript` (chữ từng lượt, `seconds`) | Chép mọi câu của mẫu, lớp bảo vệ, lọc ảo giác |
-| `lifemate/backends/asr.py` › `FasterWhisperASR` | lớp | danh sách file WAV → danh sách chữ | Backend large-v3 (CTranslate2) |
-| `lifemate/backends/asr.py` › `ChunkFormerASR` | lớp | danh sách file WAV → danh sách chữ | Backend RNNT |
-| `lifemate/backends/asr_guard.py` › `needs_retry` | hàm | chữ, chữ đã lọc, câu mồi, độ dài cụm, ngưỡng nén → có chép lại không | Lớp bảo vệ câu mồi |
-| `lifemate/run/timing.py` › `TimedTranscriber` | lớp | bọc transcriber → cộng dồn số giây và số lần gọi | Đo thời gian trong lần chạy hệ thống |
-| `lifemate/io/zaic.py` › `load_catalog` | hàm | thư mục dữ liệu, split → catalog tool | Đọc catalog (không đọc file môi trường) |
+
+| File › tên                                                          | Loại         | Đầu vào → đầu ra                                                             | Việc làm                                      |
+| ------------------------------------------------------------------- | ------------ | ---------------------------------------------------------------------------- | --------------------------------------------- |
+| `lifemate/eval/foreign_words.py` › `find_foreign_words`             | hàm          | câu, tập từ viết thường → danh sách từ ngoại (cách viết gốc, dạng chuẩn hoá, nhóm) | Quy tắc tìm từ ngoại (báo cáo lần 2, mục 2.1) |
+| `lifemate/eval/eval_asr.py` › `evaluate`                            | hàm          | mẫu, transcriber, câu mồi → `AsrReport`                                      | Chấm mọi chỉ số ASR                           |
+| `lifemate/eval/rescore_asr.py` › `ReplayTranscriber`                | lớp          | `hyps.jsonl` → chữ từng câu                                                  | Chấm lại offline                              |
+| `lifemate/eval/asr_compare.py` › `compare`                          | hàm          | mẫu, các hệ thống → chỉ số, CI, CI của chênh lệch                            | Bootstrap có ghép cặp theo mẫu                |
+| `lifemate/eval/asr_merge.py` › `merge_transcripts`                  | hàm          | chữ RNNT, chữ large-v3, bộ lọc → chữ ghép                                    | Quy tắc ghép                                  |
+| `lifemate/eval/asr_merge.py` › `sample_context_words`               | hàm          | mẫu, catalog → `frozenset[str]` từ đã chuẩn hoá                                    | Từ điển ngữ cảnh                              |
+| `lifemate/eval/asr_merge.py` › `english_filter`, `CONTEXT_POLICIES` | hàm, hằng số | cách lọc, ngữ cảnh, từ câu mồi → hàm nhận/loại một từ                        | Bộ lọc bước 3b                                |
+| `lifemate/backends/asr.py` › `ASRTranscriber`                       | lớp          | mẫu → `Transcript` (chữ từng lượt, `seconds`)                                | Chép mọi câu của mẫu, lớp bảo vệ, lọc ảo giác |
+| `lifemate/backends/asr.py` › `FasterWhisperASR`                     | lớp          | danh sách file WAV → danh sách chữ                                           | Backend large-v3 (CTranslate2)                |
+| `lifemate/backends/asr.py` › `ChunkFormerASR`                       | lớp          | danh sách file WAV → danh sách chữ                                           | Backend RNNT                                  |
+| `lifemate/backends/asr_guard.py` › `needs_retry`                    | hàm          | chữ, chữ đã lọc, câu mồi, độ dài cụm, ngưỡng nén → có chép lại không         | Lớp bảo vệ câu mồi                            |
+| `lifemate/run/timing.py` › `TimedTranscriber`                       | lớp          | bọc transcriber → cộng dồn số giây và số lần gọi                             | Đo thời gian trong lần chạy hệ thống          |
+| `lifemate/io/zaic.py` › `load_catalog`                              | hàm          | thư mục dữ liệu, split → catalog tool                                        | Đọc catalog (không đọc file môi trường)       |
+
 
 ### A.2. Code sẽ viết hoặc sửa ở lần 3
 
-| File › tên | Loại | Đầu vào → đầu ra | Việc làm | Thử nghiệm |
-|---|---|---|---|---|
-| `lifemate/backends/asr_prompt.py` › `build_sample_prompts` | hàm (mới) | mẫu, catalog, câu mồi cố định, biến thể → danh sách câu mồi theo thứ tự file | Dựng câu mồi theo mẫu | E |
-| `lifemate/backends/asr_prompt.py` › `build_sample_hotwords` | hàm (mới) | mẫu, catalog → chuỗi từ khoá | `hotwords` theo mẫu | E3 |
-| `lifemate/backends/asr.py` › `FasterWhisperASR.transcribe_batch` | sửa | thêm `prompts`, `hotwords` theo từng file; trả thêm điểm tin cậy | Câu mồi theo câu, điểm tin cậy | E, G |
-| `lifemate/core/config.py` › `ASRConfig.prompt_mode` | khoá mới | `"fixed"` hoặc `"sample"` | Bật câu mồi theo mẫu | E |
-| `lifemate/backends/asr_guard.py` › `needs_retry` | sửa | so với phần cố định của câu mồi | Lớp bảo vệ khi câu mồi có lời trợ lý | E |
-| `lifemate/backends/asr.py` › `MergedASR` | lớp (mới) | mẫu → chữ ghép của mọi câu, thời gian từng bước | Engine ghép trong hệ thống thật | I, và lần chạy hệ thống |
-| `lifemate/eval/eval_asr.py` › chỉ số `en_context`, `assistant_echo`, `merge_wrong_english`, `merge_missed_english` | sửa | | Chỉ số mới (mục 2.2) | E, F, G |
-| `lifemate/eval/prompt_word_reliability.py` › `count_prompt_words`, `reliability` | module mới | mẫu, chữ RNNT, chữ large-v3 → từ → (viết ra, đúng) → độ tin cậy | Bảng độ tin cậy | F |
-| `lifemate/eval/asr_merge.py` › `context_reliable` | sửa | thêm bảng độ tin cậy và ngưỡng | Cách lọc mới | F |
-| `lifemate/eval/merge_classifier.py` › `region_features`, `region_labels`, `fit_logistic`, `predict` | module mới | đoạn khác nhau → đặc trưng, nhãn → trọng số → xác suất | Bộ phân loại ghép | G |
-| `lifemate/eval/asr_alternatives.py` › `format_alternatives`, `alternatives_ceiling`, `alternatives_tokens` | module mới | chữ hai bản, đoạn không chắc → chữ hai phương án, trần, số token | Thử nghiệm hai phương án | H |
-| `lifemate/eval/gpu_memory.py` › `GpuMemoryMonitor` | lớp mới | chạy nền `nvidia-smi` → `gpu_memory.csv`, bộ nhớ đỉnh | Đo bộ nhớ | I |
-| `lifemate/eval/make_splits.py` | sửa | ghi thêm `asr_learn.txt` | Danh sách tập học | F, G |
-| `ops/kaggle/asr_v3/` | kernel mới | | Phiên K1, K2 | E, F, G, I |
-| `ops/scripts/asr_timing_r1.sh` | script mới | | Phiên R1 trên máy thuê | I |
+
+| File › tên                                                                                                         | Loại       | Đầu vào → đầu ra                                                             | Việc làm                             | Thử nghiệm              |
+| ------------------------------------------------------------------------------------------------------------------ | ---------- | ---------------------------------------------------------------------------- | ------------------------------------ | ----------------------- |
+| `lifemate/backends/asr_prompt.py` › `build_sample_prompts`                                                         | hàm (mới)  | mẫu, catalog, câu mồi cố định, biến thể → danh sách câu mồi theo thứ tự file | Dựng câu mồi theo mẫu                | E                       |
+| `lifemate/backends/asr_prompt.py` › `build_sample_hotwords`                                                        | hàm (mới)  | mẫu, catalog → chuỗi từ khoá                                                 | `hotwords` theo mẫu                  | E3                      |
+| `lifemate/backends/asr.py` › `FasterWhisperASR.transcribe_batch`                                                   | sửa        | thêm `prompts`, `hotwords` theo từng file; trả thêm điểm tin cậy             | Câu mồi theo câu, điểm tin cậy       | E, G                    |
+| `lifemate/core/config.py` › `ASRConfig.prompt_mode`                                                                | khoá mới   | `"fixed"` hoặc `"sample"`                                                    | Bật câu mồi theo mẫu                 | E                       |
+| `lifemate/backends/asr_guard.py` › `needs_retry`                                                                   | sửa        | so với phần cố định của câu mồi                                              | Lớp bảo vệ khi câu mồi có lời trợ lý | E                       |
+| `lifemate/backends/asr.py` › `MergedASR`                                                                           | lớp (mới)  | mẫu → chữ ghép của mọi câu, thời gian từng bước                              | Engine ghép trong hệ thống thật      | I, và lần chạy hệ thống |
+| `lifemate/eval/eval_asr.py` › chỉ số `en_context`, `assistant_echo`, `merge_wrong_english`, `merge_missed_english` | sửa        |                                                                              | Chỉ số mới (mục 2.2)                 | E, F, G                 |
+| `lifemate/eval/prompt_word_reliability.py` › `count_prompt_words`, `reliability`                                   | module mới | mẫu, chữ RNNT, chữ large-v3 → từ → (viết ra, đúng) → độ tin cậy              | Bảng độ tin cậy                      | F                       |
+| `lifemate/eval/asr_merge.py` › `sample_context_words`                                                             | sửa        | chỉ lấy giá trị của dict, bỏ khoá                                            | Từ điển ngữ cảnh bỏ khoá JSON        | mọi thử nghiệm          |
+| `lifemate/eval/asr_merge.py` › `context_reliable`                                                                  | sửa        | thêm bảng độ tin cậy và ngưỡng                                               | Cách lọc mới                         | F                       |
+| `lifemate/eval/merge_classifier.py` › `region_features`, `region_labels`, `fit_logistic`, `predict`                | module mới | đoạn khác nhau → đặc trưng, nhãn → trọng số → xác suất                       | Bộ phân loại ghép                    | G                       |
+| `lifemate/eval/asr_alternatives.py` › `format_alternatives`, `alternatives_ceiling`, `alternatives_tokens`         | module mới | chữ hai bản, đoạn không chắc → chữ hai phương án, trần, số token             | Thử nghiệm hai phương án             | H                       |
+| `lifemate/eval/gpu_memory.py` › `GpuMemoryMonitor`                                                                 | lớp mới    | chạy nền `nvidia-smi` → `gpu_memory.csv`, bộ nhớ đỉnh                        | Đo bộ nhớ                            | I                       |
+| `lifemate/eval/make_splits.py`                                                                                     | sửa        | ghi thêm `asr_learn.txt`                                                     | Danh sách tập học                    | F, G                    |
+| `ops/kaggle/asr_v3/`                                                                                               | kernel mới |                                                                              | Phiên K1, K2                         | E, F, G, I              |
+| `ops/scripts/asr_timing_r1.sh`                                                                                     | script mới |                                                                              | Phiên R1 trên máy thuê               | I                       |
+
 
 ## Phụ lục B. Code cần viết và lịch các phiên GPU
 
 ### B.1. Việc chuẩn bị (máy dev, không cần GPU)
 
-| Mã | Việc | Kiểm tra |
-|---|---|---|
-| P1 | `make_splits` ghi `asr_learn.txt` (793 mã = `train.txt` bỏ `asr_tune.txt`) | Test: không trùng mã nào với `asr_tune`, `val_seen`, `val_unseen` |
-| P2 | Đọc mã nguồn faster-whisper bản đang ghim: cách `initial_prompt` và `hotwords` dùng chung 223 token, cách cắt khi quá dài | Ghi kết quả vào mục 3.4 |
-| P3 | `asr_prompt.py`: `build_sample_prompts`, `build_sample_hotwords`; đếm số token bằng tokenizer của large-v3 | Test: đúng thứ tự file, không đọc lượt người dùng, câu không có lượt trợ lý liền trước nhận phần cố định; test quét mã nguồn không đọc file môi trường vẫn qua |
-| P4 | `FasterWhisperASR`, `ASRTranscriber`, `ASRConfig.prompt_mode`, `needs_retry` phần cố định; ghi `prompt` và `scores` vào `hyps.jsonl` | Test với backend giả: `prompt_mode = "fixed"` cho đúng chữ như cũ |
-| P5 | Chỉ số mới trong `eval_asr` | Test trên câu tự viết; chấm lại chữ lần 2 cho đúng số cũ ở các chỉ số cũ |
-| P6 | `prompt_word_reliability.py`, `context_reliable`, `merge_classifier.py`, `asr_alternatives.py` | Test trên dữ liệu tự viết; `merge_classifier` với trọng số tay tái tạo đúng quy tắc `context_other` |
-| P7 | Engine `MergedASR` và khoá config chọn I1–I4; ghi `timing.jsonl` | Test với hai backend giả: chữ ghép giống `asr_merge` offline từng byte |
-| P8 | `GpuMemoryMonitor`, kernel `ops/kaggle/asr_v3/`, script R1 | Chạy kernel preflight trên CPU với 3 mẫu |
-| P9 | `make check`, `make test`, cập nhật SPEC và README các thư mục | |
+
+| Mã  | Việc                                                                                                                                 | Kiểm tra                                                                                                                                                       |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1  | `make_splits` ghi `asr_learn.txt` (793 mã = `train.txt` bỏ `asr_tune.txt`)                                                           | Test: không trùng mã nào với `asr_tune`, `val_seen`, `val_unseen`                                                                                              |
+| P2  | Đọc mã nguồn faster-whisper bản đang ghim: cách `initial_prompt` và `hotwords` dùng chung 223 token, cách cắt khi quá dài            | Ghi kết quả vào mục 3.4                                                                                                                                        |
+| P3  | `asr_prompt.py`: `build_sample_prompts`, `build_sample_hotwords`; đếm số token bằng tokenizer của large-v3                           | Test: đúng thứ tự file, không đọc lượt người dùng, câu không có lượt trợ lý liền trước nhận phần cố định; test quét mã nguồn không đọc file môi trường vẫn qua |
+| P4  | `FasterWhisperASR`, `ASRTranscriber`, `ASRConfig.prompt_mode`, `needs_retry` phần cố định; ghi `prompt` và `scores` vào `hyps.jsonl` | Test với backend giả: `prompt_mode = "fixed"` cho đúng chữ như cũ                                                                                              |
+| P5  | Chỉ số mới trong `eval_asr`                                                                                                          | Test trên câu tự viết; chấm lại chữ lần 2 cho đúng số cũ ở các chỉ số cũ                                                                                       |
+| P6  | `prompt_word_reliability.py`, `context_reliable`, `merge_classifier.py`, `asr_alternatives.py`                                       | Test trên dữ liệu tự viết; `merge_classifier` với trọng số tay tái tạo đúng quy tắc `context_other`                                                            |
+| P7  | Engine `MergedASR` và khoá config chọn I1–I4; ghi `timing.jsonl`                                                                     | Test với hai backend giả: chữ ghép giống `asr_merge` offline từng byte                                                                                         |
+| P8  | `GpuMemoryMonitor`, kernel `ops/kaggle/asr_v3/`, script R1                                                                           | Chạy kernel preflight trên CPU với 3 mẫu                                                                                                                       |
+| P9  | `make check`, `make test`, cập nhật SPEC và README các thư mục                                                                       |                                                                                                                                                                |
+| P10 | `sample_context_words` bỏ khoá; chấm lại offline `context_other` của lần 2 trên `asr_tune` và val                                | Test: khoá như `type`, `properties` không có trong từ điển, giá trị vẫn có; ghi số mốc mới vào mục 2.3 |
+
 
 ### B.2. Các phiên GPU
 
 Ước tính theo tốc độ của lần 2 trên T4: large-v3 khoảng 1,2 giây mỗi câu, RNNT nhanh hơn khoảng 3 lần.
 
-| Phiên | Máy | Chạy gì | Số câu | Ước tính |
-|---|---|---|---|---|
-| K1 | Kaggle T4 | large-v3 E0, E1, E2, E3 trên `asr_tune` (qua engine ghép, RNNT chạy kèm) | 4 × 1 024 | Khoảng 1 giờ 30 phút |
-| K2 | Kaggle T4 | Tập học: RNNT, large-v3 biến thể thắng, large-v3 không câu mồi. Val: large-v3 biến thể thắng, large-v3 không câu mồi | 3 × 2 569 + 2 × 1 443 | Khoảng 3 giờ 30 phút |
-| R1 | A30 thuê (RunPod), không có thì GPU 24 GB gần nhất | Cấu hình cuối, I1–I5 trên `public_test` và val; chạy lại 50 mẫu; bộ nhớ đỉnh | Khoảng 5 × 1 933 + 1 443 | Khoảng 2 giờ (A30 dự kiến nhanh hơn T4; số thật ghi sau phiên) |
+
+| Phiên | Máy                                                | Chạy gì                                                                                                              | Số câu                   | Ước tính                                                       |
+| ----- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------ | -------------------------------------------------------------- |
+| K1    | Kaggle T4                                          | large-v3 E0, E1, E2, E3 trên `asr_tune` (qua engine ghép, RNNT chạy kèm)                                             | 4 × 1 024                | Khoảng 1 giờ 30 phút                                           |
+| K2    | Kaggle T4                                          | Tập học: RNNT, large-v3 biến thể thắng, large-v3 không câu mồi. Val: large-v3 biến thể thắng, large-v3 không câu mồi | 3 × 2 569 + 2 × 1 443    | Khoảng 3 giờ 30 phút                                           |
+| R1    | A30 thuê (RunPod), không có thì GPU 24 GB gần nhất | Cấu hình cuối, I1–I5 trên `public_test` và val; chạy lại 50 mẫu; bộ nhớ đỉnh                                         | Khoảng 5 × 1 933 + 1 443 | Khoảng 2 giờ (A30 dự kiến nhanh hơn T4; số thật ghi sau phiên) |
+
 
 Tổng GPU Kaggle khoảng 5 giờ, trong hạn mức 30 giờ mỗi tuần. Phiên R1 tốn tiền thuê máy, cần xác nhận trước khi thuê.
