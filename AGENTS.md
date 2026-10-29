@@ -47,8 +47,11 @@ Reports (`docs/reports/`), written for a reader who does not read code:
 - Explain every term on first use or in the glossary. Whenever a file, function, constant or config key is
   named, say where it is (`path › name`), what it does (input → output) and, for a variable, its data
   structure and what it stores. Keep a code lookup appendix in sync with renames.
-- Reasons must be true and checked; when a stated reason turns out wrong, correct it in the report
-  ("Đính chính") instead of silently replacing it.
+- Reasons must be true and checked. When a statement turns out wrong, replace it with the correct information only:
+  no "Đính chính" notes, no quoting of the old wrong version. The history of a changed conclusion goes to
+  `docs/decisions.md`, not into the report.
+- Say concretely what changes and by how much instead of vague words such as "gây hại", "lợi và hại": e.g.
+  "câu thuần Việt sai thêm 1,1 điểm WER so với RNNT".
 
 Working style: `make check` and `make test` must pass before a commit; one commit per task with a message that
 names the SPEC section; record any deviation from SPEC in SPEC itself.
