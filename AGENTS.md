@@ -16,7 +16,10 @@ Read in this order before touching code:
 Hard rules (competition and safety):
 
 - Never open or read any `*_environment/state.json` outside `lifemate/io/zaic.py`; tests enforce this.
-- `data/train+public_test/` is private competition data: never copy it into git, docs, notebooks or logs.
+- `data/train+public_test/` is the organisers' competition data: never commit the data files, audio, or bulk
+  extracts (whole splits, full transcript or label dumps) to git, notebooks or logs. Short quotes of a few train
+  sentences, transcripts or labels are allowed in `docs/` (reports, analyses) as examples, so readers need not open the
+  data. The repo is public, so quoted text is published.
 - Never log or write `HF_TOKEN` or any key; it is read at run time only (`hf_token_source`).
 - Do not run model inference, training or Docker builds on the dev machine without a GPU; those steps are
   for Kaggle, Colab or a rented pod (SPEC 4.16).
