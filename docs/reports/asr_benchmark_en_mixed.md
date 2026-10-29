@@ -771,7 +771,6 @@ Số câu bị đổi, tách câu chêm và câu thuần Việt:
 - **Chi phí.** Tham số: RNNT 0,11B + large-v3 1,55B + LLM 4,02B = 5,68B, dưới trần 6B nhưng sát. Thời gian: cộng hai mô
   hình, khoảng 2,5 s + 6,8 s p95 trên T4 (VAD), ăn vào 30 s mỗi mẫu cùng với LLM. Chưa đo trên A30 và chưa đo khi chạy cạnh
   vLLM.
-
 - **Với large-v3 có câu mồi (6.5.2), lợi ích tăng gần gấp ba trên seen và tăng thêm trên unseen**: +22,7 và +12,3 điểm
   chép đúng từ ngoại, và WER câu chêm giảm có ý nghĩa thống kê (CI không chứa 0) ở cả hai tập, điều bản ghép cũ chưa đạt.
   Bản ghép giữ gần trọn phần tiếng Anh của large-v3 (72,5% so với 72,2% của large-v3 đứng riêng trên seen, 63,9% so với
