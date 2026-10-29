@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import datetime as dt
+import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -56,9 +57,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--train-mode", action="store_true", help="strip held-out apps from prompts (SFT prompt checks)")
     ap.add_argument(
         "--transcripts",
-        choices=("config", "gold", "asr"),
+        choices=("config", "gold", "asr", "replay"),
         default="config",
-        help="override asr.backend: gold transcripts or real ASR (default: keep the config value)",
+        help="override asr.backend: gold transcripts, real ASR, or saved ASR text (replay, needs --hyps)",
+    )
+    ap.add_argument("--hyps", type=Path, help="hyps.jsonl to replay with --transcripts replay (saved ASR text)")
+    ap.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        metavar="SECTION.KEY=VALUE",
+        help="override a config key, repeatable (e.g. --set agent.system_prompt=configs/prompts/x.md)",
     )
     return ap.parse_args(argv)
 
@@ -76,9 +85,20 @@ def run(args: argparse.Namespace, repo_root: Path = REPO_ROOT) -> RunSummary:
     Trả về:
         `RunSummary` của lần chạy. Điểm chỉ được tính khi mọi mẫu đều có nhãn.
     """
-    config = load_config(repo_path(str(args.config), repo_root))
+    config = load_config(repo_path(str(args.config), repo_root), args.set)
+    # `--transcripts replay` đọc lại chữ ASR đã lưu (`hyps.jsonl`) thay vì chép âm thanh: đo điểm thi của một nguồn chữ
+    # mà không cần chạy ASR cùng lúc (benchmark ASR lần 3, thử nghiệm J).
+    replay = None
+    if args.transcripts == "replay":
+        if args.hyps is None:
+            raise SystemExit("--transcripts replay needs --hyps")
+        from lifemate.eval.rescore_asr import ReplayTranscriber
+
+        hyps_path = repo_path(str(args.hyps), repo_root)
+        rows = [json.loads(x) for x in hyps_path.read_text(encoding="utf-8").splitlines() if x.strip()]
+        replay = ReplayTranscriber(rows)
     # `--transcripts asr` chạy ASR thật trên cùng config, khỏi phải chép cả file config chỉ để đổi `asr.backend`.
-    if args.transcripts != "config":
+    if args.transcripts not in ("config", "replay"):
         config = dataclasses.replace(config, asr=dataclasses.replace(config.asr, backend=args.transcripts))
     raw_profile = load_profile(args.env, repo_root).with_overrides(root=args.root)
     profile: EnvProfile = dataclasses.replace(
@@ -125,7 +145,11 @@ def run(args: argparse.Namespace, repo_root: Path = REPO_ROOT) -> RunSummary:
         "seed": config.llm.seed,
         "libraries": seed_everything(config.llm.seed, deterministic=False),
     }
-    built = factory.build(config, profile, repo_root=repo_root, split=args.split, env_info=env_info, samples=samples)
+    if replay is not None:
+        record["replay_hyps"] = str(args.hyps)
+    built = factory.build(
+        config, profile, repo_root=repo_root, split=args.split, env_info=env_info, samples=samples, transcriber=replay
+    )
     record["dtype"] = {"config": config.llm.dtype, "resolved": built.dtype}
     runner = Runner(
         built.agent,

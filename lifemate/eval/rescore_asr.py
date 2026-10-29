@@ -36,7 +36,12 @@ class ReplayTranscriber:
 
     Tham số:
         rows: các dòng `{id, turn, hyp, raw}`; `turn` là "final" hoặc chỉ số lượt trong lịch sử (dạng chuỗi).
+
+    Thuộc tính:
+        source: nguồn transcript ghi vào trace, luôn là `"asr"`.
     """
+
+    source = "asr"
 
     def __init__(self, rows: Sequence[Mapping[str, Any]]) -> None:
         self._rows = {(str(r["id"]), str(r["turn"])): r for r in rows}

@@ -134,6 +134,7 @@ def build(
     env_info: EnvInfo,
     samples: Sequence[Sample] | None = None,
     observer: AgentObserver | None = None,
+    transcriber: Transcriber | None = None,
 ) -> Built:
     """Lắp ráp LLM, transcriber, prompt, guard và agent cho `split` trong `profile.data_root`.
 
@@ -147,6 +148,7 @@ def build(
         env_info: thông tin máy, dùng để chọn dtype.
         samples: các mẫu sẽ chạy. Với backend `fake` mà không truyền, cả split được nạp để lấy nhãn.
         observer: observer của agent; `None` là không ghi gì thêm.
+        transcriber: transcriber có sẵn (ví dụ đọc lại chữ đã lưu); `None` thì tạo theo `config.asr.backend`.
 
     Trả về:
         `Built` chứa mọi đối tượng đã lắp ráp.
@@ -179,15 +181,15 @@ def build(
     if config.llm.backend == "fake" and fake_samples is None:
         fake_samples = load_split(root, split)
     llm = TimedLLM(llm_factory(config, profile, fake_samples or (), env_info, dtype))
-    transcriber = TimedTranscriber(asr_factory(config, root, split))
-    agent = Agent(llm, transcriber, prompts, guards, index, config.agent, config.llm, observer=observer)
+    timed = TimedTranscriber(transcriber if transcriber is not None else asr_factory(config, root, split))
+    agent = Agent(llm, timed, prompts, guards, index, config.agent, config.llm, observer=observer)
     return Built(
         agent=agent,
         loader=ZaicLoader(root, split),
         index=index,
         counter=counter,
         llm=llm,
-        transcriber=transcriber,
+        transcriber=timed,
         dtype=dtype,
         prompt_sha256=prompt_sha256(config, repo_root),
     )
