@@ -34,6 +34,7 @@ Cách hoạt động:
 4. Kiểm tra rò rỉ: `meta.json` ghi số id trùng giữa train và hai tập val (phải bằng 0).
 5. Tuỳ chọn `--smoke`: lấy N id của `val_seen`, phân tầng theo (loại câu trả lời, có lịch sử hay không).
    Tuỳ chọn `--asr-tune`: lấy N id của train theo cùng cách phân tầng, làm tập dò config ASR.
+   Với `--asr-tune`, ghi thêm `asr_learn.txt`: các mẫu train ngoài `asr_tune.txt` (tập học của benchmark ASR lần 3).
    Tuỳ chọn `--en-mixed`: ghi `{asr_tune,val_seen,val_unseen}_en_mixed.txt`, gồm các mẫu của tập tương ứng có ít nhất
    một lượt người dùng (lượt cuối hoặc lịch sử) chêm từ tiếng Anh (`lifemate.eval.foreign_words.has_foreign_word`).
    Các tập gốc không đổi.
@@ -277,6 +278,11 @@ def main() -> None:
         tune = smoke_sample(train, args.asr_tune, args.seed)
         (args.out / "asr_tune.txt").write_text("".join(f"{i}\n" for i in tune))
         print(f"  asr_tune   {len(tune):>5}  -> {args.out / 'asr_tune.txt'}")
+        # Tập học của benchmark ASR lần 3: phần train ngoài tập dò, dùng để đếm và học (không dùng để dò hay đo).
+        tune_set = set(tune)
+        learn = sorted(it["id"] for it in train if it["id"] not in tune_set)
+        (args.out / "asr_learn.txt").write_text("".join(f"{i}\n" for i in learn))
+        print(f"  asr_learn  {len(learn):>5}  -> {args.out / 'asr_learn.txt'}")
     # Tập con chêm tiếng Anh (benchmark ASR lần 2): lọc từ các tập đã có, không chia lại.
     if args.en_mixed:
         tune_file = args.out / "asr_tune.txt"

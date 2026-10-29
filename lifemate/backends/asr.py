@@ -512,14 +512,82 @@ class FasterWhisperASR:
 
     def _one(self, audio: Any, prompted: bool = True) -> str:
         """Nhận dạng một câu nói và nối văn bản các đoạn (segment) bằng dấu cách."""
-        # `segments` là generator: model chỉ thật sự giải mã khi generator được duyệt qua.
-        segments, _info = self._model.transcribe(audio, **(self._kwargs if prompted else self._unprompted))
-        return " ".join(s.text.strip() for s in segments).strip()
+        return self.transcribe_one(audio, None if prompted else "")[0]
 
-    def transcribe_batch(self, wav_paths: Sequence[Path]) -> list[str]:
-        """Nhận dạng lần lượt từng file WAV theo thứ tự."""
+    def transcribe_one(self, audio: Any, prompt: str | None = None) -> tuple[str, dict[str, float]]:
+        """Nhận dạng một câu nói với câu mồi `prompt`, trả về văn bản và điểm tin cậy của large-v3.
+
+        Tham số:
+            audio: mảng float32 của câu nói.
+            prompt: `None` dùng câu mồi của config; chuỗi rỗng là không câu mồi; chuỗi khác thay câu mồi của config
+                (câu mồi theo mẫu, benchmark ASR lần 3).
+
+        Trả về:
+            Cặp (văn bản, điểm): `avg_logprob` (trung bình theo số token của các đoạn), `no_speech_prob` (lớn nhất
+            trong các đoạn), `n_segments`. Không có đoạn nào thì điểm là 0.
+        """
+        if prompt is None:
+            kwargs = self._kwargs
+        elif prompt == "":
+            kwargs = self._unprompted
+        else:
+            kwargs = {**self._unprompted, "initial_prompt": prompt}
+        # `segments` là generator: model chỉ thật sự giải mã khi generator được duyệt qua.
+        segments, _info = self._model.transcribe(audio, **kwargs)
+        segs = list(segments)
+        # Số token của từng đoạn làm trọng số; đoạn thiếu trường (model giả trong test) tính 1 token, điểm 0.
+        weights = [max(1, len(getattr(s, "tokens", ()) or ())) for s in segs]
+        logprobs = [float(getattr(s, "avg_logprob", 0.0)) for s in segs]
+        scores = {
+            "avg_logprob": sum(w * lp for w, lp in zip(weights, logprobs, strict=True)) / sum(weights) if segs else 0.0,
+            "no_speech_prob": max((float(getattr(s, "no_speech_prob", 0.0)) for s in segs), default=0.0),
+            "n_segments": float(len(segs)),
+        }
+        return " ".join(s.text.strip() for s in segs).strip(), scores
+
+    def score_texts(self, audio: Any, texts: Sequence[str]) -> list[tuple[float, int]]:
+        """Điểm âm thanh của từng câu cho sẵn: tổng log xác suất mà large-v3, không câu mồi, gán cho các token của câu.
+
+        Không sinh chữ: chạy encoder một lần trên 30 giây đầu của câu nói, rồi ép chuỗi từng câu qua decoder bằng
+        `align` của CTranslate2 (hàm faster-whisper dùng cho `word.probability`), với các token mở đầu
+        `<|startoftranscript|><|vi|><|transcribe|>` và không có câu mồi.
+
+        Tham số:
+            audio: mảng float32 của câu nói.
+            texts: các câu cần chấm.
+
+        Trả về:
+            Mỗi câu một cặp (tổng log xác suất các token mà `align` trả về, số token đó).
+        """
+        import math
+
+        from faster_whisper.audio import pad_or_trim  # type: ignore[import-not-found,unused-ignore]
+        from faster_whisper.tokenizer import Tokenizer  # type: ignore[import-not-found,unused-ignore]
+
+        model: Any = self._model
+        fe = model.feature_extractor
+        features = fe(audio)
+        num_frames = min(fe.nb_max_frames, features.shape[-1] - 1)
+        encoder_output = model.encode(pad_or_trim(features[:, :num_frames]))
+        language = str(self._kwargs.get("language") or "vi")
+        tokenizer = Tokenizer(model.hf_tokenizer, model.model.is_multilingual, task="transcribe", language=language)
+        out: list[tuple[float, int]] = []
+        for text in texts:
+            tokens = tokenizer.encode(" " + text.strip())
+            if not tokens:
+                out.append((0.0, 0))
+                continue
+            result = model.model.align(encoder_output, tokenizer.sot_sequence, [tokens], num_frames)[0]
+            probs = list(result.text_token_probs)
+            out.append((sum(math.log(max(p, 1e-12)) for p in probs), len(probs)))
+        return out
+
+    def transcribe_batch(self, wav_paths: Sequence[Path], prompts: Sequence[str] | None = None) -> list[str]:
+        """Nhận dạng lần lượt từng file WAV theo thứ tự; `prompts` (nếu có) là câu mồi riêng cho từng file."""
         sr = self._cfg.sample_rate
-        return [self._one(read_wav(p, sr)) for p in wav_paths]
+        if prompts is None:
+            return [self._one(read_wav(p, sr)) for p in wav_paths]
+        return [self.transcribe_one(read_wav(p, sr), q or "")[0] for p, q in zip(wav_paths, prompts, strict=True)]
 
     def transcribe_batch_unprompted(self, wav_paths: Sequence[Path]) -> list[str]:
         """Như `transcribe_batch` nhưng không câu mồi."""

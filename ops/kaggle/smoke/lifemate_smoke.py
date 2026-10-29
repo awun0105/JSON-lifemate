@@ -33,6 +33,9 @@ Tham số (biến môi trường, đọc lúc chạy):
   --start-option engine=vad --objective en_mixed".
 - `ASR_DIAG`, `ASR_DIAG_FROM`, `ASR_DIAG_SETS`: chẩn đoán một model trên các mẫu hỏng của lần chạy trước (mục 5c).
 - `ASR_EVAL_IDS`: file id để đo ASR, mặc định `val_seen`.
+- `ASR_V3_CMDS`: các lệnh con của `lifemate.eval.asr_v3` (benchmark ASR lần 3), cách nhau bằng " ;; ".
+- `RUN_REPLAY`: chạy agent trên chữ ASR đã lưu, dạng "tên=đường_dẫn_hyps,tên2=..." (đường dẫn glob dưới /kaggle/input);
+  mỗi mục một lần chạy với `--transcripts replay`.
 - `RUN_IDS`: file danh sách id, mặc định là 30 mẫu smoke.
 - `RUN_TAG`: hậu tố của tên lần chạy.
 
@@ -233,6 +236,16 @@ if diag_model:
         log_text = (out / f"{i}.log").read_text(encoding="utf-8", errors="replace")
         print(f"[diag {i}] asr_nonfinite_output: {log_text.count('asr_nonfinite_output')}", flush=True)
 
+# 5d. Benchmark ASR lần 3 (`lifemate/eval/asr_v3.py`, `docs/reports/benchmark/asr_v3.md`): `ASR_V3_CMDS` là các lệnh con
+# của `python -m lifemate.eval.asr_v3`, cách nhau bằng " ;; " (ví dụ "transcribe --ids ... --out asr_v3/k1"). Đường dẫn
+# `--out` tương đối được đặt dưới /kaggle/working. Cần gói chunkformer cho RNNT.
+v3_cmds = [c.strip() for c in os.environ.get("ASR_V3_CMDS", "").split(";;") if c.strip()]
+if v3_cmds:
+    install_for("chunkformer-rnnt")
+    for c in v3_cmds:
+        cmd = c.replace("--out asr_v3/", f"--out {WORK}/asr_v3/")
+        sh(f"python -m lifemate.eval.asr_v3 {cmd} --env kaggle 2>&1 | tee -a {WORK}/asr_v3.log", check=False)
+
 # 5b. Cache ASR cho dữ liệu fine-tune (SPEC 6.2.1), mặc định tắt: chạy ASR một lần trên train, `val_seen` và
 # `val_unseen`, rồi lưu chữ vào output của kernel (riêng tư). Tải về bằng `kaggle kernels output` và đặt vào
 # `data/asr/train_asr.json`, hoặc gắn output này làm dataset riêng tư cho notebook train.
@@ -258,6 +271,17 @@ logs.mkdir(exist_ok=True)
 for ids in id_files:
     split_args = f"--split train --ids {ids}"
     prefix = tag if len(id_files) == 1 else f"{tag}_{Path(ids).stem}"
+    for rname, pattern in (x.split("=", 1) for x in os.environ.get("RUN_REPLAY", "").split(",") if "=" in x):
+        found_hyps = sorted(glob.glob(pattern, recursive=True))
+        if not found_hyps:
+            print(f"[replay {rname}] no file matches {pattern!r}", flush=True)
+            continue
+        name = f"{prefix}_{rname}"
+        runs[name] = sh(
+            f"{cli} --config configs/v0.toml {split_args} --name {name} --transcripts replay --hyps {found_hyps[0]} "
+            f"2>&1 | tee {logs}/{name}.log",
+            False,
+        )
     for kind, enabled, cfg in (("gold", flag("RUN_GOLD"), "configs/v0.toml"), ("asr", flag("RUN_ASR", "0"), asr_cfg)):
         if enabled:
             name = f"{prefix}_{kind}"

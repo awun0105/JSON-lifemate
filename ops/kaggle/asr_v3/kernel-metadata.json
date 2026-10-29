@@ -1,0 +1,18 @@
+{
+  "id": "quanlam/lifemate-asr-v3",
+  "title": "lifemate-asr-v3",
+  "code_file": "lifemate_asr_v3.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [
+    "quanlam/zac2026-lifemate"
+  ],
+  "kernel_sources": [],
+  "competition_sources": [],
+  "model_sources": [],
+  "machine_shape": "NvidiaTeslaT4"
+}

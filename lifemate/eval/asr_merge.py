@@ -6,6 +6,8 @@ Cách dùng (chạy từ thư mục gốc repo):
 
 Nội dung chính:
 - `align_words`: gióng hàng hai dãy từ theo khoảng cách Levenshtein (số từ phải thêm, xoá, thay), có truy vết.
+- `Region`, `split_regions`, `candidate_regions`, `assemble`, `rule_decision`: tách câu thành từ khớp và vùng khác
+  nhau, chọn vùng cần quyết định, ghép lại theo một hàm quyết định bất kỳ (luật, điểm âm thanh, bộ phân loại).
 - `merge_transcripts`: ghép hai câu theo quy tắc ở dưới.
 - `merge_hyp_rows`: ghép hai danh sách dòng `hyps.jsonl` (mỗi dòng là chữ ASR của một câu) theo từng câu.
 - `CONTEXT_POLICIES`, `sample_context_words`, `english_filter`: bộ lọc ngữ cảnh của mẫu (bước 3b).
@@ -38,6 +40,7 @@ import argparse
 import json
 import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -90,12 +93,15 @@ CONTEXT_POLICIES = ("all", "context", "context_prompt", "context_other")
 
 
 def _strings(value: Any) -> Iterator[str]:
-    """Mọi chuỗi trong một giá trị JSON lồng nhau (khoá và giá trị của dict, phần tử của list), theo thứ tự."""
+    """Mọi chuỗi giá trị trong một giá trị JSON lồng nhau (giá trị của dict, phần tử của list), theo thứ tự.
+
+    Không lấy khoá của dict: khoá là tên trường do người viết schema đặt (`type`, `properties`, `content`...), không
+    phải nội dung người dùng có thể nhắc tới (benchmark ASR lần 3, mục 2.1).
+    """
     if isinstance(value, str):
         yield value
     elif isinstance(value, Mapping):
-        for key, item in value.items():
-            yield str(key)
+        for item in value.values():
             yield from _strings(item)
     elif isinstance(value, (list, tuple)):
         for item in value:
@@ -110,7 +116,8 @@ def sample_context_words(sample: Sample, catalog_apps: Mapping[str, Mapping[str,
         catalog_apps: id app -> mục của app trong catalog tool (tên, mô tả, các tool và schema tham số).
 
     Trả về:
-        Tập từ lấy từ: id và mục catalog của mọi app trong `installed_apps`; các trường khác của `context` (giờ, vị trí,
+        Tập từ lấy từ (chỉ giá trị, không lấy khoá JSON): id và mục catalog của mọi app trong
+        `installed_apps`; các trường khác của `context` (giờ, vị trí,
         hồ sơ người dùng); lượt trợ lý trong lịch sử (câu trả lời, lời gọi tool, kết quả tool).
     """
     context = dict(sample.context)
@@ -147,6 +154,89 @@ def english_filter(
     raise ValueError(f"unknown policy {policy!r}; expected one of {CONTEXT_POLICIES}")
 
 
+@dataclass(frozen=True)
+class Region:
+    """Một vùng khác nhau giữa chữ của model chính và chữ của model phụ, nằm giữa hai từ khớp.
+
+    Thuộc tính:
+        primary: các từ của model chính trong vùng (giữ cách viết gốc).
+        secondary: các từ của model phụ trong vùng.
+        new_english: từ tiếng Anh (đã chuẩn hoá) có ở phía phụ mà phía chính không có, chưa qua bộ lọc nào.
+    """
+
+    primary: tuple[str, ...]
+    secondary: tuple[str, ...]
+    new_english: frozenset[str]
+
+    @property
+    def not_too_long(self) -> bool:
+        """Điều kiện độ dài của lần 2: phía phụ không dài quá `2 x (số từ phía chính) + 2`."""
+        return len(self.secondary) <= 2 * len(self.primary) + 2
+
+
+def split_regions(primary: str, secondary: str) -> list[str | Region]:
+    """Đặt hai câu cạnh nhau từ ứng với từ; trả về dãy gồm từ khớp (chuỗi, cách viết của model chính) và `Region`.
+
+    Câu của model phụ rỗng thì cả câu chính là các từ khớp (không có vùng nào).
+    """
+    primary_words, secondary_words = primary.split(), secondary.split()
+    if not secondary_words:
+        return list(primary_words)
+    primary_keys = [_match_key(w) for w in primary_words]
+    secondary_keys = [_match_key(w) for w in secondary_words]
+    out: list[str | Region] = []
+    # Vùng khác nhau đang gom: các từ của mỗi bên nằm giữa hai từ khớp.
+    primary_region: list[str] = []
+    secondary_region: list[str] = []
+
+    def close_region() -> None:
+        """Ghi vùng đang gom (nếu có) vào `out` rồi xoá vùng."""
+        if not primary_region and not secondary_region:
+            return
+        # Phía phụ mang tới từ tiếng Anh mà phía chính không có. Không đòi phía chính "không có từ ngoại", vì chữ rác
+        # của model chính ("s tp") cũng không ghép được âm tiết Việt nên bị coi là từ ngoại.
+        new_english = {w.folded for w in find_foreign_words(" ".join(secondary_region))} - {
+            w.folded for w in find_foreign_words(" ".join(primary_region))
+        }
+        out.append(Region(tuple(primary_region), tuple(secondary_region), frozenset(new_english)))
+        primary_region.clear()
+        secondary_region.clear()
+
+    for i, j in align_words(primary_keys, secondary_keys):
+        if i is not None and j is not None and primary_keys[i] == secondary_keys[j]:
+            close_region()
+            out.append(primary_words[i])
+            continue
+        if i is not None:
+            primary_region.append(primary_words[i])
+        if j is not None:
+            secondary_region.append(secondary_words[j])
+    close_region()
+    return out
+
+
+def candidate_regions(parts: Sequence[str | Region]) -> list[int]:
+    """Chỉ số (trong `parts`) của các vùng cần quyết định: phía phụ có từ tiếng Anh mới, chưa qua bộ lọc."""
+    return [k for k, part in enumerate(parts) if isinstance(part, Region) and part.secondary and part.new_english]
+
+
+def assemble(parts: Sequence[str | Region], take_secondary: Callable[[int, Region], bool]) -> str:
+    """Ghép lại câu từ `parts`; mỗi vùng lấy chữ phía phụ khi `take_secondary(chỉ số, vùng)` trả `True`."""
+    words: list[str] = []
+    for k, part in enumerate(parts):
+        if isinstance(part, Region):
+            words.extend(part.secondary if take_secondary(k, part) else part.primary)
+        else:
+            words.append(part)
+    return " ".join(words)
+
+
+def rule_decision(region: Region, accept_english: Callable[[str], bool] | None = None) -> bool:
+    """Quyết định của luật lần 2 cho một vùng: còn từ tiếng Anh mới sau bộ lọc, và vùng phía phụ không quá dài."""
+    words = region.new_english if accept_english is None else {w for w in region.new_english if accept_english(w)}
+    return bool(region.secondary) and bool(words) and region.not_too_long
+
+
 def merge_transcripts(primary: str, secondary: str, accept_english: Callable[[str], bool] | None = None) -> str:
     """Ghép câu của model chính với câu của model phụ theo quy tắc ở docstring module.
 
@@ -155,43 +245,9 @@ def merge_transcripts(primary: str, secondary: str, accept_english: Callable[[st
         secondary: chữ của model phụ cho cùng câu.
         accept_english: bộ lọc bước 3b (`english_filter`); `None` là nhận mọi từ tiếng Anh mới.
     """
-    primary_words, secondary_words = primary.split(), secondary.split()
-    if not secondary_words:
+    if not secondary.split():
         return primary
-    primary_keys = [_match_key(w) for w in primary_words]
-    secondary_keys = [_match_key(w) for w in secondary_words]
-    merged: list[str] = []
-    # Vùng khác nhau đang gom: các từ của mỗi bên nằm giữa hai từ khớp.
-    primary_region: list[str] = []
-    secondary_region: list[str] = []
-
-    def close_region() -> None:
-        """Quyết định lấy bên nào cho vùng khác nhau đang gom, ghi vào `merged`, rồi xoá vùng."""
-        secondary_text, primary_text = " ".join(secondary_region), " ".join(primary_region)
-        # Phía phụ mang tới từ tiếng Anh mà phía chính không có. Không đòi phía chính "không có từ ngoại", vì chữ rác
-        # của model chính ("s tp") cũng không ghép được âm tiết Việt nên bị coi là từ ngoại.
-        new_english = {w.folded for w in find_foreign_words(secondary_text)} - {
-            w.folded for w in find_foreign_words(primary_text)
-        }
-        if accept_english is not None:
-            new_english = {word for word in new_english if accept_english(word)}
-        not_too_long = len(secondary_region) <= 2 * len(primary_region) + 2
-        take_secondary = bool(secondary_region) and bool(new_english) and not_too_long
-        merged.extend(secondary_region if take_secondary else primary_region)
-        primary_region.clear()
-        secondary_region.clear()
-
-    for i, j in align_words(primary_keys, secondary_keys):
-        if i is not None and j is not None and primary_keys[i] == secondary_keys[j]:
-            close_region()
-            merged.append(primary_words[i])
-            continue
-        if i is not None:
-            primary_region.append(primary_words[i])
-        if j is not None:
-            secondary_region.append(secondary_words[j])
-    close_region()
-    return " ".join(merged)
+    return assemble(split_regions(primary, secondary), lambda _k, region: rule_decision(region, accept_english))
 
 
 def merge_hyp_rows(

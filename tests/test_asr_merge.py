@@ -84,3 +84,5 @@ def test_sample_context_words_uses_text_inputs_only() -> None:
     words = sample_context_words(sample, {"chat_app": {"name_vi": "Zalo"}, "other_app": {"name_vi": "Grab"}})
     assert {"zalo", "chat", "riverside", "sarah"} <= words
     assert "grab" not in words and "spotify" not in words
+    # Khoá JSON (`name_vi`, `user_profile`, `home`) không vào từ điển; chỉ giá trị.
+    assert not {"name", "vi", "user", "profile", "home"} & words
