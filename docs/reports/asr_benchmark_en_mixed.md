@@ -35,6 +35,48 @@ Lần 1 (`docs/reports/asr_benchmark.md`) đã chọn mô hình ASR theo chất 
 - **Ghép hai mô hình**: lấy chữ của ChunkFormer RNNT (giỏi tiếng Việt), chỉ thay những đoạn mà whisper-large-v3 (giỏi
   tiếng Anh hơn) nghe ra một từ tiếng Anh mà RNNT không có.
 
+### Dữ liệu cần chuẩn bị và cách chuẩn bị
+
+**Nguồn dữ liệu.** Chỉ có một nguồn có đáp án: phần `train` trong gói dữ liệu của BTC (1 545 mẫu, 5 036 câu người dùng,
+mỗi câu có file âm thanh và chữ chuẩn). Phần `public_test` không có đáp án nên không chấm được. Gói dữ liệu nằm ở
+`data/train+public_test/` trên máy, không có trên git.
+
+**Nguyên tắc chuẩn bị.** Dữ liệu dùng để **chọn** (chọn từ cho câu mồi, chọn cấu hình) phải khác dữ liệu dùng để **đo** kết
+quả cuối. Giống luyện đề và thi thật: nếu đề thi là đề đã luyện thì điểm cao hơn thực lực. Vì vậy 1 545 mẫu được chia
+thành các phần không chồng nhau:
+
+```
+1 545 mẫu train của BTC
+├── val_unseen  178 mẫu  mẫu của 6 app được giấu đi, giả làm "app chưa gặp" của bộ thi thật
+├── val_seen    274 mẫu  mẫu của các app đã biết, để đo kết quả
+└── train     1 093 mẫu
+    ├── asr_tune  300 mẫu  tập dò: thử và chọn cấu hình ASR
+    └── còn lại   793 mẫu  tìm những từ tiếng Anh large-v3 hay chép sai, để viết câu mồi
+```
+
+| Phần dữ liệu | Số mẫu (số câu) | Dùng để | Vì sao tách riêng |
+|---|---|---|---|
+| 793 mẫu train còn lại | 793 | Đếm từ tiếng Anh large-v3 hay sai, rồi đưa các từ đó vào câu mồi | Nếu lấy từ trên tập dò hay tập kiểm tra thì câu mồi "biết trước đề" |
+| Tập dò `asr_tune` | 300 (1 024 câu) | Thử 13 cách dùng câu mồi, chọn cách tốt nhất | Chọn trên tập này thì số của tập này luôn đẹp hơn thực tế, nên cần tập khác để đo |
+| Tập kiểm tra `val_seen` | 274 (916 câu) | Đo kết quả cuối, một lần, trên app đã biết | Chưa dùng để chọn gì |
+| Tập kiểm tra `val_unseen` | 178 (527 câu) | Đo kết quả cuối, một lần, trên app chưa gặp | Bộ thi thật có app lạ, kéo theo từ tiếng Anh lạ |
+
+Trong mỗi tập, benchmark chấm riêng **các câu có chêm tiếng Anh** (165, 152 và 95 mẫu ở tập dò, `val_seen`, `val_unseen`).
+Một quy tắc tự động nhận ra từ tiếng Anh trong câu (mục 2.1), nên không cần đánh dấu tay.
+
+**Cách chuẩn bị.**
+
+1. Đặt gói dữ liệu của BTC vào `data/train+public_test/`.
+2. Chạy `make splits`. Lệnh này chia dữ liệu như sơ đồ trên và ghi danh sách mã mẫu của từng phần vào `configs/splits/`.
+   Lệnh dùng số ngẫu nhiên cố định, nên máy nào chạy cũng ra đúng cùng danh sách. Trong lúc chia, các câu gần giống nhau
+   được giữ chung một phần, để tập kiểm tra không chứa câu "đã gặp" ở train. Danh sách không đưa lên git (dữ liệu thi),
+   nên mỗi máy mới clone repo phải chạy lại lệnh này.
+3. Chữ large-v3 của 793 mẫu train đã có sẵn trong `data/asr/train_asr.json`, không cần chạy lại mô hình.
+4. Chữ ASR của lần 1 (thư mục `artifacts/runs/kaggle/asr/10-28_tune_v3/`) được dùng lại để chấm so sánh bốn mô hình
+   và thử phép ghép mà không cần GPU. Chỉ các lần thử câu mồi và lần chạy lại để kiểm chứng (mục 5) phải chạy GPU trên Kaggle.
+
+Lần 2 dùng lại đúng cách chia của lần 1, nên kết quả hai lần so được với nhau. Chi tiết và lý do từng bước ở mục 2.2.
+
 ### Các câu mồi đã thử
 
 Có bốn câu mồi, mỗi câu là một file chữ trong `configs/asr_prompts/`. Câu mồi ngắn là câu của lần 1, giữ lại để so sánh.
@@ -55,10 +97,24 @@ check) đặt cuối, vì phần cuối gần đoạn âm thanh nhất.
 
 Whisper chỉ dùng 223 token cuối của câu mồi, nên `en_full_v1` (183 token) đã gần chạm trần.
 
-Mỗi câu mồi được thử ở ba mức lớp bảo vệ: không bảo vệ, g3 và g4. g3 coi câu là "in lại câu mồi" khi có 3 từ liên tiếp
-trùng câu mồi, g4 khi có 4 từ. Tính cả lựa chọn không câu mồi, có 13 tổ hợp cho mỗi mô hình Whisper. Cả 13 tổ hợp chạy trên
-**tập dò** (1 024 câu rút từ train, chỉ dùng để chọn cấu hình). Tổ hợp tốt nhất sau đó được đo một lần trên hai tập kiểm
-tra.
+**Lớp bảo vệ có ba mức để thử.** Đôi khi Whisper không nghe mà in lại một đoạn của câu mồi. Lớp bảo vệ nhận ra trường hợp
+này bằng cách so chữ ASR với câu mồi:
+
+- **Không bảo vệ:** giữ nguyên chữ ASR chép có câu mồi.
+- **g3:** chữ ASR có 3 từ liền nhau giống hệt 3 từ liền nhau trong câu mồi thì coi là "in lại câu mồi", và chép lại câu đó
+  một lần không có câu mồi.
+- **g4:** giống g3 nhưng phải trùng 4 từ liền nhau. g4 khó bị kích hoạt hơn, nên ít bắt nhầm câu nói đúng hơn.
+
+Ví dụ với câu mồi `short_v1` ("Nhắn Zalo cho Lan…"): người dùng nói thật "nhắn Zalo cho mẹ" và ASR chép đúng. Chữ ASR có 3
+từ "nhắn Zalo cho" trùng câu mồi, nên g3 bắt nhầm câu này và chép lại. g4 không bắt, vì chỉ trùng 3 từ.
+
+**Có 13 cách dùng câu mồi để so.** 4 câu mồi × 3 mức bảo vệ = 12 cách, cộng thêm cách không dùng câu mồi là 13. Mỗi mô hình
+Whisper (large-v3 và PhoWhisper) chạy cả 13 cách.
+
+**Chọn trên tập dò, đo trên tập kiểm tra.** Cả 13 cách chạy trên tập dò (1 024 câu, xem phần dữ liệu ở trên), rồi chọn cách
+tốt nhất. Chỉ cách tốt nhất được chạy thêm một lần trên hai tập kiểm tra để lấy số cuối. Lý do: khi chọn cái tốt nhất trong
+13 cái trên cùng một tập, cái thắng thường có phần may, nên số trên tập dò đẹp hơn thực tế. Ví dụ, câu mồi tốt nhất của
+PhoWhisper tăng 6,6 điểm trên tập dò nhưng gần như không tăng trên tập kiểm tra.
 
 Kết quả trên tập dò, dòng tốt nhất của mỗi câu mồi:
 
