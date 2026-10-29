@@ -414,7 +414,7 @@ và để bước sau chạy được cả hệ thống với LLM.
 | Cộng điểm cho từ trong danh sách ngay trong bộ giải mã của RNNT (contextual biasing) | Gói `chunkformer` chỉ có giải mã tham lam; phải tự viết beam search có cộng điểm cho RNNT. Với Whisper, lần 3 thử dạng tương đương có sẵn: câu mồi theo mẫu (E) |
 | Thêm lớp cross-attention vào danh sách từ bên trong ASR (kiểu CLAS, TCPGen)          | Phải fine-tune mô hình ASR; dự án chỉ có khoảng 3 600 câu train và còn 18 ngày tới hạn nộp 16/11                                                                                       |
 | Tiền huấn luyện biểu diễn tự giám sát (JEPA)                                         | Cần rất nhiều âm thanh không nhãn và nhiều GPU; các mô hình ASR đang dùng đã tiền huấn luyện sẵn                                                                                       |
-| Fine-tune LLM trên định dạng hai phương án                                           | Thuộc phần fine-tune LLM (SFT). Lần 3 chỉ đo trần (H); nếu trần đủ cao thì định dạng này được đưa vào dữ liệu SFT ở bước sau                                                           |
+| Fine-tune LLM trên định dạng hai phương án                                           | Thuộc phần fine-tune LLM (SFT). Lần 3 đo trần (H1) và đo với LLM chưa fine-tune (L4); nếu L4 đạt tiêu chí thì định dạng này được đưa vào dữ liệu SFT ở bước sau                                                           |
 
 
 **Các công cụ chuẩn bị trước.**
