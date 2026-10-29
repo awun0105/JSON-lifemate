@@ -127,7 +127,7 @@ hình.
 | Công cụ | Mục | Dùng ở thử nghiệm |
 |---|---|---|
 | Quy tắc tìm từ ngoại | 2.1 | A, B, C, D: để biết câu nào là câu chêm, từ nào cần chép đúng |
-| Tập con câu chêm tiếng Anh | 2.2 | A, B, D |
+| Cách chia dữ liệu và tập con câu chêm tiếng Anh | 2.2 | A, B, C, D |
 | Bộ chỉ số tiếng Anh | 2.3 | A, B, C, D |
 | Chấm lại offline và bảng so sánh có khoảng tin cậy | 2.4 | A, B, D |
 | Câu mồi có phiên bản, lớp bảo vệ câu mồi, dò 13 tổ hợp | 4.3 | B |
@@ -202,36 +202,117 @@ Ví dụ: "Nhắn Zalo cho Lan, giá vàng SJC, xăng RON95" cho ba từ ngoại
 - Nhóm của từ viết hoa đầu câu phụ thuộc tập đang chấm. Tổng số từ ngoại và số từ chép đúng thì không phụ thuộc.
 - Chưa đo độ chính xác so với rà tay (xem đính chính ở trên).
 
-### 2.2. Tập con câu chêm tiếng Anh
+### 2.2. Dữ liệu: từ gói của BTC tới các tập của lần 2
 
-**Vấn đề.** Câu chêm tiếng Anh chỉ chiếm một phần dữ liệu. Đo trên cả tập thì ảnh hưởng của từ tiếng Anh bị câu thuần
-Việt pha loãng.
+#### 2.2.1. Dữ liệu gốc của BTC
 
-**Giải pháp.** Không chia lại dữ liệu. Lần 2 lấy **tập con** của các tập đã có ở lần 1: giữ những mẫu có ít nhất một lượt
-người dùng (lượt cuối hoặc trong lịch sử) chứa từ ngoại theo quy tắc ở mục 2.1.
+Gói `train+public_test` (bản v3.2.0, nằm trong `data/train+public_test/`, không có trên git) có hai phần:
 
-**Code.** `lifemate/eval/make_splits.py` › `en_mixed_ids(items)`: nhận danh sách mẫu, trả về danh sách mã mẫu (đã sắp
-xếp) có từ ngoại. Lệnh `make splits` gọi hàm này và ghi ba file vào `configs/splits/`. Mỗi file là danh sách mã mẫu, mỗi
-dòng một mã. Các file này không lên git; ai có gói dữ liệu thì sinh lại được, kết quả giống hệt.
+| Phần | Số mẫu | Có đáp án? | Dùng được cho benchmark? |
+|---|---|---|---|
+| `train` | 1 545 mẫu, 5 036 câu người dùng | Có: chữ chuẩn `audio_text` của mọi lượt, và lời gọi tool đúng (`label.tool_calls`) | Có, đây là nguồn duy nhất |
+| `public_test` | khoảng 600 mẫu | Không | Không: không có đáp án để tính WER. Thể lệ cũng cấm tự gán nhãn tập này |
 
-| Tập | Lấy từ | Số mẫu | Số câu chêm tiếng Anh | Số từ ngoại | Dùng để |
-|---|---|---|---|---|---|
-| `asr_tune_en_mixed` | `asr_tune` (300 mẫu của train) | 165 | 276 | 394 | Báo cáo phụ trên tập dò |
-| `val_seen_en_mixed` | `val_seen` (274 mẫu) | 152 | 245 | 335 | Đo kết quả |
-| `val_unseen_en_mixed` | `val_unseen` (178 mẫu) | 95 | 162 | 252 | Đo kết quả trên app chưa gặp |
+Bộ thi thật (private test) có cùng cấu trúc với `public_test` và có thêm app chưa từng xuất hiện trong train. Mỗi mẫu
+train là một dòng trong `train.jsonl` kèm các file âm thanh: một file cho lượt cuối, một file cho mỗi lượt người dùng
+trong lịch sử. Benchmark chấm **mọi câu người dùng** (lượt cuối và lịch sử), vì LLM đọc chữ của mọi lượt.
 
-Lý do:
+#### 2.2.2. Cách chia chung của dự án
 
-- **Dùng lại tập của lần 1** thì mọi chữ ASR đã chép ở lần 1 dùng lại được, và kết quả so được với lần 1.
-  `asr_tune.txt` sinh lại khớp đúng từng mã với lần 1, vì cách chọn dùng số ngẫu nhiên có seed cố định.
-- **Vẫn tách tập dò và tập kiểm tra.** Nếu vừa chọn cấu hình vừa báo kết quả trên cùng một tập, cấu hình thắng khớp riêng
-  với tập đó và con số đẹp hơn thực tế.
-- **Không dò trên 793 mẫu train còn lại**, vì 793 mẫu này đã dùng để chọn từ cho câu mồi (mục 4.3.1). Dò trên đó thì câu
-  mồi khớp sẵn với tập dò.
-- **Giữ seen/unseen.** App lạ kéo theo từ lạ (vitamin, homestay, tên hãng bay), nên `val_unseen` cho biết mô hình có chép
-  đúng từ tiếng Anh chưa gặp ở tập dò không.
-- **Thử nghiệm B dò và đo trên tập đầy đủ**, rồi chấm lại tập con. Tập con nằm trong tập đầy đủ, nên một lần chạy GPU trả
-  lời cả hai câu hỏi: câu chêm tiếng Anh có tốt hơn không, câu thường có bị hại không.
+**Vấn đề.** Chỉ có 1 545 mẫu có đáp án, và cả dự án (LLM, fine-tune, ASR) đều cần tập để học, tập để chọn cấu hình và tập
+để đo kết quả. Nếu đo trên chính dữ liệu đã dùng để học hoặc để chọn, con số sẽ đẹp hơn thực tế. Bộ thi thật lại có app
+lạ, nên cần một tập mô phỏng app lạ.
+
+**Giải pháp.** `lifemate/eval/make_splits.py` › `main` (lệnh `make splits`) chia 1 545 mẫu một lần cho cả dự án. Mọi bước
+dùng seed cố định 42, nên máy nào chạy cũng ra đúng cùng danh sách. Kết quả là các file danh sách mã mẫu trong
+`configs/splits/` (mỗi dòng một mã) và `meta.json` (tham số chia và kết quả kiểm tra rò rỉ).
+
+1. **Tách app lạ trước.** Mọi mẫu có lời gọi tool đúng dùng một trong 6 app (medication, fitness, flights, bike_rental,
+   library, subscriptions) vào `val_unseen` (178 mẫu). Lý do: mô phỏng app chưa gặp của bộ thi thật. Tách trước khi chia
+   phần còn lại thì `val_unseen` không thể lọt vào train.
+2. **Gom cụm câu gần trùng.** Các mẫu có `audio_text` giống nhau từ 85% trở lên được gom thành một cụm (64 cụm, 174
+   mẫu). Một cụm luôn nằm trọn trong một tập. Lý do: hai câu gần giống nhau ở hai tập thì tập kiểm tra thành "đề đã gặp".
+3. **Chia 5 phần (fold) phân tầng.** 1 367 mẫu còn lại chia thành 5 phần cùng tỉ lệ số lời gọi tool (0, 1, 2–3, từ 4) và
+   tỉ lệ câu phải hỏi lại. Phần 0 là `val_seen` (274 mẫu), phần 1–4 là `train` (1 093 mẫu). Lý do: `val_seen` có cùng
+   kiểu câu với train, nên đo được chất lượng trên app đã biết mà không lệch về loại câu.
+4. **Kiểm tra rò rỉ.** `meta.json` ghi số mã trùng giữa `train` và hai tập val: bằng 0.
+
+| Tập chung | Số mẫu | Số câu | Vai trò trong dự án |
+|---|---|---|---|
+| `train` | 1 093 | 3 593 | Học (fine-tune LLM), và nguồn để rút tập dò |
+| `val_seen` | 274 | 916 | Đo kết quả trên app đã biết |
+| `val_unseen` | 178 | 527 | Đo kết quả trên app lạ |
+
+#### 2.2.3. Cách dùng dữ liệu ở lần 1
+
+**Vấn đề.** Benchmark lần 1 phải chọn cấu hình cho từng mô hình ASR (nhiều lựa chọn giải mã, câu mồi, VAD…), rồi mới so
+các mô hình. Chọn cấu hình trên `val_seen` thì cấu hình thắng khớp riêng với `val_seen`.
+
+**Giải pháp.** Tạo thêm một **tập dò** riêng cho ASR, rút từ `train`:
+
+- `asr_tune.txt` (`make_splits --asr-tune 300`): 300 trong 1 093 mẫu train, phân tầng theo loại đáp án và có/không lịch
+  sử, để tỉ lệ các loại câu giống train. 300 mẫu có 1 024 câu và 123 giá trị tham số, đủ để so lựa chọn, mà vẫn dò xong
+  5 mô hình trong một phiên GPU T4.
+- Lấy từ train được vì các mô hình ASR không học trên train của dự án, nên dò trên đó không làm lộ đáp án. Nếu sau này
+  fine-tune ASR trên train thì phải loại 300 mẫu này ra.
+- Mỗi mô hình dò cấu hình trên `asr_tune`, rồi đo cấu hình thắng **đúng một lần** trên `val_seen` và `val_unseen`.
+- 793 mẫu train còn lại không dùng trong lần 1.
+
+#### 2.2.4. Cách chia và dùng dữ liệu ở lần 2
+
+**Vấn đề.** Lần 2 cần thêm ba thứ: (1) tập chỉ gồm câu chêm tiếng Anh, (2) dữ liệu để biết large-v3 hay sai từ tiếng Anh
+nào, để viết câu mồi, (3) tập dò và tập kiểm tra không lẫn với dữ liệu ở (2). Đồng thời kết quả phải so được với lần 1.
+
+**Giải pháp: không chia lại, chỉ lấy tập con và dùng phần train còn trống.**
+
+1. **Tập con câu chêm tiếng Anh.** `lifemate/eval/make_splits.py` › `en_mixed_ids(items)`: nhận danh sách mẫu, trả về
+   danh sách mã mẫu (đã sắp xếp) có ít nhất một lượt người dùng (lượt cuối hoặc lịch sử) chứa từ ngoại theo quy tắc mục
+   2.1. Lệnh `make splits` gọi hàm này cho ba tập và ghi ba file `*_en_mixed.txt`:
+
+   | Tập con | Lấy từ | Số mẫu | Số câu chêm tiếng Anh | Số từ ngoại |
+   |---|---|---|---|---|
+   | `asr_tune_en_mixed` | `asr_tune` (300 mẫu) | 165 | 276 | 394 |
+   | `val_seen_en_mixed` | `val_seen` (274 mẫu) | 152 | 245 | 335 |
+   | `val_unseen_en_mixed` | `val_unseen` (178 mẫu) | 95 | 162 | 252 |
+
+2. **Phần train còn trống dùng để viết câu mồi.** 793 mẫu train không thuộc `asr_tune` (1 093 − 300) được dùng để đếm
+   large-v3 hay sai từ tiếng Anh nào (mục 4.1, 4.3.1). Chữ large-v3 của các mẫu này lấy từ `data/asr/train_asr.json`,
+   một bộ đệm chữ ASR có sẵn cho dữ liệu fine-tune (large-v3 beam 5 chạy trên cả 1 545 mẫu); chỉ phần của 793 mẫu được
+   đọc. Ba tập dò và kiểm tra không góp mẫu nào vào việc chọn từ cho câu mồi.
+
+Cách từng thử nghiệm dùng dữ liệu:
+
+| Việc | Dữ liệu | Để làm gì | Lý do chọn |
+|---|---|---|---|
+| Chọn từ cho câu mồi (mục 4.3.1) | 793 mẫu train ngoài `asr_tune`, chữ large-v3 trong `train_asr.json` | Đếm từ tiếng Anh large-v3 hay sai | Nếu chọn từ trên tập dò thì câu mồi khớp sẵn với tập dò, số dò lạc quan; trên val thì lộ đề |
+| Kiểm tra câu mồi không trùng lời nói thật (`tests/test_asr_prompts.py`) | Đáp án của cả 5 036 câu train (gồm cả hai tập val) | Câu mồi không có cụm 4 từ nào trùng lời nói thật | Đây là ràng buộc an toàn cho lớp bảo vệ, không phải bước chọn theo điểm (xem lưu ý dưới) |
+| Thử nghiệm A: chấm offline 4 mô hình | Chữ ASR của lần 1 trên `val_seen`, `val_unseen`, chấm lại trên tập con `*_en_mixed` | Xếp hạng trên câu chêm tiếng Anh | Không chọn gì, chỉ đo, nên đo thẳng trên tập kiểm tra |
+| Thử nghiệm B: dò 13 tổ hợp | `asr_tune` **đầy đủ** (300 mẫu, 1 024 câu) | Chọn câu mồi và mức bảo vệ | Hàm mục tiêu cần cả câu thường để phạt câu mồi làm hại câu thuần Việt; tập con chêm tiếng Anh được chấm lại sau để báo cáo phụ |
+| Thử nghiệm B: đo cấu hình thắng | `val_seen`, `val_unseen` **đầy đủ**, đúng một lần; rồi chấm lại tập con `*_en_mixed` | Số cuối của thử nghiệm B | Một lần chạy GPU trả lời cả hai câu hỏi: câu chêm có tốt hơn không, câu thường có bị hại không |
+| Thử nghiệm C: kiểm chứng | `asr_tune`, `val_seen`, `val_unseen` (RNNT); `asr_tune` (large-v3 VAD) | So chữ chạy lại với chữ lần 1 | Cùng tập với lần 1 thì so được từng câu |
+| Thử nghiệm D: ghép | Chữ RNNT và Whisper trên `asr_tune`, `val_seen`, `val_unseen`; chấm cả tập đầy đủ và tập con | Đo lợi và hại của phép ghép | Quy tắc ghép viết trước, không chỉnh theo val; muốn siết quy tắc thì chỉnh trên `asr_tune`, đo lại một lần trên val |
+
+**Lý do của các lựa chọn.**
+
+- **Dùng lại đúng các tập của lần 1.** Chữ ASR đã chép ở lần 1 dùng lại được (thử nghiệm A, D không tốn GPU), và kết quả
+  so được với lần 1. `asr_tune.txt` sinh lại khớp từng mã với lần 1 nhờ seed cố định.
+- **Tập con chứ không chia lại.** Chia lại thì mất khả năng so với lần 1 và với các phần khác của dự án đang đo trên
+  `val_seen`, `val_unseen`.
+- **Vẫn tách tập dò và tập kiểm tra.** Cấu hình thắng được chọn trong 13 lựa chọn, nên số trên tập dò luôn lạc quan. Thử
+  nghiệm B cho thấy rõ điều này: PhoWhisper tăng 6,6 điểm trên tập dò nhưng 0,0–0,9 điểm trên val.
+- **Ba phần dữ liệu không chồng nhau:** 300 mẫu dò + 793 mẫu chọn từ câu mồi = 1 093 mẫu train; hai tập val tách riêng
+  từ đầu (kiểm tra rò rỉ bằng 0).
+- **Giữ seen/unseen.** App lạ kéo theo từ lạ (vitamin, homestay, tên hãng bay), nên `val_unseen` cho biết lợi ích có giữ
+  được với từ không có trong câu mồi không. Thử nghiệm B cho thấy câu mồi giúp ít hơn hẳn trên `val_unseen`.
+
+**Lưu ý về kiểm tra câu mồi trên cả 5 036 câu.** Test này đọc cả đáp án của hai tập val. Test chỉ đòi câu mồi **không
+trùng** lời nói thật, nên không làm câu mồi giống val hơn. Nếu có ảnh hưởng thì là ngược lại: câu mồi được viết để tránh
+cụm từ của val, nên lớp bảo vệ trên val ít báo nhầm hơn một chút so với dữ liệu hoàn toàn mới. Ảnh hưởng này nhỏ, vì
+lớp bảo vệ chỉ chép lại 0–3 câu trên mỗi tập với câu mồi mới (mục 4.7.3, 4.7.8). Muốn sạch hoàn toàn thì chỉ chạy test
+trên `train.txt`.
+
+**Giới hạn.** Tập dò chỉ có 300 mẫu (394 từ ngoại), nên chênh vài từ đã là vài điểm phần trăm. Chọn từ câu mồi dùng chữ
+large-v3 beam 5, không phải cấu hình tham lam + VAD đang dò, nên danh sách "từ hay sai" có thể lệch một ít.
 
 ### 2.3. Thước đo
 
