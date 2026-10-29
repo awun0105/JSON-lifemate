@@ -510,9 +510,89 @@ Câu mồi không cứu được PhoWhisper trên câu chêm tiếng Anh: sau kh
 tiếng Anh, kể cả làm mô hình phụ khi ghép (thử nghiệm D). Không cần chạy lại phép ghép RNNT + PhoWhisper với cấu hình
 mới, vì chữ của PhoWhisper trên val gần như không đổi.
 
-#### 4.7.6. large-v3
+#### 4.7.6. large-v3: 13 tổ hợp trên tập dò
 
-_(Chờ phiên v5b: bảng 13 tổ hợp, cấu hình thắng, số trên val và tập câu chêm tiếng Anh.)_
+Lần chạy GPU: `artifacts/runs/kaggle/asr/10-29_tune_v5b_en_mixed/` (phiên v5b, T4, 3 giờ 7 phút, không lỗi). Mọi cấu hình
+đều bật VAD và giải mã tham lam, nên tất định. p95 của mọi lựa chọn vượt ngưỡng 6 s trên T4 nên phần đầu hàm mục tiêu
+bằng nhau, các lựa chọn so với nhau ở phần sau.
+
+| Lựa chọn | Chép đúng từ ngoại | Bản nới lỏng | Chèn từ câu mồi | Chép lại | WER | WER câu chêm | WER câu thuần Việt | Câu bịa | Bỏ sót | p95 (s) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| không câu mồi | 47,7 | 52,0 | 0 | 0 | 30,83 | 32,72 | 29,87 | 8 | 51 | 8,41 |
+| short | 51,8 | 56,1 | 46 | 0 | 35,12 | 35,86 | 34,74 | 21 | 51 | 6,76 |
+| short + g3 | 51,8 | 56,3 | 5 | 67 | 30,93 | 32,61 | 30,07 | 5 | 49 | 7,08 |
+| short + g4 | 52,5 | 57,1 | 6 | 63 | 30,98 | 32,49 | 30,22 | 5 | 49 | 6,99 |
+| en_top10 | 62,4 | 67,0 | 28 | 0 | 30,35 | 31,66 | 29,68 | 5 | 44 | 6,91 |
+| en_top10 + g3 / g4 | 62,7 | 67,3 | 18 | 7 | 30,15 | 31,22 | 29,61 | 3 | 44 | 6,9 |
+| en_top20 | 66,0 | 70,3 | 34 | 0 | 29,93 | 31,18 | 29,30 | 2 | 46 | 7,06 |
+| en_top20 + g3 / g4 | 66,0 | 70,3 | 29 | 4 | 29,88 | 31,18 | **29,23** | 2 | 46 | 7,08 |
+| en_full | **70,6** | **74,9** | 26 | 0 | 29,79 | **30,03** | 29,67 | 2 | 42 | 7,30 |
+| en_full + g3 | 70,6 | 74,9 | 26 | 3 | 29,70 | 30,10 | 29,50 | 1 | 42 | 7,32 |
+| **en_full + g4** | **70,6** | **74,9** | 26 | 2 | **29,68** | **30,03** | 29,50 | **1** | **42** | 7,31 |
+
+Cấu hình thắng: **en_full + g4** (câu mồi dài nhất, lớp bảo vệ cụm 4 từ). Chấm lại với cách đếm chèn đã sửa vẫn chọn
+en_full + g4. `prompt_insertions` có mốc: chép không câu mồi, large-v3 tự viết các từ của en_full mà không được nói 3 lần
+trên 1 024 câu; với en_full + g4 là 26 lần. Các lần chèn thật hay gặp: "lịch" thành "list" (5), "Mai" thành "Mail"
+(5), "ok" chen vào đầu câu (3), "robot" thay cho từ Việt gần âm (3).
+
+#### 4.7.7. large-v3: cấu hình thắng trên val
+
+Tập con câu chêm tiếng Anh. Mốc "lần 1" là cấu hình nhiệt độ thử lại (không tất định, chỉ tham khảo). CI 95%.
+
+| Tập | Hệ thống | Chép đúng từ ngoại | WER câu chêm | WER câu thuần Việt | Câu bịa | Chèn từ câu mồi |
+|---|---|---|---|---|---|---|
+| val_seen | ChunkFormer RNNT | 49,9 [44,3; 55,3] | **24,8** | **16,9** | 0 | 1 |
+| | large-v3 lần 1 | 51,6 [46,4; 56,7] | 32,8 | 29,2 | 8 | 0 |
+| | large-v3 en_full + g4 | **72,2** [67,2; 77,3] | 28,7 | 28,8 | 1 | 16 |
+| val_unseen | ChunkFormer RNNT | 51,6 [44,8; 58,6] | **24,1** | **17,0** | 0 | 3 |
+| | large-v3 lần 1 | 56,0 [48,1; 63,4] | 33,9 | 29,1 | 3 | 0 |
+| | large-v3 en_full + g4 | **61,1** [52,7; 69,3] | 33,5 | 30,0 | 0 | 4 |
+
+Chênh lệch của large-v3 en_full + g4 so với RNNT: chép đúng từ ngoại **+22,3** [+16,5; +28,6] (seen) và **+9,5**
+[+2,9; +15,1] (unseen); WER câu chêm +3,9 [+1,9; +5,9] và +9,4 [+6,7; +12,3]; WER câu thuần Việt khoảng +12 điểm ở cả
+hai tập. Val đầy đủ: WER 29,0% (seen) và 30,2% (unseen); p95 8,8 s và 8,6 s, max 10,8 s trên T4; lớp bảo vệ chép lại 1
+và 0 câu.
+
+Tách theo từ có và không có trong en_full (số từ chép đúng / tổng):
+
+| Tập | Hệ thống | Từ có trong câu mồi | Từ không có |
+|---|---|---|---|
+| val_seen | RNNT | 111 / 184 | 56 / 151 |
+| | large-v3 lần 1 | 89 / 184 | 84 / 151 |
+| | large-v3 en_full + g4 | **155** / 184 | 87 / 151 |
+| val_unseen | RNNT | 43 / 62 | 87 / 190 |
+| | large-v3 lần 1 | 35 / 62 | 106 / 190 |
+| | large-v3 en_full + g4 | **51** / 62 | 103 / 190 |
+
+Theo nhóm từ, val_seen (large-v3 lần 1 → en_full + g4): từ thường 61 → 82 / 105, viết tắt 43 → 70 / 82, tên 67 → 84 /
+133.
+
+#### 4.7.8. Phân tích large-v3
+
+- **Câu mồi có tác dụng thật với large-v3, khác hẳn PhoWhisper.** Từ có trong câu mồi được chép đúng từ 48% lên 84%
+  (seen) và từ 56% lên 82% (unseen), trên val chưa dùng để dò. Từ không có trong câu mồi không đổi (84 → 87, 106 → 103).
+  Vậy câu mồi không làm large-v3 "giỏi tiếng Anh hơn" mà chỉ dạy nó **cách viết** của đúng những từ được đưa vào: đúng
+  cơ chế đã nêu ở mục 4.3.1.
+- **Lợi ích phụ thuộc độ phủ của câu mồi.** Ở val_seen, 55% số từ ngoại có trong câu mồi, nên tăng 20,6 điểm. Ở
+  val_unseen (app chưa gặp), chỉ 25% có trong câu mồi, nên chỉ tăng 5,1 điểm. Bộ thi riêng có app lạ, nên số thật nằm
+  giữa hai mức, gần unseen hơn nếu app lạ chiếm nhiều.
+- **Câu mồi dài hơn tốt hơn với large-v3** (en_full > en_top20 > en_top10 > short), ngược với PhoWhisper. Câu mồi dài
+  còn **giảm** câu bịa và câu rỗng (8 → 1) và giảm bỏ sót giá trị tham số (51 → 42 trên 123): chữ đi trước dài và ổn định
+  giúp decoder không lạc.
+- **Lớp bảo vệ cần cho câu mồi ngắn, gần như không cần cho câu mồi dài.** Câu mồi ngắn không bảo vệ làm WER tăng 4,3
+  điểm, 21 câu bịa; bảo vệ chép lại 63–67 câu và kéo WER về mức không câu mồi. Với en_full, bảo vệ chỉ chép lại 2–3 câu.
+  g4 không thua g3 ở lựa chọn nào, nên dùng g4.
+- **Cái giá là chèn từ câu mồi**: 26 lần trên 1 024 câu ở tập dò (mốc không câu mồi: 3), 16 lần ở val_seen. "Mai" thành
+  "Mail" và "lịch" thành "list" có thể làm LLM gọi sai tool, nên đây là rủi ro chính khi đưa vào hệ thống.
+- **large-v3 đứng riêng vẫn không thay được RNNT**: phần tiếng Việt kém khoảng 12 điểm WER, và p95 8,6–8,8 s trên T4.
+
+#### 4.7.9. Kết luận thử nghiệm B
+
+- large-v3: dùng **en_full_v1 + lớp bảo vệ 4 từ, VAD, giải mã tham lam** làm cấu hình của large-v3 cho lần 2. Đây là
+  nguồn chữ tiếng Anh tốt nhất hiện có, dùng làm mô hình phụ trong thử nghiệm D.
+- PhoWhisper: câu mồi không giúp trên val (mục 4.7.5).
+- Câu mồi giúp theo độ phủ từ; muốn tăng trên app lạ thì phải đưa thêm từ vào câu mồi, nhưng câu mồi đã gần trần 223
+  token (183 token), và từ thêm vào cũng là nguồn chèn mới. Thêm từ phải chọn trên dữ liệu ngoài tập dò và val.
 
 ## 5. Thử nghiệm C: kiểm chứng chấm offline bằng một lần chạy thật
 
@@ -549,10 +629,14 @@ Mọi chỉ số vì vậy trùng khớp: WER tập dò 20,29%, bỏ sót 46/123
 
 ### 5.6. Kết luận
 
-Giả định của thử nghiệm A và D đúng với ChunkFormer RNNT: chạy lại cho đúng từng ký tự, nên số chấm offline dùng được
-như số chạy thật. Với Whisper, PhoWhisper chạy lại "không câu mồi" và lần 1 không cùng cấu hình nên không so từng ký tự
-được; tính tất định của large-v3 VAD được kiểm ở phiên v5b (lựa chọn "không câu mồi" trùng cấu hình `engine_vad` của
-lần 1).
+large-v3 VAD: lựa chọn "không câu mồi" của phiên v5b có config giống hệt lần đo `engine_vad` của lần 1, và cho chữ giống
+hệt ở **1 024/1 024 câu** của tập dò.
+
+### 5.6. Kết luận
+
+Giả định của thử nghiệm A và D đúng với cả ChunkFormer RNNT và large-v3 VAD: chạy lại trên một máy T4 khác, thư viện cài
+mới, cho đúng từng ký tự. Số chấm offline dùng được như số chạy thật, và large-v3 VAD đạt yêu cầu tất định của thể lệ.
+PhoWhisper lần 1 và lần 2 không cùng cấu hình nên không so từng ký tự được.
 
 ## 6. Thử nghiệm D: ghép ChunkFormer RNNT với Whisper
 
@@ -601,6 +685,8 @@ Bộ chỉ số mục 2.3 có CI và chênh lệch so với RNNT, cộng thêm:
 
 ### 6.5. Kết quả
 
+#### 6.5.1. Với chữ Whisper của lần 1
+
 Chênh lệch so với RNNT đứng riêng (điểm %, CI 95% của chênh lệch):
 
 | Cặp | Tập | Chép đúng từ ngoại | WER | WER câu chêm | WER câu thuần Việt |
@@ -643,6 +729,33 @@ Ví dụ (val_unseen):
 | large-v3 | **Mời các bạn thử chọn những quần bộ đông nhất của** Lisbon… |
 | Ghép | **Mời các bạn thử chọn những quần bộ đông nhất của** Lisbon… |
 
+#### 6.5.2. Với large-v3 cấu hình thắng của thử nghiệm B (en_full + g4)
+
+Chạy lại `asr_merge` trên chữ thật của phiên v5b, cùng quy tắc, không chỉnh gì. Kết quả ở
+`artifacts/runs/local/asr/10-29_en_mixed_merge_v3/`. Chênh lệch so với RNNT (điểm %, CI 95% của chênh lệch):
+
+| Tập | Chép đúng từ ngoại | WER | WER câu chêm | WER câu thuần Việt | Bỏ sót giá trị tham số |
+|---|---|---|---|---|---|
+| val_seen, câu chêm | **+22,7** [+17,0; +28,9] | −0,4 [−1,0; +0,2] | **−2,0** [−3,1; −1,0] | +1,1 [+0,6; +1,7] | +1,5 [−6,8; +8,7] |
+| val_unseen, câu chêm | **+12,3** [+6,4; +17,5] | −0,4 [−1,0; +0,2] | **−1,3** [−2,2; −0,3] | +0,6 [+0,1; +1,2] | −9,4 [−20,6; 0,0] |
+| val_seen đầy đủ | +22,7 [+16,8; +28,2] | +0,1 [−0,4; +0,6] | | +1,1 [+0,6; +1,5] | +0,9 [−4,2; +5,7] |
+| val_unseen đầy đủ | +12,3 [+7,0; +17,6] | 0,0 [−0,4; +0,4] | | +0,6 [+0,3; +1,0] | −5,6 [−13,0; 0,0] |
+| tập dò, câu chêm | +23,4 [+17,3; +29,0] | −0,2 [−0,9; +0,5] | −1,8 [−2,9; −0,8] | +1,3 [+0,6; +2,0] | −4,1 [−9,5; 0,0] |
+
+Giá trị tuyệt đối, câu chêm tiếng Anh: chép đúng từ ngoại **72,5%** (seen) và **63,9%** (unseen), so với RNNT 49,9% và
+51,6%, và bản ghép với large-v3 lần 1 58,5% và 61,5%. WER câu chêm 22,8% ở cả hai tập (RNNT 24,8% và 24,1%).
+
+Số câu bị đổi, tách câu chêm và câu thuần Việt:
+
+| Tập | Câu | Bị đổi | Tốt hơn | Tệ hơn | WER RNNT | WER ghép | Oracle |
+|---|---|---|---|---|---|---|---|
+| val_seen, câu chêm | 245 | 130 | 78 | 33 | 24,8 | 22,8 | 20,7 |
+| val_seen, câu thuần Việt | 671 | 44 | **1** | **37** | 17,7 | 18,8 | 15,7 |
+| val_unseen, câu chêm | 162 | 70 | 37 | 14 | 24,1 | 22,8 | 21,7 |
+| val_unseen, câu thuần Việt | 365 | 20 | **1** | **17** | 17,5 | 18,2 | 16,2 |
+| tập dò, câu chêm | 276 | 138 | 74 | 36 | 25,8 | 24,0 | 21,7 |
+| tập dò, câu thuần Việt | 748 | 58 | **1** | **48** | 17,5 | 18,8 | 16,0 |
+
 ### 6.6. Phân tích
 
 - **RNNT + large-v3 tăng chép đúng từ tiếng Anh khoảng 8–10 điểm, có ý nghĩa thống kê trên cả ba tập** (CI không chứa
@@ -659,32 +772,52 @@ Ví dụ (val_unseen):
   hình, khoảng 2,5 s + 6,8 s p95 trên T4 (VAD), ăn vào 30 s mỗi mẫu cùng với LLM. Chưa đo trên A30 và chưa đo khi chạy cạnh
   vLLM.
 
-### 6.7. Kết luận (tạm)
+- **Với large-v3 có câu mồi (6.5.2), lợi ích tăng gần gấp ba trên seen và tăng thêm trên unseen**: +22,7 và +12,3 điểm
+  chép đúng từ ngoại, và WER câu chêm giảm có ý nghĩa thống kê (CI không chứa 0) ở cả hai tập, điều bản ghép cũ chưa đạt.
+  Bản ghép giữ gần trọn phần tiếng Anh của large-v3 (72,5% so với 72,2% của large-v3 đứng riêng trên seen, 63,9% so với
+  61,1% trên unseen) mà WER chỉ bằng RNNT.
+- **Nhưng câu thuần Việt bị hại rõ hơn**: +1,1 (seen) và +0,6 (unseen) điểm WER, CI không chứa 0. Bảng số câu bị đổi
+  chỉ ra nguyên nhân: ở câu thuần Việt, mọi câu bị đổi gần như đều tệ hơn (37/44, 17/20, 48/58; mỗi tập chỉ 1 câu tốt
+  hơn). Đây chính là các lần chèn từ câu mồi của large-v3 (mục 4.7.6: "Mai" thành "Mail", "lịch" thành "list"): từ chèn
+  là "từ tiếng Anh mới" nên quy tắc ghép lấy vào. Câu mồi làm tăng loại lỗi này, nên hại câu thuần Việt tăng từ 0,3 lên
+  0,6–1,1 điểm.
+- **Thứ hạng giữ trên tập dò**: tập dò cho cùng hướng và cùng độ lớn (+23,4 chép đúng, +1,3 câu thuần Việt), nên mọi
+  chỉnh sửa quy tắc chọn trên tập dò sẽ chuyển được sang val.
 
-Ghép RNNT + large-v3 là hướng có lợi rõ nhất cho từ tiếng Anh trong lần 2, nhưng chưa sẵn sàng để nộp:
+### 6.7. Kết luận
 
-1. Cần chạy lại với chữ large-v3 của cấu hình thắng ở thử nghiệm B (tất định, có thể có câu mồi) trên val.
-2. Cần siết quy tắc để giảm hại ở câu thuần Việt (ví dụ giới hạn độ dài vùng chặt hơn, hoặc bỏ vùng khi model phụ bịa câu).
-   Mọi chỉnh sửa phải chọn trên **tập dò**, không chọn trên val.
-3. Cần đo thời gian và bộ nhớ của cả hai mô hình chạy cạnh vLLM trên GPU từ 24 GB.
+Ghép RNNT + large-v3 (en_full + g4) là cấu hình ASR tốt nhất cho câu chêm tiếng Anh của lần 2: chép đúng từ ngoại
+72,5% / 63,9% (seen / unseen) so với 49,9% / 51,6% của RNNT, WER câu chêm thấp hơn RNNT, WER tổng không đổi. Chưa sẵn
+sàng để nộp vì ba việc:
 
-Code ghép hiện chỉ có ở dạng chấm offline (`asr_merge`). Chưa có engine ASR ghép trong `lifemate/backends/asr.py`; việc
-này để sau khi có kết quả thử nghiệm B.
+1. **Giảm hại ở câu thuần Việt** (+0,6–1,1 điểm WER, do từ câu mồi chèn vào). Hướng xử lý: không lấy vùng khi từ tiếng
+   Anh mới là từ của câu mồi và phía RNNT là âm tiết Việt có dấu hợp lệ, hoặc khi vùng chỉ có một từ ngoại đứng đầu câu
+   ("Ok, …"). Quy tắc phải chọn trên **tập dò** (câu thuần Việt của tập dò có 48/58 câu bị hại, đủ để đo), sau đó đo
+   một lần trên val. Đây là việc kế tiếp, chưa làm.
+2. **Đo thời gian và bộ nhớ** khi chạy cả hai mô hình cạnh vLLM trên GPU từ 24 GB. Trên T4, large-v3 có p95 8,6–8,8 s
+   mỗi câu.
+3. **Viết engine ASR ghép** trong `lifemate/backends/asr.py`. Hiện phép ghép chỉ có ở dạng chấm offline (`asr_merge`).
+
+Tổng tham số: RNNT 0,11B + large-v3 1,55B + LLM 4,02B = 5,68B, dưới trần 6B.
 
 ## 7. Tổng hợp và kết luận
 
-_(Đã có: thử nghiệm A, C, D và phần PhoWhisper của B. Còn chờ: large-v3 của B, phiên v5b.)_
+Đã đủ bốn thử nghiệm A, B, C, D.
 
-1. **Mô hình đơn tốt nhất trên câu chêm tiếng Anh vẫn là ChunkFormer RNNT**: WER câu chêm khoảng 24%, chép đúng khoảng
-   50% từ ngoại.
-2. **large-v3 chép từ tiếng Anh ngang hoặc hơn RNNT** nhưng phần tiếng Việt kém xa. **PhoWhisper và ChunkFormer CTC chép
-   từ tiếng Anh kém rõ rệt.**
-   **Câu mồi tiếng Anh không cứu được PhoWhisper**: tăng 6,6 điểm trên tập dò nhưng 0,0–0,9 điểm trên val (CI chứa 0).
-3. **Ghép RNNT + large-v3 tăng chép đúng từ tiếng Anh khoảng 9 điểm có ý nghĩa thống kê**, WER tổng không đổi, đổi lại
-   phần tiếng Việt kém đi khoảng 0,3 điểm. Đây là ứng viên mạnh nhất cho câu chêm tiếng Anh, cần thêm thử nghiệm B và đo
-   thời gian trước khi chọn.
-4. **Chấm offline tin được**: ChunkFormer RNNT chạy lại trên T4 cho chữ giống lần 1 ở 2 467/2 467 câu.
-5. Chưa đổi `configs/v0.toml`.
+1. **Mô hình đơn tốt nhất trên câu chêm tiếng Anh vẫn là ChunkFormer RNNT** (WER câu chêm khoảng 24%, chép đúng khoảng
+   50% từ ngoại). Không mô hình Whisper nào thay được RNNT vì phần tiếng Việt kém khoảng 8–12 điểm WER.
+2. **Câu mồi tiếng Anh có tác dụng với large-v3, không có tác dụng với PhoWhisper.** large-v3 với en_full_v1 + lớp bảo vệ
+   4 từ chép đúng 72,2% (seen) và 61,1% (unseen) từ ngoại, so với 51,6% và 56,0% không có câu mồi phù hợp. Lợi ích dồn
+   vào các từ có trong câu mồi, nên trên app lạ thấp hơn nhiều. PhoWhisper tăng 6,6 điểm trên tập dò nhưng 0,0–0,9 điểm
+   trên val (CI chứa 0).
+3. **Lớp bảo vệ câu mồi chỉ cần thiết với câu mồi ngắn giống lời nói thật.** Với câu mồi mới, lớp bảo vệ gần như không
+   kích hoạt (0–3 câu). Mức cụm 3 từ báo nhầm câu đúng, nên dùng cụm 4 từ.
+4. **Chấm offline tin được**: ChunkFormer RNNT (2 467 câu) và large-v3 VAD (1 024 câu) chạy lại cho chữ giống hệt lần 1.
+5. **Ghép RNNT + large-v3 (en_full + g4) là hướng tốt nhất**: chép đúng từ ngoại +22,7 điểm (seen) và +12,3 điểm (unseen)
+   so với RNNT, WER câu chêm giảm 1,3–2,0 điểm, WER tổng không đổi, CI không chứa 0. Cái giá là WER câu thuần Việt tăng
+   0,6–1,1 điểm do từ câu mồi chèn vào; cần siết quy tắc ghép trên tập dò trước khi dùng.
+6. **Việc kế tiếp**, theo thứ tự: siết quy tắc ghép (6.7, mục 1); đo thời gian và bộ nhớ cạnh vLLM; viết engine ghép.
+   Chưa đổi `configs/v0.toml`.
 
 ## 8. Rà code trước khi chạy: lỗi đã vá
 
@@ -717,5 +850,7 @@ ASR; cần đo trên A30 (hai lần chạy giống từng byte, SPEC mục 6) tr
   mục 3.5 và 6.5 thay vì so số trần.
 - Quy tắc tìm từ tiếng Anh bỏ sót từ trông như âm tiết Việt; nhóm của từ viết hoa đầu câu phụ thuộc tập đang chấm.
 - Chép đúng từ ngoại so theo từ có mặt trong câu, không kiểm tra vị trí, nên có thể khớp nhầm.
-- Số của large-v3 ở thử nghiệm A và ở val của thử nghiệm D đến từ cấu hình nhiệt độ thử lại (không tất định).
+- Số của large-v3 ở thử nghiệm A và ở mục 6.5.1 đến từ cấu hình nhiệt độ thử lại (không tất định); mục 4.7.6–4.7.7 và 6.5.2
+  dùng cấu hình tất định.
+- Cấu hình thắng được chọn trên tập dò 300 mẫu (394 từ ngoại); số trên tập dò lạc quan hơn thực tế, dùng số val.
 - Câu mồi chọn từ theo chữ large-v3 beam 5 trong `data/asr/train_asr.json`, không phải cấu hình tham lam + VAD đang dò.
