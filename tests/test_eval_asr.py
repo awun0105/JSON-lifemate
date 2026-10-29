@@ -199,6 +199,9 @@ def test_evaluate_english_metrics() -> None:
     assert rep.prompt_insertions == 1  # "zalo" ở s2
     assert rep.n_prompt_retries == 0
     assert evaluate(samples, asr).en_prompt == {}
+    # Đáp án viết "ti vi", chữ ASR viết "tivi" như câu mồi: cùng một từ, không phải từ câu mồi chèn vào.
+    tv = [_sample("t1", "Tắt cái ti vi đi", [])]
+    assert evaluate(tv, _Fixed({"t1": "tắt cái tivi đi"}), prompt="Mở tivi lên.").prompt_insertions == 0
 
 
 def test_rescore_replay_matches_hyps() -> None:

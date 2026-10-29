@@ -194,11 +194,11 @@ Tập câu chêm tiếng Anh. Số trong ngoặc là CI 95%.
 
 | Mô hình | Tập | Chép đúng từ ngoại | Bản nới lỏng | WER câu chêm | WER câu thuần Việt | p95 lần 1 (s) |
 |---|---|---|---|---|---|---|
-| ChunkFormer RNNT | seen | 49,9 [44,3; 55,3] | 51,9 | **24,8** [22,8; 26,7] | **16,9** | 2,5 |
+| ChunkFormer RNNT | seen | 49,9 [44,3; 55,3] | 52,5 | **24,8** [22,8; 26,7] | **16,9** | 2,5 |
 | | unseen | 51,6 [44,8; 58,6] | 52,4 | **24,1** [21,6; 26,8] | **17,0** | 2,5 |
-| ChunkFormer CTC | seen | 34,6 [29,8; 39,7] | 40,6 | 27,5 | 17,5 | 2,7 |
+| ChunkFormer CTC | seen | 34,6 [29,8; 39,7] | 41,5 | 27,5 | 17,5 | 2,7 |
 | | unseen | 39,7 [32,2; 47,4] | 40,5 | 26,9 | 17,0 | 2,3 |
-| PhoWhisper (câu mồi ngắn) | seen | 36,1 [30,6; 41,9] | 39,4 | 32,5 | 24,7 | 3,0 |
+| PhoWhisper (câu mồi ngắn) | seen | 36,1 [30,6; 41,9] | 39,7 | 32,5 | 24,7 | 3,0 |
 | | unseen | 36,5 [29,7; 43,4] | 38,1 | 33,1 | 24,6 | 3,0 |
 | large-v3 (tham khảo) | seen | **51,6** [46,4; 56,7] | **54,9** | 32,8 | 29,2 | 8,2 |
 | | unseen | **56,0** [48,1; 63,4] | **57,5** | 33,9 | 29,1 | 7,9 |
@@ -425,8 +425,94 @@ mô phỏng trên câu mồi cũ, chưa phải câu mồi mới.
 
 ### 4.7. Kết quả
 
-_(Chờ lần chạy GPU `artifacts/runs/kaggle/asr/10-29_tune_v5_en_mixed/`: bảng 13 tổ hợp trên tập dò, cấu hình thắng của
-mỗi mô hình, số trên val đầy đủ và trên tập câu chêm tiếng Anh, so với thử nghiệm A.)_
+Lần chạy GPU: `artifacts/runs/kaggle/asr/10-29_tune_v5a_en_mixed/` (PhoWhisper, phiên v5a, T4, 2 giờ 15 phút, không lỗi).
+large-v3 chạy ở phiên v5b, kết quả điền sau.
+
+#### 4.7.1. PhoWhisper: 13 tổ hợp trên tập dò
+
+Tập dò đầy đủ (300 mẫu, 1 024 câu, 394 từ ngoại). Số `prompt_insertions` đã chấm lại sau khi sửa cách đếm (mục 8).
+
+| Lựa chọn | Chép đúng từ ngoại | Bản nới lỏng | Chèn từ câu mồi | Chép lại | WER | WER câu chêm | WER câu thuần Việt | p95 (s) |
+|---|---|---|---|---|---|---|---|---|
+| không câu mồi | 31,0 | 34,5 | 0 | 0 | 28,11 | 34,34 | **24,96** | 3,71 |
+| short | 33,0 | 37,1 | 0 | 0 | 28,14 | 33,88 | 25,23 | 2,94 |
+| short + g3 | 32,5 | 36,5 | 0 | 3 | 28,19 | 34,03 | 25,23 | 2,94 |
+| short + g4 | 33,0 | 37,1 | 0 | 0 | 28,14 | 33,88 | 25,23 | 3,04 |
+| en_top10 (± g3, g4) | 35,5 | 39,1 | 0 | 0 | **27,82** | 33,28 | 25,06 | 3,0 |
+| **en_top20** (± g3, g4) | **37,6** | **40,4** | 3 | 0 | 27,95 | **33,09** | 25,35 | 3,0 |
+| en_full (± g3, g4) | 34,5 | 38,3 | 4 | 0 | 28,35 | 33,82 | 25,59 | 3,1 |
+
+Ba mức bảo vệ của cùng một câu mồi dài cho chữ giống hệt nhau, nên gộp một dòng. Cấu hình thắng theo hàm mục tiêu
+`en_mixed`: **en_top20, không bảo vệ** (hoà với g3, g4 thì giữ lựa chọn đứng trước). Chấm lại với cách đếm chèn đã sửa
+vẫn chọn en_top20.
+
+Chênh lệch so với không câu mồi trên tập con câu chêm của tập dò (165 mẫu), CI 95%:
+
+| Câu mồi | Chép đúng từ ngoại | WER | WER câu thuần Việt |
+|---|---|---|---|
+| en_top10 | +4,6 [+1,8; +7,1] | −0,5 [−1,0; 0,0] | 0,0 [−0,5; +0,5] |
+| en_top20 | **+6,6** [+3,7; +9,7] | −0,5 [−1,0; 0,0] | +0,2 [−0,4; +0,8] |
+| en_full | +3,5 [+0,2; +6,4] | +0,2 [−0,4; +0,7] | **+0,8** [+0,2; +1,4] |
+
+#### 4.7.2. PhoWhisper: cấu hình thắng trên val
+
+So với PhoWhisper của lần 1 (câu mồi ngắn, cùng cách giải mã), tập con câu chêm tiếng Anh, CI 95% của chênh lệch:
+
+| Tập | Chép đúng từ ngoại: lần 1 → en_top20 | Chênh lệch | WER: chênh lệch | WER câu thuần Việt: chênh lệch | Chèn từ câu mồi |
+|---|---|---|---|---|---|
+| val_seen (245 câu chêm) | 36,1 → 37,0 | +0,9 [−1,9; +3,6] | +0,2 [−0,3; +0,9] | +0,1 [−0,7; +1,0] | 4 |
+| val_unseen (162 câu chêm) | 36,5 → 36,5 | 0,0 [−2,9; +2,8] | 0,0 [−0,7; +0,7] | 0,0 [−0,7; +0,8] | 0 |
+
+Trên val đầy đủ: WER 28,1% (seen) và 28,0% (unseen), lần 1 là 27,9% và 27,9%. So với ChunkFormer RNNT, PhoWhisper
+en_top20 vẫn kém rõ ở mọi chỉ số: chép đúng từ ngoại thấp hơn 12,9 (seen) và 15,1 (unseen) điểm, CI không chứa 0.
+
+Tách theo từ **có** trong en_top20 và từ **không có** (số từ chép đúng / tổng; mốc là câu mồi ngắn):
+
+| Tập | Từ có trong câu mồi: mốc → en_top20 | Từ không có: mốc → en_top20 |
+|---|---|---|
+| tập dò | 56 → **76** / 161 | 74 → 72 / 233 |
+| val_seen | 55 → 58 / 133 | 66 → 66 / 202 |
+| val_unseen | 20 → 21 / 45 | 72 → 71 / 207 |
+
+Theo từng từ (mốc → en_top20 / tổng): trên tập dò, tăng chủ yếu ở tivi (2 → 8 / 14), robot (8 → 12 / 13), gara (5 → 7 / 7),
+SMS (5 → 7 / 18). Trên val_seen, chính các từ đó không đổi: tivi 5 → 5 / 14, robot 9 → 9 / 14. **SJC (0 / 26 và 0 / 22)
+và check (0 / 8 và 0 / 5) không bao giờ được chép đúng**, có câu mồi hay không.
+
+#### 4.7.3. Lớp bảo vệ câu mồi trên PhoWhisper
+
+- Với ba câu mồi mới, **lớp bảo vệ không kích hoạt lần nào** (0 câu chép lại ở cả g3 và g4): PhoWhisper không chép lại
+  câu mồi, không liệt kê, không bịa câu (`n_hallucinated = 0` ở mọi lần đo).
+- Với câu mồi ngắn của lần 1 ("Nhắn Zalo cho Lan. Chuyển sang kênh VTV3."), g3 chép lại 3 câu, **cả 3 đều là báo nhầm**:
+  người dùng nói đúng cụm "nhắn Zalo cho". Chép lại không câu mồi còn làm hỏng câu: 2/3 câu "Zalo" thành "giao lưu".
+  Đúng rủi ro đã nêu ở mục 4.3.1 (câu mồi giống lời nói thật thì lớp bảo vệ báo nhầm); g4 không báo nhầm.
+- `prompt_insertions` thật của en_top20 trên tập dò là 3 câu trên 1 024: "Lofi" thành "file", "lít" thành "list",
+  "VTV1" thành "vê tivi một". Bản đếm cũ ra 6 vì tính "ti vi" và "TV" của đáp án là khác "tivi" (mục 8).
+
+#### 4.7.4. Phân tích PhoWhisper
+
+- **Câu mồi có giúp trên tập dò nhưng không giúp trên val.** Trên tập dò, en_top20 tăng 6,6 điểm (CI không chứa 0). Trên
+  val, chênh lệch so với lần 1 là +0,9 và 0,0 điểm, CI chứa 0 và rộng chưa tới ±3,6 điểm. Đây là lý do bắt buộc phải đo
+  cấu hình thắng một lần trên val: số của tập dò đã bị chọn lọc (13 lựa chọn, chọn cái tốt nhất), nên luôn lạc quan.
+- **Lợi ích trên tập dò dồn vào vài từ của vài người nói**: tivi, robot, gara chiếm phần lớn 20 từ tăng thêm. Trên val,
+  cùng các từ đó không đổi. Mẫu tập dò ít (161 lần xuất hiện của từ có trong câu mồi), nên vài người nói cùng một cách
+  phát âm đủ tạo ra chênh lệch.
+- **Câu mồi không dạy được từ mà mô hình không nghe ra**: SJC và check luôn sai. PhoWhisper được huấn luyện thêm trên
+  tiếng Việt, nên với các âm này nó chọn chữ Việt gần âm, câu mồi không kéo lại được.
+- **Câu mồi dài hơn không tốt hơn**: en_full kém en_top20 ở mọi chỉ số và là câu mồi duy nhất làm hại câu thuần Việt có ý
+  nghĩa thống kê (+0,8 điểm, CI [+0,2; +1,4]).
+- **Câu thuần Việt không bị hại** ở en_top10 và en_top20 (CI chứa 0), và không có câu bịa, nên câu mồi an toàn với
+  PhoWhisper, chỉ là không có ích trên val.
+
+#### 4.7.5. Kết luận PhoWhisper
+
+Câu mồi không cứu được PhoWhisper trên câu chêm tiếng Anh: sau khi dò, PhoWhisper vẫn kém ChunkFormer RNNT khoảng 13–15
+điểm chép đúng từ ngoại và khoảng 8 điểm WER. Giữ kết luận của thử nghiệm A: PhoWhisper không phải ứng viên cho câu chêm
+tiếng Anh, kể cả làm mô hình phụ khi ghép (thử nghiệm D). Không cần chạy lại phép ghép RNNT + PhoWhisper với cấu hình
+mới, vì chữ của PhoWhisper trên val gần như không đổi.
+
+#### 4.7.6. large-v3
+
+_(Chờ phiên v5b: bảng 13 tổ hợp, cấu hình thắng, số trên val và tập câu chêm tiếng Anh.)_
 
 ## 5. Thử nghiệm C: kiểm chứng chấm offline bằng một lần chạy thật
 
@@ -451,7 +537,22 @@ Tỉ lệ câu có chữ giống hệt lần 1; chênh lệch WER, bỏ sót và
 
 ### 5.5. Kết quả
 
-_(Chờ lần chạy GPU.)_
+Chạy lại trong phiên v5a (T4, thư viện cài mới), so từng câu với `hyps.jsonl` của lần 1 (`10-28_tune_v3`):
+
+| Tập | Câu | Giống hệt lần 1 |
+|---|---|---|
+| tập dò | 1 024 | 1 024 (100%) |
+| val_seen | 916 | 916 (100%) |
+| val_unseen | 527 | 527 (100%) |
+
+Mọi chỉ số vì vậy trùng khớp: WER tập dò 20,29%, bỏ sót 46/123, chép đúng từ ngoại 49,0%.
+
+### 5.6. Kết luận
+
+Giả định của thử nghiệm A và D đúng với ChunkFormer RNNT: chạy lại cho đúng từng ký tự, nên số chấm offline dùng được
+như số chạy thật. Với Whisper, PhoWhisper chạy lại "không câu mồi" và lần 1 không cùng cấu hình nên không so từng ký tự
+được; tính tất định của large-v3 VAD được kiểm ở phiên v5b (lựa chọn "không câu mồi" trùng cấu hình `engine_vad` của
+lần 1).
 
 ## 6. Thử nghiệm D: ghép ChunkFormer RNNT với Whisper
 
@@ -572,16 +673,18 @@ này để sau khi có kết quả thử nghiệm B.
 
 ## 7. Tổng hợp và kết luận
 
-_(Phần offline. Cập nhật sau khi có kết quả GPU.)_
+_(Đã có: thử nghiệm A, C, D và phần PhoWhisper của B. Còn chờ: large-v3 của B, phiên v5b.)_
 
 1. **Mô hình đơn tốt nhất trên câu chêm tiếng Anh vẫn là ChunkFormer RNNT**: WER câu chêm khoảng 24%, chép đúng khoảng
    50% từ ngoại.
 2. **large-v3 chép từ tiếng Anh ngang hoặc hơn RNNT** nhưng phần tiếng Việt kém xa. **PhoWhisper và ChunkFormer CTC chép
    từ tiếng Anh kém rõ rệt.**
+   **Câu mồi tiếng Anh không cứu được PhoWhisper**: tăng 6,6 điểm trên tập dò nhưng 0,0–0,9 điểm trên val (CI chứa 0).
 3. **Ghép RNNT + large-v3 tăng chép đúng từ tiếng Anh khoảng 9 điểm có ý nghĩa thống kê**, WER tổng không đổi, đổi lại
    phần tiếng Việt kém đi khoảng 0,3 điểm. Đây là ứng viên mạnh nhất cho câu chêm tiếng Anh, cần thêm thử nghiệm B và đo
    thời gian trước khi chọn.
-4. Chưa đổi `configs/v0.toml`.
+4. **Chấm offline tin được**: ChunkFormer RNNT chạy lại trên T4 cho chữ giống lần 1 ở 2 467/2 467 câu.
+5. Chưa đổi `configs/v0.toml`.
 
 ## 8. Rà code trước khi chạy: lỗi đã vá
 
@@ -598,6 +701,8 @@ Trước khi chạy GPU, code được rà lại theo câu hỏi "đo như vậy
 | "TV" cho "tivi", "Minh Mart" cho "MinhMart" bị tính sai | Phạt lỗi cách viết mà LLM vẫn hiểu | Thêm bản nới lỏng, báo cáo cả hai |
 | Bootstrap chấm lại cả tập mỗi vòng | Quá chậm (hàng chục phút) | Chấm từng mẫu một lần lấy tử và mẫu (`AsrReport.counts`), bootstrap chỉ cộng; 1 000 vòng trong vài giây |
 | Nhiệt độ thử lại trong cấu hình large-v3 | Không tất định, trái thể lệ | Bỏ khỏi `asr_tune`, dùng VAD |
+| (sau v5a) `prompt_insertions` coi "ti vi", "TV" của đáp án là khác "tivi" của câu mồi | Đếm 6 lần chèn cho en_top20 thay vì 3; phạt oan câu mồi có từ mượn | `en_mixed.spelled_in`: tính cả cách viết tương đương và từ bị tách 2–3 phần. Chấm lại 13 tổ hợp: cấu hình thắng không đổi |
+| (sau v5a) `EQUIVALENTS` chỉ tra một chiều | Đáp án "TV", ASR "tivi" bị tính sai ở bản nới lỏng | Tra hai chiều (`en_mixed.spellings`); bản nới lỏng ở mục 3.5 tăng 0,3–0,9 điểm ở ba ô, các số khác không đổi |
 
 **Về cache vLLM.** Không tìm thấy chỉ dẫn "phải xoá cache vLLM" trong repo, trong docs hay trong lịch sử các phiên
 trước. Có một điểm liên quan: `VLLMBackend` (`lifemate/backends/llm.py`) luôn bật `enable_prefix_caching = True`, kể cả

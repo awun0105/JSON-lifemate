@@ -7,6 +7,8 @@ Nội dung chính:
 - `letter_words`, `letter_tokens`: từ đã gập của một câu (tập / dãy), cách tách giống `english_words`.
 - `hits`: từ ngoại nào của đáp án có trong chữ ASR, đếm theo số lần xuất hiện; tuỳ chọn chấp nhận cách viết tương
   đương (`EQUIVALENTS`, tên ghép bị tách đôi).
+- `spellings`, `spelled_in`: các cách viết tương đương của một từ; một từ có mặt trong dãy từ hay không, tính cả cách
+  viết tương đương và từ bị tách ("ti vi" cho "tivi").
 
 Cách hoạt động (với từng từ chỉ gồm chữ cái, dài từ 2 ký tự):
 1. Từ có dấu tiếng Việt là tiếng Việt, bỏ qua.
@@ -40,8 +42,12 @@ GROUPS = ("common", "acronym", "name", "loanword")
 LOANWORDS = frozenset({"tivi", "gara"})
 # Từ tiếng Anh ghép được thành một âm tiết Việt không dấu, nên quy tắc âm tiết không bắt được.
 EN_LIKE_VI = frozenset({"chat", "top", "hot"})
-# Cách viết tương đương (đã gập) mà LLM vẫn hiểu đúng; chỉ dùng cho số "chép đúng" nới lỏng (`hits(lenient=True)`).
+# Cách viết tương đương (đã gập) mà LLM vẫn hiểu đúng; tra theo cả hai chiều (`spellings`). Dùng cho số "chép đúng"
+# nới lỏng (`hits(lenient=True)`) và để không tính nhầm một cách viết khác là từ câu mồi chèn vào (`spelled_in`).
 EQUIVALENTS: dict[str, tuple[str, ...]] = {"tivi": ("tv",), "ok": ("okay", "oke"), "email": ("mail",)}
+_SPELLINGS: dict[str, frozenset[str]] = {
+    w: frozenset((k, *v)) for k, v in EQUIVALENTS.items() for w in (k, *v)
+}
 
 # Một âm tiết tiếng Việt sau khi bỏ dấu: phụ âm đầu (tuỳ chọn), 1 đến 3 nguyên âm, phụ âm cuối (tuỳ chọn).
 _VI_SYLLABLE = re.compile(
@@ -144,13 +150,30 @@ def hits(words: Sequence[EnWord], hyp: str, lenient: bool = False) -> list[bool]
     toks = letter_tokens(hyp)
     avail = Counter(toks)
     if lenient:
-        for n in (2, 3):
-            avail.update("".join(toks[i : i + n]) for i in range(len(toks) - n + 1))
+        avail.update(_joined(toks))
     used: Counter[str] = Counter()
     out: list[bool] = []
     for w in words:
-        n_avail = avail[w.folded] + (sum(avail[e] for e in EQUIVALENTS.get(w.folded, ())) if lenient else 0)
-        ok = used[w.folded] < n_avail
-        used[w.folded] += int(ok)
+        forms = spellings(w.folded) if lenient else frozenset({w.folded})
+        # Đếm lần dùng theo cả nhóm cách viết, để "TV" và "tivi" cùng câu không dùng chung một lần xuất hiện hai lần.
+        key = min(forms)
+        ok = used[key] < sum(avail[f] for f in forms)
+        used[key] += int(ok)
         out.append(ok)
     return out
+
+
+def _joined(toks: Sequence[str]) -> list[str]:
+    """Các chuỗi ghép từ 2 hoặc 3 từ liền nhau của `toks` ("minh", "mart" cho "minhmart")."""
+    return ["".join(toks[i : i + n]) for n in (2, 3) for i in range(len(toks) - n + 1)]
+
+
+def spellings(folded: str) -> frozenset[str]:
+    """Các cách viết tương đương của một từ đã gập theo `EQUIVALENTS`, tra cả hai chiều; luôn gồm chính từ đó."""
+    return _SPELLINGS.get(folded, frozenset({folded}))
+
+
+def spelled_in(folded: str, toks: Sequence[str]) -> bool:
+    """`True` khi dãy từ đã gập `toks` có từ `folded`, tính cả cách viết tương đương và từ bị tách 2 hoặc 3 phần."""
+    have = set(toks) | set(_joined(toks))
+    return any(f in have for f in spellings(folded))

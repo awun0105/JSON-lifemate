@@ -70,3 +70,16 @@ def test_sentence_start_on_decomposed_text() -> None:
 
     text = unicodedata.normalize("NFD", "Ừ, mở nhạc. Check ví nhé.")
     assert _groups(text, {"check"}) == [("Check", "common")]
+
+
+def test_equivalents_both_ways_and_split_spelling() -> None:
+    """Cách viết tương đương tra theo hai chiều; `spelled_in` chấp nhận cả từ bị tách ("ti vi" cho "tivi")."""
+    from lifemate.eval.en_mixed import hits, letter_tokens, spelled_in
+
+    assert hits(english_words("Tối nay TV có gì?"), "tối nay tivi có gì", lenient=True) == [True]
+    assert hits(english_words("Tối nay TV có gì?"), "tối nay tivi có gì") == [False]
+    # Hai cách viết của cùng một từ trong một câu chỉ dùng được một lần xuất hiện trong chữ ASR.
+    assert hits(english_words("Mở TV, tắt tivi."), "mở tivi tắt đèn", lenient=True) == [True, False]
+    assert spelled_in("tivi", letter_tokens("Tắt cái ti vi đi con."))
+    assert spelled_in("tivi", letter_tokens("Ơi TV có gì hay?"))
+    assert not spelled_in("tivi", letter_tokens("Mở VTV1 cho cô."))

@@ -24,12 +24,13 @@ Cách hoạt động:
   engine (ví dụ đầu ra NaN), không phải lỗi nghe, nên được đếm riêng dù cũng nằm trong `n_empty`.
 - Từ tiếng Anh chêm trong câu (`lifemate.eval.en_mixed`), tính trên các câu có ít nhất một từ ngoại trong đáp án:
   `en_utterances` (số câu), `en_mixed_wer` (WER trên các câu đó), `en_word_recall` (tỉ lệ từ ngoại của đáp án có mặt
-  trong chữ ASR, so sau khi gập, đếm theo số lần xuất hiện), `en_word_recall_lenient` (chấp nhận "TV" cho "tivi",
-  "Minh Mart" cho "MinhMart"…), `en_groups` (nhóm -> [số từ, số từ chép đúng]), `en_prompt` ("in"/"out" ->
+  trong chữ ASR, so sau khi gập, đếm theo số lần xuất hiện), `en_word_recall_lenient` (chấp nhận "TV" cho "tivi" và
+  ngược lại, "Minh Mart" cho "MinhMart"…), `en_groups` (nhóm -> [số từ, số từ chép đúng]), `en_prompt` ("in"/"out" ->
   [số từ, số từ chép đúng], tách theo từ có hay không có trong câu mồi). `vi_only_wer`: WER trên các câu còn lại
   (không có từ ngoại), để biết câu mồi tiếng Anh có làm hại câu thuần Việt không.
 - `prompt_insertions`: số lần một từ ngoại của câu mồi có trong chữ ASR mà không có trong đáp án của câu đó (đếm mỗi
-  từ một lần mỗi câu), trên mọi câu. Đo việc câu mồi làm model viết ra từ không được nói.
+  từ một lần mỗi câu), trên mọi câu. Đáp án viết khác ("ti vi", "TV" cho "tivi") vẫn tính là có (`spelled_in`). Đo
+  việc câu mồi làm model viết ra từ không được nói.
 - `n_prompt_retries`: số câu lớp bảo vệ câu mồi đã chép lại không câu mồi (`ASRTranscriber.n_prompt_retries`).
 - `--set mục.khoá=giá_trị`: ghi đè config từ dòng lệnh (ví dụ `--set asr.dtype=float32`), dùng để chẩn đoán.
 """
@@ -48,7 +49,7 @@ from typing import Any
 
 from lifemate.core.paths import REPO_ROOT, repo_path
 from lifemate.core.types import Sample, Transcriber, Transcript
-from lifemate.eval.en_mixed import GROUPS, english_words, hits, letter_words
+from lifemate.eval.en_mixed import GROUPS, english_words, hits, letter_tokens, letter_words, spelled_in
 
 _PUNCT = re.compile(r"[^\w\s]|_")
 
@@ -440,8 +441,9 @@ def evaluate(
                 if re.search(pat, fr):
                     terms[name][0] += 1
                     terms[name][1] += int(bool(re.search(pat, fh)))
-            hw, rw = letter_words(hyp), letter_words(ref)
-            ins += len((prompt_words & hw) - rw)
+            # Từ câu mồi có trong chữ ASR mà đáp án không có, kể cả dưới cách viết khác ("ti vi", "TV" cho "tivi").
+            rtoks = letter_tokens(ref)
+            ins += sum(not spelled_in(w, rtoks) for w in prompt_words & letter_words(hyp))
             en = english_words(ref, lowercase_seen)
             if not en:
                 vi_err += _edit_distance(r.split(), h.split())
