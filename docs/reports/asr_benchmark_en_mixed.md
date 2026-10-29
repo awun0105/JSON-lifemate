@@ -1,7 +1,7 @@
 # Báo cáo benchmark ASR lần 2: câu tiếng Việt chêm tiếng Anh
 
-Ngày: 29/10/2026. Trạng thái: **đang chạy**. Thử nghiệm A và D (offline) đã có kết quả. Thử nghiệm B và C cần GPU,
-đang chạy trên Kaggle T4; kết quả sẽ điền vào mục 4.7 và 5.5.
+Ngày: 29/10/2026. Trạng thái: **xong**. Cả bốn thử nghiệm đã có kết quả: A và D chấm offline; B và C chạy GPU trên
+Kaggle T4 ở hai phiên v5a (PhoWhisper, ChunkFormer RNNT) và v5b (whisper-large-v3). Tổng hợp ở mục 7.
 
 Báo cáo trả lời ba câu hỏi:
 
@@ -21,7 +21,9 @@ Phạm vi: chỉ đo ASR (chữ chép từ âm thanh). Không chạy LLM, không
 | `artifacts/runs/kaggle/asr/10-28_tune_v3/` | Kết quả lần 1, dùng lại cho thử nghiệm A và D: `<mô hình>__<lần đo>.hyps.jsonl` (chữ từng câu), `.json` (chỉ số), `.toml` (config) |
 | `artifacts/runs/local/asr/10-29_en_mixed_offline_v1/` | Lần chấm offline đầu tiên (chỉ số bản đầu, trước khi sửa cách đếm ở mục 8); chỉ để đối chiếu |
 | `artifacts/runs/local/asr/10-29_en_mixed_offline_v2/` | Thử nghiệm A và D: `<mô hình>__<tập>.json` (chấm lại), `compare__<tập>.{md,json}` (bảng so sánh có khoảng tin cậy), `merge_*.hyps.jsonl` (chữ đã ghép), `merge_effect.json` |
-| `artifacts/runs/kaggle/asr/10-29_tune_v5_en_mixed/` | Thử nghiệm B và C (chạy GPU), cùng cấu trúc file với lần 1 |
+| `artifacts/runs/kaggle/asr/10-29_tune_v5a_en_mixed/` | Thử nghiệm B và C, phiên v5a (PhoWhisper, ChunkFormer RNNT), cùng cấu trúc file với lần 1; `compare/` là bảng so sánh có khoảng tin cậy |
+| `artifacts/runs/kaggle/asr/10-29_tune_v5b_en_mixed/` | Thử nghiệm B và C, phiên v5b (whisper-large-v3), cùng cấu trúc và có `compare/` |
+| `artifacts/runs/local/asr/10-29_en_mixed_merge_v3/` | Thử nghiệm D với large-v3 cấu hình thắng (mục 6.5.2): chữ đã ghép, `cmp_*.json`, `merge_effect.json` |
 
 ## Mục lục
 
@@ -426,7 +428,7 @@ mô phỏng trên câu mồi cũ, chưa phải câu mồi mới.
 ### 4.7. Kết quả
 
 Lần chạy GPU: `artifacts/runs/kaggle/asr/10-29_tune_v5a_en_mixed/` (PhoWhisper, phiên v5a, T4, 2 giờ 15 phút, không lỗi).
-large-v3 chạy ở phiên v5b, kết quả điền sau.
+large-v3: `artifacts/runs/kaggle/asr/10-29_tune_v5b_en_mixed/` (phiên v5b), mục 4.7.6–4.7.9.
 
 #### 4.7.1. PhoWhisper: 13 tổ hợp trên tập dò
 
@@ -617,7 +619,8 @@ Tỉ lệ câu có chữ giống hệt lần 1; chênh lệch WER, bỏ sót và
 
 ### 5.5. Kết quả
 
-Chạy lại trong phiên v5a (T4, thư viện cài mới), so từng câu với `hyps.jsonl` của lần 1 (`10-28_tune_v3`):
+**ChunkFormer RNNT.** Chạy lại trong phiên v5a (T4, thư viện cài mới), so từng câu với `hyps.jsonl` của lần 1
+(`10-28_tune_v3`):
 
 | Tập | Câu | Giống hệt lần 1 |
 |---|---|---|
@@ -627,9 +630,7 @@ Chạy lại trong phiên v5a (T4, thư viện cài mới), so từng câu với
 
 Mọi chỉ số vì vậy trùng khớp: WER tập dò 20,29%, bỏ sót 46/123, chép đúng từ ngoại 49,0%.
 
-### 5.6. Kết luận
-
-large-v3 VAD: lựa chọn "không câu mồi" của phiên v5b có config giống hệt lần đo `engine_vad` của lần 1, và cho chữ giống
+**large-v3 VAD.** Lựa chọn "không câu mồi" của phiên v5b có config giống hệt lần đo `engine_vad` của lần 1, và cho chữ giống
 hệt ở **1 024/1 024 câu** của tập dò.
 
 ### 5.6. Kết luận
