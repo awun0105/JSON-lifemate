@@ -24,7 +24,7 @@ Cách hoạt động:
 Mỗi lần đo là một lệnh `python -m lifemate.eval.eval_asr` trên một config sinh từ `configs/v0.toml`, với bảng
 `[asr]` được thay hoàn toàn.
 
-Benchmark lần 2 (câu chêm tiếng Anh, `docs/reports/benchmark/v2.md`): `--stages prompt` chỉ dò bước câu
+Benchmark lần 2 (câu chêm tiếng Anh, `docs/reports/benchmark/asr_v2.md`): `--stages prompt` chỉ dò bước câu
 mồi (13 tổ hợp câu mồi x lớp bảo vệ), `--start-option engine=vad` bật VAD từ đầu cho large-v3, `--objective en_mixed`.
 Dò trên `asr_tune` đầy đủ và đo trên `val_seen`, `val_unseen` đầy đủ; số của các tập `*_en_mixed` lấy bằng cách chấm
 lại tập con (`lifemate.eval.rescore_asr`), vì các tập đó là tập con.

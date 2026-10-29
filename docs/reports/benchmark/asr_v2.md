@@ -5,7 +5,7 @@ Kaggle T4 ở hai phiên v5a (PhoWhisper, ChunkFormer RNNT) và v5b (whisper-lar
 
 Báo cáo trả lời ba câu hỏi:
 
-1. Trong bốn mô hình ASR tốt nhất của lần 1 (`docs/reports/benchmark/v1.md`), mô hình nào chép đúng nhất những câu
+1. Trong bốn mô hình ASR tốt nhất của lần 1 (`docs/reports/benchmark/asr_v1.md`), mô hình nào chép đúng nhất những câu
  tiếng Việt có chêm từ tiếng Anh?
 2. Câu mồi (`initial_prompt`) chứa từ tiếng Anh, đi kèm một lớp bảo vệ, có giúp whisper-large-v3 và PhoWhisper chép
  đúng từ tiếng Anh hơn mà không làm hỏng câu thường không?
@@ -25,7 +25,7 @@ Hệ thống LifeMate làm hai bước: **ASR** (mô hình nhận dạng giọng
 như "Zalo", "SJC", "check", "voucher" hay tên người nước ngoài. Những từ này thường quyết định tool nào được gọi ("nhắn
 Zalo", "giá vàng SJC"). ASR chép "Zalo" thành "giá lô" thì LLM gọi sai tool, dù phần tiếng Việt đúng hết.
 
-Lần 1 (`docs/reports/benchmark/v1.md`) đã chọn mô hình ASR theo chất lượng chung trên mọi câu. Lần 2 đo riêng việc chép
+Lần 1 (`docs/reports/benchmark/asr_v1.md`) đã chọn mô hình ASR theo chất lượng chung trên mọi câu. Lần 2 đo riêng việc chép
 **từ tiếng Anh**, và thử hai cách cải thiện:
 
 - **Câu mồi** (`initial_prompt`): một đoạn chữ đưa cho mô hình Whisper trước khi nghe, đóng vai "câu nói trước đó".
@@ -282,7 +282,7 @@ Theo thứ tự:
 Cấu hình hệ thống đang dùng (`configs/v0.toml`) chưa đổi.
 
 Cả ba việc trên, cùng câu mồi theo mẫu và bộ phân loại ghép, được làm ở benchmark lần 3
-(`docs/reports/benchmark/v3.md`): lọc từ của câu mồi là thử nghiệm F, đo thời gian và bộ nhớ là thử nghiệm I,
+(`docs/reports/benchmark/asr_v3.md`): lọc từ của câu mồi là thử nghiệm F, đo thời gian và bộ nhớ là thử nghiệm I,
 engine ghép là bước chuẩn bị P7.
 
 ### Đọc tiếp ở đâu
@@ -337,7 +337,7 @@ Bài thi LifeMate nhận lời nói tiếng Việt của người dùng và làm
 của BTC cho thấy điều này rất phổ biến: 833 trên 1 545 mẫu có ít nhất một từ ngoại (Zalo, SJC, check, voucher, tên người
 nước ngoài…). ASR chép sai một từ tiếng Anh thì LLM dễ gọi sai tool, dù phần tiếng Việt đúng hết.
 
-Lần 1 (`docs/reports/benchmark/v1.md`) chọn mô hình ASR theo mọi câu. Lần 2 nhìn riêng các câu chêm tiếng Anh. Lần 2
+Lần 1 (`docs/reports/benchmark/asr_v1.md`) chọn mô hình ASR theo mọi câu. Lần 2 nhìn riêng các câu chêm tiếng Anh. Lần 2
 chỉ đo ASR, không chạy LLM và không chấm điểm thi.
 
 ### 0.2. Dữ liệu được tổ chức thế nào

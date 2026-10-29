@@ -19,7 +19,7 @@ Báo cáo trả lời năm câu hỏi:
 Phạm vi: chỉ đo ASR. Không chạy LLM, không chấm điểm thi. Bước sau lần 3 mới chạy cả hệ thống với LLM để đo thời gian
 và độ chính xác của lời gọi tool (mục "Sau lần 3").
 
-Tên thử nghiệm nối tiếp lần 2: lần 2 dùng A, B, C, D (`docs/reports/benchmark/v2.md`), lần 3 dùng E, F, G, H, I.
+Tên thử nghiệm nối tiếp lần 2: lần 2 dùng A, B, C, D (`docs/reports/benchmark/asr_v2.md`), lần 3 dùng E, F, G, H, I.
 
 ## Tóm tắt cho cả team
 
@@ -243,7 +243,7 @@ có thêm thông tin. Câu trả lời của trợ lý dài trung vị 14–19 t
 
 Các thuật ngữ đã định nghĩa ở lần 2 (WER, từ ngoại và 4 nhóm, câu chêm, câu thuần Việt, gập chữ, chép đúng từ ngoại, câu
 mồi, lớp bảo vệ g4, tập dò, tập kiểm tra, seen, unseen, CI, bootstrap, oracle) giữ nguyên nghĩa, xem mục 0.3 của
-`docs/reports/benchmark/v2.md`. Thuật ngữ mới của lần 3:
+`docs/reports/benchmark/asr_v2.md`. Thuật ngữ mới của lần 3:
 
 | Thuật ngữ | Nghĩa |
 |---|---|
