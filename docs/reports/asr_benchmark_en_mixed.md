@@ -192,8 +192,9 @@ tốt). "Tỉ lệ lỗi từ" (WER) là số từ sai chia cho số từ của 
    lại được" của thể lệ.
 
 **Chi phí.** Ghép hai mô hình cộng thêm whisper-large-v3: tổng tham số RNNT 0,11B + large-v3 1,55B + LLM 4,02B = 5,68B,
-dưới trần 6B của thể lệ. Riêng large-v3 cần khoảng 8,7 giây cho 95% số câu trên GPU T4; chưa đo trên A30 và chưa đo khi
-chạy cùng LLM.
+dưới trần 6B của thể lệ. Riêng large-v3 chép xong 95% số **mẫu** trong khoảng 8,7 giây trên GPU T4. Một mẫu gồm lượt
+cuối và mọi lượt người dùng trong lịch sử, tới 13 file âm thanh, và thể lệ cho 30 giây mỗi mẫu cho cả ASR lẫn LLM. Chưa
+đo trên A30 và chưa đo khi chạy cùng LLM.
 
 ### Việc tiếp theo
 
@@ -290,7 +291,7 @@ chỉ đo ASR, không chạy LLM và không chấm điểm thi.
 | Beam 5 | Giải mã giữ 5 phương án tốt nhất ở mỗi bước rồi chọn câu tốt nhất; chậm hơn giải mã tham lam |
 | D40, D41… | Mã một quyết định trong `docs/decisions.md` (ngày, nội dung, lý do) |
 | VAD | Bộ phát hiện tiếng nói: cắt bỏ đoạn im lặng trước khi đưa vào Whisper, giảm câu bịa |
-| p95 | Thời gian chép một câu mà 95% số câu nhanh hơn. Đo trên GPU T4 của Kaggle |
+| p95 | Thời gian chép lời **một mẫu** (lượt cuối và mọi lượt người dùng trong lịch sử, tới 13 file) mà 95% số mẫu nhanh hơn. Đo trên GPU T4 của Kaggle. Đính chính: bản trước của báo cáo ghi p95 tính theo câu; `lifemate/eval/eval_asr.py` › `evaluate` tính theo mẫu |
 | Chấm offline | Chấm lại chữ ASR đã ghi ở lần chạy trước (`hyps.jsonl`) bằng chỉ số mới, không chạy lại mô hình |
 | Tập dò, tập kiểm tra | Tập dò (`asr_tune`) dùng để chọn cấu hình. Tập kiểm tra (`val_seen`, `val_unseen`) chỉ dùng để đo một lần sau khi đã chọn, để con số không bị "chọn theo đề" |
 | seen, unseen | `val_seen` gồm mẫu thuộc các app đã có trong train; `val_unseen` gồm mẫu thuộc app chưa gặp. Bộ thi riêng của BTC có app chưa gặp |

@@ -2,7 +2,7 @@
 (SPEC 6.5).
 
 Nội dung chính:
-- `seed_everything`: đặt seed cho Python, NumPy, PyTorch và bật chế độ tất định.
+- (`seed_everything` đã chuyển sang `lifemate.core.seeding`, dùng chung với lúc chạy agent.)
 - `capture_rng`, `restore_rng`: lưu và khôi phục trạng thái bộ sinh số ngẫu nhiên (RNG).
 - `CheckpointManager`, `CheckpointInfo`: lưu, liệt kê, dọn và nạp checkpoint.
 - `MetricsLogger`: ghi metrics ra `metrics.jsonl`, mỗi dòng một bản ghi.
@@ -60,38 +60,6 @@ def _optional_module(name: str) -> ModuleType | None:
         return importlib.import_module(name)
     except ImportError:
         return None
-
-
-def seed_everything(seed: int, *, deterministic: bool = True) -> None:
-    """Đặt seed cho Python, NumPy và PyTorch (CPU và CUDA).
-
-    Tham số:
-        seed: giá trị seed.
-        deterministic: `True` để bật thuật toán tất định của PyTorch khi có thể (chậm hơn nhưng chạy lại ra cùng
-            kết quả).
-    """
-    os.environ["PYTHONHASHSEED"] = str(seed)
-    random.seed(seed)
-    np = _optional_module("numpy")
-    if np is not None:
-        np.random.seed(seed)
-    torch = _optional_module("torch")
-    if torch is None:
-        return
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    if deterministic:
-        # cuBLAS cần biến này thì phép nhân ma trận mới tất định.
-        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
-        try:
-            # `warn_only=True`: phép tính không có bản tất định chỉ cảnh báo, không làm hỏng job.
-            torch.use_deterministic_algorithms(True, warn_only=True)
-        except (AttributeError, RuntimeError, TypeError) as exc:
-            log.warning("deterministic_algorithms_unavailable", error=str(exc))
-        if hasattr(torch.backends, "cudnn"):
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cudnn.benchmark = False
 
 
 def _to_json(obj: Any) -> Any:

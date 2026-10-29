@@ -119,15 +119,15 @@ def test_parse_score_ignores_confusion_matrix() -> None:
     assert score["by_category"] == {"execute": 40.0}
 
 
-def test_check_reuses_loaded_zaic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Split không nhãn: `check_submission` nhận module `zaic_tools` đã nạp; báo cáo lỗi thì `failed` là "check"."""
+def test_check_opens_no_second_tool_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Split không nhãn: `check_submission` chạy với `open_tool_envs=False`; báo cáo lỗi thì `failed` là "check"."""
     import lifemate.run.runner as runner_mod
     from lifemate.io.check_submission import CheckReport
 
     seen: dict[str, object] = {}
 
-    def fake_check(*args: object, zaic: object = None) -> CheckReport:
-        seen["zaic"] = zaic
+    def fake_check(*args: object, open_tool_envs: bool = True) -> CheckReport:
+        seen["open_tool_envs"] = open_tool_envs
         report = CheckReport(split="train", n_expected=1)
         report.errors.append("1 missing ids: x")
         return report
@@ -137,7 +137,7 @@ def test_check_reuses_loaded_zaic(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     store = RunStore(tmp_path / "run", resume=False)
     r = Runner(make_agent(FakeLLM(samples)), FakeLoader(), store, repo_root=tmp_path)
     result = r.run(samples, ids_file=None, split_has_labels=False, config_record={})
-    assert seen["zaic"] is ZAIC_SENTINEL
+    assert seen["open_tool_envs"] is False
     assert result.failed == "check" and (tmp_path / "run" / "check.txt").is_file()
 
 

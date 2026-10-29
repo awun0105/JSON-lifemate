@@ -60,3 +60,23 @@ def test_malformed_tool_calls_reported_not_crash(data_root: Path, tmp_path: Path
     report = check_submission(sub, data_root, "train")
     assert report.invalid_lines == [1, 2]
     assert not report.ok and "invalid JSON" in report.to_text()
+
+
+def test_open_tool_envs_false_opens_no_env(data_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`open_tool_envs=False`: không mở `ToolEnv` nào (bỏ `--validate` và phát lại), báo cáo ghi rõ đã bỏ."""
+    import lifemate.io.check_submission as check_mod
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("a ToolEnv check ran")
+
+    monkeypatch.setattr(check_mod, "open_env", forbidden)
+    monkeypatch.setattr(check_mod, "_run_validate", forbidden)
+    samples = load_split(data_root, "train")
+    sub = tmp_path / "submission.jsonl"
+    sub.write_text(
+        "".join(json.dumps({"id": s.id, "tool_calls": [], "state_hash": ""}) + "\n" for s in samples),
+        encoding="utf-8",
+    )
+    report = check_submission(sub, data_root, "train", open_tool_envs=False)
+    assert report.ok and report.tool_env_checks_skipped
+    assert "replay skipped" in report.to_text()

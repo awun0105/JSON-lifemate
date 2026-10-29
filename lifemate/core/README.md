@@ -12,6 +12,7 @@ Phần nền dùng chung. Không import gói nào khác trong `lifemate`, nên m
 | `tokens.py` | Đếm token của hội thoại bằng chat template của mô hình (`HFTokenCounter`), hoặc đếm theo khoảng trắng khi không có transformers. |
 | `textsim.py` | Gom các câu gần trùng thành cụm (difflib), dùng chung cho việc chia dữ liệu và lọc dữ liệu fine-tune. |
 | `paths.py` | Định nghĩa một lần đường dẫn gốc của repo (`REPO_ROOT`). |
+| `seeding.py` | `seed_everything`: đặt cùng một seed cho `random`, NumPy, PyTorch; dùng khi bắt đầu chạy agent (thể lệ: cố định mọi seed) và trong job train. |
 
 ## Quy ước riêng
 

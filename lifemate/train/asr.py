@@ -36,6 +36,7 @@ import structlog
 from lifemate.core.config import ConfigError, load_profile
 from lifemate.core.envinfo import detect
 from lifemate.core.paths import REPO_ROOT
+from lifemate.core.seeding import seed_everything
 from lifemate.train.common import (
     CheckpointInfo,
     CheckpointManager,
@@ -43,7 +44,6 @@ from lifemate.train.common import (
     abs_path,
     build_section,
     load_toml,
-    seed_everything,
     sha256_file,
     write_train_config,
 )

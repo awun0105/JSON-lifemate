@@ -56,6 +56,19 @@ def test_no_token_leak(repo_root: Path, data_root: Path, tmp_path: Path, monkeyp
         assert SENTINEL not in (tmp_path / "run" / name).read_text(encoding="utf-8")
 
 
+@pytest.mark.data
+def test_random_seeds_fixed_and_recorded(repo_root: Path, data_root: Path, tmp_path: Path) -> None:
+    """Thể lệ mục 8: CLI cố định seed của Python (và NumPy, PyTorch nếu có) theo `[llm].seed`, ghi vào `config.json`."""
+    import json
+
+    argv = ["--config", str(fake_config(repo_root, tmp_path)), "--env", "local", "--split", "train"]
+    argv += ["--ids", "configs/splits/smoke.txt", "--limit", "1", "--root", str(data_root)]
+    argv += ["--out", str(tmp_path / "run")]
+    assert cli.main(argv) == 0
+    record = json.loads((tmp_path / "run" / "config.json").read_text(encoding="utf-8"))
+    assert record["random_seeds"]["seed"] == 0 and "random" in record["random_seeds"]["libraries"]
+
+
 def _sources(repo_root: Path) -> list[Path]:
     """Liệt kê mọi file `.py` trong `lifemate/`."""
     return sorted((repo_root / "lifemate").rglob("*.py"))

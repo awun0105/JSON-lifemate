@@ -48,7 +48,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ---------------------------------------------------------------- runtime
 FROM ${CUDA_IMAGE} AS runtime
 
-# Chặn mọi truy cập mạng/telemetry của HF và vLLM (chạy với --network none), log không đệm.
+# Chặn mọi truy cập mạng/telemetry của HF và vLLM (chạy với --network none), log không đệm, hash chuỗi cố định
+# (PYTHONHASHSEED: thể lệ yêu cầu cố định mọi seed; chỉ có tác dụng khi đặt trước lúc Python khởi động).
 ENV PATH="/app/.venv/bin:${PATH}" \
     HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1 \
@@ -56,6 +57,7 @@ ENV PATH="/app/.venv/bin:${PATH}" \
     DO_NOT_TRACK=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONFAULTHANDLER=1 \
+    PYTHONHASHSEED=0 \
     HOME=/home/appuser
 
 # uid cố định, không đặc quyền: thoát khỏi ứng dụng không đồng nghĩa có quyền root trên máy chủ.

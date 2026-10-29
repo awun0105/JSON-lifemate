@@ -12,7 +12,7 @@ Cách hoạt động:
    và ghi lại `submission.jsonl` sau mỗi mẫu. Khi chạy tiếp (resume), mẫu đã có trong trace được bỏ qua.
 3. Dựng file nộp bài lần cuối từ trace.
 4. Split có nhãn thì chấm điểm bằng `lifemate.eval.score` trong tiến trình con và đọc dòng `Final score`; split
-   không nhãn thì chạy `check_submission`.
+   không nhãn thì chạy `check_submission`, bỏ hai bước mở thêm `ToolEnv` (`zaic_tools --validate`, phát lại).
 5. Ghi một dòng vào `index.csv`.
 
 Lưu ý:
@@ -321,10 +321,13 @@ class Runner:
         return out, score, proc.returncode == 0 and score is not None
 
     def _check(self, submission: Path) -> tuple[Path, bool]:
-        """Chạy `check_submission`, ghi kết quả vào `check.txt`; trả về (đường dẫn file, `report.ok`)."""
-        # Truyền module đã nạp: để `check_submission` tự nạp sẽ xoá rồi import lại `zaic_tools` trong cùng tiến trình.
+        """Chạy `check_submission`, ghi kết quả vào `check.txt`; trả về (đường dẫn file, `report.ok`).
+
+        Chỉ chạy các bước không mở `ToolEnv` (`open_tool_envs=False`): thể lệ cho đúng một `ToolEnv` mỗi mẫu, và env
+        của mỗi mẫu đã được mở một lần khi chạy agent.
+        """
         report = check_submission(
-            submission, self.loader.root, self.loader.split, self.agent.index, zaic=self.loader.load()
+            submission, self.loader.root, self.loader.split, self.agent.index, open_tool_envs=False
         )
         out = self.store.run_dir / "check.txt"
         out.write_text(report.to_text(), encoding="utf-8")

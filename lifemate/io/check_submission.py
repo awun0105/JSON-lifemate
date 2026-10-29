@@ -15,6 +15,9 @@ Cách hoạt động:
 
 Lưu ý:
 - Mọi bước đều chạy hết, kể cả khi bước trước đã có lỗi, để báo cáo đầy đủ trong một lần.
+- Bước 4 và 6 mở thêm một `ToolEnv` cho mỗi mẫu (`zaic_tools --validate` cũng mở `ToolEnv` để lấy danh sách tool
+  được phép). Thể lệ chỉ cho đúng một `ToolEnv` mỗi mẫu trong lần chạy giải pháp, nên `Runner` gọi với
+  `open_tool_envs=False` và hai bước này chỉ chạy khi kiểm tra riêng, ngoài lần chạy (SPEC 4.11).
 """
 
 from __future__ import annotations
@@ -66,6 +69,7 @@ class CheckReport:
         validate_errors: số lỗi schema mà `--validate` báo; `None` khi không đọc được.
         stats: phân bố lời gọi của submission (`empty_rate`, `ask_rate`, `mean_calls`).
         rejected: id mẫu tới số lời gọi trả `ok:false` khi phát lại.
+        tool_env_checks_skipped: `True` khi bước `--validate` và phát lại bị bỏ (`open_tool_envs=False`).
     """
 
     split: str
@@ -81,6 +85,7 @@ class CheckReport:
     validate_errors: int | None = None
     stats: dict[str, float] = field(default_factory=dict)
     rejected: dict[str, int] = field(default_factory=dict)
+    tool_env_checks_skipped: bool = False
 
     @property
     def ok(self) -> bool:
@@ -93,6 +98,8 @@ class CheckReport:
         out.append("status: " + ("OK" if self.ok else "FAIL"))
         out += [f"ERROR: {e}" for e in self.errors]
         out += [f"WARNING: {w}" for w in self.warnings]
+        if self.tool_env_checks_skipped:
+            out.append("note: zaic_tools --validate and replay skipped (they open a second ToolEnv per sample)")
         if self.stats:
             out.append("distribution: " + ", ".join(f"{k}={v:.3f}" for k, v in self.stats.items()))
         if self.validate_output:
@@ -250,6 +257,7 @@ def check_submission(
     index: CatalogIndex | None = None,
     *,
     zaic: ModuleType | None = None,
+    open_tool_envs: bool = True,
 ) -> CheckReport:
     """Chạy các bước kiểm tra B3: id, JSON, `zaic_tools --validate`, phân bố, phát lại.
 
@@ -259,6 +267,8 @@ def check_submission(
         split: tên split.
         index: catalog tool đã dựng sẵn; `None` thì đọc từ catalog của split.
         zaic: module `zaic_tools` đã import; `None` thì import từ thư mục split.
+        open_tool_envs: `False` thì bỏ `zaic_tools --validate` và bước phát lại, vì cả hai mở thêm một `ToolEnv`
+            cho mỗi mẫu. Lần chạy giải pháp phải truyền `False`.
 
     Trả về:
         `CheckReport`; `report.ok` là `False` khi có lỗi chặn việc nộp.
@@ -291,7 +301,9 @@ def check_submission(
     )
     if unknown_tools:
         report.warnings.append(f"tools not in the catalog: {unknown_tools}")
-    if report.invalid_lines:
+    if not open_tool_envs:
+        report.tool_env_checks_skipped = True
+    elif report.invalid_lines:
         # `zaic_tools --validate` dừng ở dòng JSON hỏng đầu tiên, nên chỉ đưa vào các dòng parse được.
         with tempfile.TemporaryDirectory() as tmp:
             clean = Path(tmp) / "submission.jsonl"
@@ -302,6 +314,7 @@ def check_submission(
     # Id lạ đã thành lỗi ở trên. Bỏ chúng khỏi thống kê và phát lại, vì không mở được `ToolEnv` cho id đó.
     known_rows = [r for r in rows if str(r["id"]) in expected_set]
     _distribution(report, known_rows)
-    _replay(report, known_rows, zaic if zaic is not None else load_zaic(root, split), root, split)
+    if open_tool_envs:
+        _replay(report, known_rows, zaic if zaic is not None else load_zaic(root, split), root, split)
     log.info("check_submission_done", ok=report.ok, errors=len(report.errors), warnings=len(report.warnings))
     return report

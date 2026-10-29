@@ -38,7 +38,8 @@ model = "/app/models/asr"   # only when backend = "asr"
 The build fails if `[llm].model` is empty, or if it is an absolute path that is not a folder in the
 image. Use another config with `--build-arg LIFEMATE_CONFIG=configs/<x>.toml` (also the run-time default).
 The image sets `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`, `VLLM_NO_USAGE_STATS=1`, `DO_NOT_TRACK=1`,
-`PYTHONUNBUFFERED=1`, runs as uid 10001, `WORKDIR /app`. `.git` is not copied, so `config.json`
+`PYTHONUNBUFFERED=1`, `PYTHONHASHSEED=0` (fixed string hashing; the rules ask for fixed seeds), runs as
+uid 10001, `WORKDIR /app`. `.git` is not copied, so `config.json`
 records the code version from a `VERSION` file if present, else `unknown`.
 
 ## Run (organisers' flow)
@@ -70,6 +71,9 @@ Crash safety: `submission.jsonl` is written before the models load (every line a
 on the overall time limit still leaves a complete file with the finished samples. Placeholders score as
 failed samples (the organisers replay `tool_calls`; `--validate` ignores `state_hash`). Once the file is
 written, errors in `check_submission` or `index.csv` are only logged and the CLI exits 0.
+Inside the run, `check_submission` skips `zaic_tools --validate` and the replay (`open_tool_envs=False`):
+both open a second `ToolEnv` per sample, and the rules allow exactly one (D41). Run the full check separately,
+outside the solution run, before a public submission.
 
 ## Collecting results
 

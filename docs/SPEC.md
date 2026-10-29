@@ -615,7 +615,7 @@ uv run python -m lifemate.run.cli --config configs/v0.toml --env kaggle --root /
 
 `--name` là tên thư mục con trong `runs_dir` của profile; `--out` là **chính thư mục run** (ghi đè `runs_dir/name`, khớp với `--out result/` ở Docker). Khi có `--out`, `index.csv` nằm ở thư mục cha của thư mục đó. Có thêm profile `local.toml` cho máy phát triển (đường dẫn tương đối trong repo).
 
-`cli.py` chỉ parse tham số, đọc `Config`, gọi `factory.build(config)` rồi `Runner.run(...)`.
+`cli.py` chỉ parse tham số, đọc `Config`, cố định seed của Python, NumPy, PyTorch bằng `[llm].seed` (`lifemate/core/seeding.py` › `seed_everything(seed, deterministic=False)`, ghi vào `config.json` khoá `random_seeds`; thể lệ mục 8), gọi `factory.build(config)` rồi `Runner.run(...)`. Container đặt thêm `PYTHONHASHSEED=0` trong `ops/docker/Dockerfile`, vì biến này chỉ có tác dụng khi đặt trước lúc Python khởi động (D41).
 
 **`Runner.run(samples, store)`:**
 
@@ -636,7 +636,7 @@ uv run python -m lifemate.run.cli --config configs/v0.toml --env kaggle --root /
 - `--ids` không truyền thì chạy mọi mẫu của split. `--limit` lấy N id đầu tiên, dùng để chạy thử.
 - Split có nhãn (train) thì cuối lần chạy tự gọi `lifemate/eval/score.py submission.jsonl --ids <run>/ids.txt --match both --details details.jsonl` và ghi kết quả ra `score.txt`. `ids.txt` là danh sách id thực sự đã chạy (sau `--limit`), để các id chưa chạy không bị chấm 0. `summary.json.score` = `{total, by_mode: {strict, canon}, by_category}`.
 - Thêm một dòng vào `artifacts/runs/index.csv`: `run, date, git_commit, model, prompt_hash, split, ids_file, n, score, p95_seconds`.
-- Split **không có nhãn** (public, private): `finalize()` chạy `check_submission` (B3) thay cho chấm điểm, ghi kết quả ra `check.txt`:
+- Split **không có nhãn** (public, private): `finalize()` chạy `check_submission` (B3) thay cho chấm điểm, ghi kết quả ra `check.txt`. Trong lần chạy, `Runner` gọi với `open_tool_envs=False`: bước 2 và 4 bị bỏ, vì cả hai mở thêm một `ToolEnv` cho mỗi mẫu (`zaic_tools --validate` cũng mở `ToolEnv` để lấy danh sách tool được phép), mà thể lệ chỉ cho đúng một `ToolEnv` mỗi mẫu (D41). Hai bước này chỉ chạy khi gọi `check_submission` riêng, ngoài lần chạy giải pháp (ví dụ trước khi nộp public):
   1. Mọi id của split có mặt đúng một lần, JSON hợp lệ, mỗi phần tử của `tool_calls` có dạng `{"name": str, "arguments": object}`; dòng sai dạng được báo là dòng không hợp lệ chứ không làm checker crash.
   2. `python -m zaic_tools --split <split> --root <root> --validate submission.jsonl` không báo lỗi (subprocess, cwd là thư mục split).
   3. Phân bố: tỉ lệ `[]`, tỉ lệ có `sys.ask_missing_info`, số call trung bình, so với train (7%, 14%, 2,3). Lệch quá 2 lần thì in cảnh báo, không chặn.
@@ -1136,7 +1136,7 @@ save_every_steps = 200
 
 | Thành phần | Việc |
 |---|---|
-| `seed_everything(seed)` | Cố định seed cho Python, NumPy, PyTorch, CUDA; bật chế độ tất định của PyTorch khi có thể |
+| `seed_everything(seed)` (`lifemate/core/seeding.py`) | Cố định seed cho Python, NumPy, PyTorch, CUDA; bật chế độ tất định của PyTorch khi có thể |
 | `CheckpointManager` | Lưu và nạp checkpoint (trọng số hoặc adapter, optimizer, scheduler, RNG, bước); giữ N checkpoint gần nhất cộng N tốt nhất theo chỉ số đã chọn |
 | `MetricsLogger` | Ghi `metrics.jsonl` (bước, loss, chỉ số eval, thời gian); flush sau mỗi dòng |
 | `write_train_config()` | Ghi `train_config.json` gồm config, `EnvInfo` (mục 4.16), sha256 dữ liệu |

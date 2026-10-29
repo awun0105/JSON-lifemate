@@ -9,8 +9,8 @@ Cách hoạt động:
 1. `parse_args` đọc tham số.
 2. `run` nạp config TOML và profile môi trường, đổi đường dẫn tương đối theo thư mục gốc repo, rồi nạp mẫu
    của split.
-3. `run` gọi `factory.build` để lắp ráp đối tượng, chọn thư mục run, ghi toàn bộ thông tin config vào bản ghi
-   run, rồi giao cho `Runner`.
+3. `run` cố định seed của Python, NumPy, PyTorch (`seed_everything`), gọi `factory.build` để lắp ráp đối tượng,
+   chọn thư mục run, ghi toàn bộ thông tin config vào bản ghi run, rồi giao cho `Runner`.
 4. `main` in kết quả.
 
 Lưu ý:
@@ -32,6 +32,7 @@ import structlog
 from lifemate.core.config import EnvProfile, load_config, load_profile
 from lifemate.core.envinfo import detect
 from lifemate.core.paths import REPO_ROOT, repo_path
+from lifemate.core.seeding import seed_everything
 from lifemate.io.data import load_split, read_ids
 from lifemate.io.store import RunStore
 from lifemate.run import factory
@@ -119,6 +120,11 @@ def run(args: argparse.Namespace, repo_root: Path = REPO_ROOT) -> RunSummary:
         "started_at": start.isoformat(timespec="seconds"),
     }
     store.check_resume(record)
+    # Thể lệ yêu cầu cố định mọi seed; đặt trước khi nạp model để cả quá trình nạp cũng tất định.
+    record["random_seeds"] = {
+        "seed": config.llm.seed,
+        "libraries": seed_everything(config.llm.seed, deterministic=False),
+    }
     built = factory.build(config, profile, repo_root=repo_root, split=args.split, env_info=env_info, samples=samples)
     record["dtype"] = {"config": config.llm.dtype, "resolved": built.dtype}
     runner = Runner(
