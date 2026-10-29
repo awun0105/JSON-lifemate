@@ -184,21 +184,28 @@ thử nghiệm được ghi ở đây **trước khi đo**, để không chỉnh
 
 ### Kết quả chính
 
-*Chưa đo.* Bảng sẽ có dạng:
+Cấu hình ASR thắng của lần 3: **RNNT + large-v3 với câu mồi E2** (câu mồi cố định, tên app đã cài, lời trợ lý liền trước)
+**+ luật ghép `context_other` của lần 2** (C0 thắng bảng chọn chung). Số đo một lần trên hai tập kiểm tra:
 
+| Hệ thống | Chép đúng từ tiếng Anh (seen / unseen) | WER câu chêm (seen / unseen) | WER câu thuần Việt (seen / unseen) | WER mọi câu (seen / unseen) |
+|---|---|---|---|---|
+| RNNT đứng riêng | 49,9% / 51,6% | 24,8% / 24,1% | 17,7% / 17,5% | 20,0% / 19,8% |
+| Ghép, `en_full_v1`, `context_other` (lần 2) | 72,2% / 63,1% | 22,1% / 22,8% | 18,1% / 17,8% | 19,4% / 19,5% |
+| **Ghép, câu mồi E2, `context_other` (lần 3)** | **75,5% / 68,7%** | **21,7% / 22,0%** | **17,9% / 17,6%** | **19,1% / 19,2%** |
 
-| Hệ thống                                           | Chép đúng từ tiếng Anh (seen / unseen) | WER câu chêm (seen / unseen) | WER câu thuần Việt (seen / unseen) | WER mọi câu (seen / unseen) |
-| -------------------------------------------------- | -------------------------------------- | ---------------------------- | ---------------------------------- | --------------------------- |
-| RNNT đứng riêng (lần 2)                            | 49,9% / 51,6%                          | 24,8% / 24,1%                | 17,7% / 17,5%                      | 20,0% / 19,8%               |
-| Ghép, `en_full_v1`, `context_other` (lần 2)        | 72,2% / 63,1%                          | 22,1% / 22,8%                | 18,1% / 17,8%                      | 19,4% / 19,5%               |
-| Ghép, câu mồi thắng của E, `context_other`         | chưa đo                                | chưa đo                      | chưa đo                            | chưa đo                     |
-| Ghép, câu mồi thắng của E, ứng viên thắng của bảng chọn chung (mục 7) | chưa đo                                | chưa đo                      | chưa đo                            | chưa đo                     |
+So với lần 2: chép đúng từ tiếng Anh +3,3 điểm (`val_seen`, CI [0,0; +6,6]) và +5,6 điểm (`val_unseen`, CI [+2,2;
++9,8], có ý nghĩa thống kê); WER mọi câu giảm 0,3 điểm ở cả hai tập (có ý nghĩa thống kê). Bảng chọn chung (mục 7): bộ
+phân loại H tốt nhất trên tập dò (độ chính xác quyết định đoạn 76,4% so với 70,7% của C0) nhưng chưa hơn C0 có ý nghĩa
+thống kê, nên giữ C0.
 
-| Thời gian và bộ nhớ trên T4 (val, mỗi mẫu)          | p50 / p95 / tối đa (s) | Trong đó large-v3 p95 (s) | Chấm điểm G p95 (s) | Bộ nhớ GPU đỉnh |
-| --------------------------------------------------- | ---------------------- | ------------------------- | ------------------- | --------------- |
-| RNNT đứng riêng                                     | chưa đo                |                           |                     | chưa đo         |
-| Ghép, câu mồi thắng của E, ứng viên thắng (mục 7) | chưa đo                | chưa đo                   | chưa đo             | chưa đo         |
+| Thời gian và bộ nhớ trên Colab T4 (mỗi mẫu, seen / unseen) | p50 (s) | p95 (s) | Tối đa (s) | Bộ nhớ GPU đỉnh |
+|---|---|---|---|---|
+| RNNT đứng riêng | 1,51 / 1,43 | 3,57 / 3,64 | 5,15 / 5,60 | không đo riêng |
+| large-v3 với câu mồi E2 (gồm lớp bảo vệ) | 2,09 / 1,98 | 7,60 / 7,35 | 9,21 / 9,29 | |
+| **Cả phần ASR (RNNT + large-v3 + ghép)** | **3,51 / 3,41** | **11,27 / 11,06** | **13,79 / 14,54** | **3,6 GB** (hai mô hình) |
+| Nếu thêm chấm điểm âm thanh (G, H) | +0,0 | +0,8 | +1,9 | 3,4 GB khi chấm |
 
+Bước ghép tốn dưới 0,01 giây mỗi mẫu. Số đo trên T4 và không có vLLM chạy cùng (mục 2.4).
 
 | Điểm thi khi chạy agent trên chữ đã lưu (thử nghiệm J) | val\_seen | val\_unseen |
 | ------------------------------------------------------- | --------- | ----------- |
@@ -263,11 +270,11 @@ cạnh nhau. Lần chạy này cần GPU từ 24 GB, vì T4 không chứa nổi 
 
 | Thư mục                                                 | Nội dung                                                                                                                          |
 | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `artifacts/runs/kaggle/asr/<ngày>_v3_k1_sample_prompt/` | Phiên K1: `<biến thể>__asr_tune.hyps.jsonl` (chữ từng câu, kèm câu mồi đã dùng và điểm tin cậy), `.json` (chỉ số), `timing.jsonl` |
-| `artifacts/runs/kaggle/asr/<ngày>_v3_k2_learn/`         | Phiên K2: chữ RNNT và large-v3 trên tập học và val                                                                                |
-| `artifacts/runs/local/asr/<ngày>_v3_offline/`           | Chấm offline E, F, G, H, I, bảng chọn chung: chữ đã ghép, bảng so sánh có khoảng tin cậy, bảng độ tin cậy từng từ, hệ số của bộ phân loại             |
-| `artifacts/runs/kaggle/asr/<ngày>_v3_k3_scoring/`      | Phiên K3: điểm âm thanh của từng câu ứng viên (`scores.jsonl`), thời gian chấm |
-| `artifacts/runs/kaggle/agent/<ngày>_v3_k4_replay/`      | Phiên K4: mỗi nguồn J0–J4 một thư mục run agent (`trace.jsonl`, điểm từng mẫu) |
+| `artifacts/runs/colab/asr/10-30_v3/k1/` | Phiên K1: `<biến thể>__asr_tune.hyps.jsonl` (chữ từng câu, kèm câu mồi đã dùng và điểm tin cậy), `.json` (chỉ số), `timing.jsonl` |
+| `artifacts/runs/colab/asr/10-30_v3/k2_*/`         | Phiên K2: chữ RNNT và large-v3 trên tập học và val                                                                                |
+| `artifacts/runs/colab/asr/10-30_v3/analysis/`           | Chấm offline E, F, G, H, I, bảng chọn chung: chữ đã ghép, bảng so sánh có khoảng tin cậy, bảng độ tin cậy từng từ, hệ số của bộ phân loại             |
+| `artifacts/runs/colab/asr/10-30_v3/k3/`      | Phiên K3: điểm âm thanh của từng câu ứng viên (`scores.jsonl`), thời gian chấm |
+| `artifacts/runs/colab/asr/10-30_v3/k4/`      | Phiên K4: mỗi nguồn J0–J4 một thư mục run agent (`trace.jsonl`, điểm từng mẫu) |
 
 
 ## Mục lục
@@ -519,8 +526,9 @@ thật. Mỗi lựa chọn ở lần 3 (câu mồi dài hơn ở E, chấm đi�
 
 **Giải pháp.** Không có thử nghiệm riêng cho thời gian; mọi phiên GPU (K1, K2, K3) đo kèm.
 
-- **Đo trên engine thật.** Engine ghép (sẽ viết, Phụ lục B.1, P8) chạy RNNT, large-v3, lớp bảo vệ, phép ghép và chấm điểm
-G trong cùng một tiến trình, đúng như lúc nộp. Mọi phiên GPU của lần 3 chạy qua engine này.
+- **Đo trong cùng một tiến trình.** Bộ chạy `lifemate/eval/asr_v3.py` nạp RNNT và large-v3 một lần rồi chạy lần lượt
+RNNT, large-v3, lớp bảo vệ, phép ghép (phiên K1, K2) và chấm điểm G (phiên K3), đúng thứ tự các bước lúc nộp. Engine ghép
+cho hệ thống thật chưa viết ở lần 3 (Phụ lục A.2).
 - **Thời gian mỗi mẫu.** `lifemate/backends/asr.py` › `ASRTranscriber.transcribe` đã ghi `Transcript.seconds` (đồng hồ
 thực từ lúc bắt đầu tới khi có chữ của mọi câu). Engine ghép ghi thêm thời gian của từng bước và một dòng `timing.jsonl`
 cho mỗi mẫu: `{id, n_utterances, audio_s, asr_s: {rnnt, whisper, guard, merge, score, total}}`.
@@ -589,10 +597,11 @@ nhận một mẫu, catalog (từ điển mã app → mục catalog), câu mồi
 câu mồi cho mỗi câu người dùng theo đúng thứ tự file âm thanh của `ASRTranscriber.wav_paths` (lịch sử trước, lượt cuối
 sau). Hàm chỉ đọc `sample.context`, `sample.history` (lượt trợ lý) và catalog; không đọc lượt người dùng và không đọc
 file môi trường của BTC.
-- **(sẽ sửa)** `lifemate/backends/asr.py` › `FasterWhisperASR.transcribe_batch(wav_paths, prompts=None)`:
-nhận thêm câu mồi riêng cho từng file. `ASRTranscriber` gọi `build_sample_prompts` khi
-`[asr].prompt_mode = "sample"` (khoá config mới; mặc định `"fixed"` giữ đúng hành vi cũ).
-- **(sẽ sửa)** `hyps.jsonl` có thêm trường `prompt` (câu mồi đã dùng cho câu đó) và `scores` (`avg_logprob`,
+- `lifemate/backends/asr.py` › `FasterWhisperASR.transcribe_one(audio, prompt)`: chép một câu với câu mồi riêng, trả
+thêm điểm tin cậy; `transcribe_batch(wav_paths, prompts=None)` nhận câu mồi riêng cho từng file. Bộ chạy
+`lifemate/eval/asr_v3.py` gọi `build_sample_prompts` cho từng mẫu; khoá config `[asr].prompt_mode` cho hệ thống thật chưa
+thêm (Phụ lục A.2).
+- `hyps.jsonl` có thêm trường `prompt` (câu mồi đã dùng cho câu đó) và `scores` (`avg_logprob`,
 `no_speech_prob` của từng đoạn, cho thử nghiệm H). File kết quả không lên git, nên chứa chữ của dữ liệu cũng được.
 
 **Lớp bảo vệ khi câu mồi có lời trợ lý.** Lớp bảo vệ g4 của lần 2 coi câu có 4 từ liên tiếp trùng câu mồi là "in lại câu
@@ -634,44 +643,68 @@ không quá 1 giây so với E0. Không biến thể nào đạt thì giữ E0.
 
 ### 3.7. Kết quả
 
-**Tập dò (`asr_tune`), large-v3 đứng riêng:**
+Phiên K1 chạy trên Colab T4 (mục "Máy chạy thực tế" ở Phụ lục B.2). 300 mẫu, 1 024 câu, mỗi câu chép bằng RNNT và bằng
+large-v3 với ba biến thể câu mồi.
 
+**Tập dò (`asr_tune`), large-v3 đứng riêng** (chênh lệch so với E0 kèm CI 95%):
 
-| Biến thể | Chép đúng từ tiếng Anh | Từ có trong ngữ cảnh | Từ không có trong ngữ cảnh | WER câu thuần Việt | Chèn từ câu mồi | Chép lại lời trợ lý | Chép lại (lớp bảo vệ) | Câu bị cắt câu mồi | p95 (s) |
-| -------- | ---------------------- | -------------------- | -------------------------- | ------------------ | --------------- | ------------------- | --------------------- | ------------------ | ------- |
-| E0       | chưa đo                | chưa đo              | chưa đo                    | chưa đo            | chưa đo         | chưa đo             | chưa đo               | 0                  | chưa đo |
-| E1       | chưa đo                | chưa đo              | chưa đo                    | chưa đo            | chưa đo         | chưa đo             | chưa đo               | chưa đo            | chưa đo |
-| E2       | chưa đo                | chưa đo              | chưa đo                    | chưa đo            | chưa đo         | chưa đo             | chưa đo               | chưa đo            | chưa đo |
+| Biến thể | Chép đúng từ tiếng Anh | Từ có trong ngữ cảnh | Từ không có trong ngữ cảnh | WER câu thuần Việt | WER mọi câu | Chèn từ câu mồi | Chép lại lời trợ lý | Chép lại (lớp bảo vệ) | Câu bị cắt câu mồi | Độ dài câu mồi (token, trung vị) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| E0 | 70,6% (278/394) | 188/252 | 107/142 | 29,5% | 29,7% | 26 | 0 | 2 | 0 | 183 |
+| E1 | 72,6% [−0,6; +4,9] | 195/252 | 107/142 | 27,6% [−2,5; −1,3] | 27,7% [−2,6; −1,4] | 21 | 2 | 2 | 143 | 200 |
+| E2 | 73,6% [−0,3; +6,2] | 192/252 | 108/142 | 26,0% [−4,4; −2,8] | 26,3% [−4,0; −2,7] | 20 | 2 | 3 | 990 | 270 |
 
+**Tập dò, bản ghép (RNNT + biến thể, luật `context_other`)**, chênh lệch so với E0 kèm CI 95%:
 
-**Tập dò, bản ghép (RNNT + biến thể, `context_other`), chênh lệch so với E0 kèm CI 95%:**
+| Biến thể | Chép đúng từ tiếng Anh | Từ có trong ngữ cảnh | Từ không có trong ngữ cảnh | WER câu thuần Việt | WER câu chêm | WER mọi câu | large-v3 p95 mỗi mẫu (s) |
+|---|---|---|---|---|---|---|---|
+| E0 | 69,0% | 194/252 | 95/142 | 17,8% | 24,2% | 19,9% | 7,79 |
+| E1 | 70,8% [−0,6; +4,4] | 201/252 | 95/142 | 17,7% [−0,2; +0,1] | 23,8% [−0,7; 0,0] | 19,8% [−0,3; 0,0] | 7,82 |
+| E2 | **72,1%** [0,0; +6,1] | 199/252 | 95/142 | 17,8% [−0,2; +0,2] | **23,5%** [−1,2; −0,1] | **19,7%** [−0,5; −0,0] | 7,95 |
 
+**Chọn theo tiêu chí đặt trước:** cả ba biến thể đều không làm WER câu thuần Việt của bản ghép tăng (CI chứa 0), và p95
+của large-v3 tăng nhiều nhất 0,16 giây (dưới ngưỡng 1 giây). Trong đó E2 có chép đúng từ tiếng Anh của bản ghép cao nhất,
+nên **E2 thắng**. Mọi bước sau dùng chữ large-v3 với câu mồi E2.
 
-| Biến thể | Chép đúng từ tiếng Anh | WER câu thuần Việt | WER câu chêm | WER mọi câu |
-| -------- | ---------------------- | ------------------ | ------------ | ----------- |
-| E0       | chưa đo                | chưa đo            | chưa đo      | chưa đo     |
-| E1       | chưa đo                | chưa đo            | chưa đo      | chưa đo     |
-| E2       | chưa đo                | chưa đo            | chưa đo      | chưa đo     |
+**Kiểm tra tất định:** chép lại 50 mẫu đầu của tập dò (145 câu) với E0, chữ giống hệt lần một ở cả RNNT lẫn large-v3
+(0 câu khác).
 
+**Tập kiểm tra, đo một lần** (bản ghép với luật `context_other`; chênh lệch so với E0 kèm CI 95%):
 
-**Tập kiểm tra, biến thể thắng (đo một lần):**
+| Tập | Hệ thống | Chép đúng từ tiếng Anh | Từ có / không có trong ngữ cảnh | WER câu thuần Việt | WER câu chêm | WER mọi câu |
+|---|---|---|---|---|---|---|
+| val\_seen | RNNT đứng riêng | 49,9% | | 17,7% | 24,8% | 20,0% |
+| | Ghép, E0 (lần 2) | 72,2% | 185/238, 65/97 | 18,1% | 22,1% | 19,4% |
+| | Ghép, **E2** | **75,5%** [0,0; +6,6] | 190/238, 66/97 | 17,9% [−0,4; 0,0] | 21,7% [−1,0; +0,1] | **19,1%** [−0,5; −0,0] |
+| val\_unseen | RNNT đứng riêng | 51,6% | | 17,5% | 24,1% | 19,8% |
+| | Ghép, E0 (lần 2) | 63,1% | 112/173, 49/79 | 17,8% | 22,8% | 19,5% |
+| | Ghép, **E2** | **68,7%** [+2,2; +9,8] | 125/173, 49/79 | **17,6%** [−0,3; −0,0] | **22,0%** [−1,4; −0,3] | **19,2%** [−0,6; −0,2] |
 
-
-| Tập         | Hệ thống             | Chép đúng từ tiếng Anh | Từ có / không có trong ngữ cảnh | WER câu thuần Việt | WER câu chêm | WER mọi câu |
-| ----------- | -------------------- | ---------------------- | ------------------------------- | ------------------ | ------------ | ----------- |
-| val\_seen   | Ghép, E0 (lần 2)     | 72,2                   | chưa đo                         | 18,1               | 22,1         | 19,4        |
-|             | Ghép, biến thể thắng | chưa đo                | chưa đo                         | chưa đo            | chưa đo      | chưa đo     |
-| val\_unseen | Ghép, E0 (lần 2)     | 63,1                   | chưa đo                         | 17,8               | 22,8         | 19,5        |
-|             | Ghép, biến thể thắng | chưa đo                | chưa đo                         | chưa đo            | chưa đo      | chưa đo     |
-
+large-v3 đứng riêng với E2 trên val: chép đúng từ tiếng Anh 74,9% / 67,9% (E0: 72,2% / 61,1%), WER câu thuần Việt 26,5% /
+25,5% (E0: 29,2% / 28,5%).
 
 ### 3.8. Phân tích
 
-*Điền sau khi đo.*
+- **Câu mồi theo mẫu giúp đúng chỗ dự đoán: các từ có trong ngữ cảnh của mẫu.** Trên `val_unseen`, số từ có trong ngữ cảnh
+  được chép đúng tăng từ 112 lên 125 (trên 173), còn từ không có trong ngữ cảnh giữ nguyên 49/79. Đây là tập có app lạ,
+  nơi câu mồi cố định của lần 2 giúp ít nhất (mục 3.1), và cũng là tập tăng nhiều nhất (+5,6 điểm, có ý nghĩa thống kê).
+  Trên `val_seen` mức tăng +3,3 điểm nhưng CI chạm 0.
+- **Lợi ích lớn hơn dự kiến ở phần tiếng Việt của large-v3.** WER câu thuần Việt của large-v3 đứng riêng giảm 2,7–3,5 điểm,
+  có ý nghĩa thống kê ở cả ba tập. Lời trợ lý là câu tiếng Việt tự nhiên đúng chủ đề hội thoại, nên large-v3 viết tiếng
+  Việt tốt hơn. Bản ghép giữ chữ RNNT ở phần tiếng Việt, nên phần lợi này chỉ thấy ở WER câu chêm và WER mọi câu của bản
+  ghép (giảm 0,3–0,8 điểm).
+- **Câu mồi E2 bị cắt ở gần mọi câu mà vẫn thắng.** Câu mồi E2 dài trung vị 270 token, vượt giới hạn 223 token, nên 990
+  trên 1 024 câu bị cắt mất phần đầu của `en_full_v1`. Phần bị cắt là các từ khoá ít sai nhất (mục 3.3), nên mức chép đúng
+  không giảm; phần còn lại cộng với tên app và lời trợ lý cho kết quả tốt hơn.
+- **Rủi ro chép lại lời trợ lý rất nhỏ.** Chỉ 2 câu trên 1 024 có 4 từ liên tiếp của lời trợ lý mà đáp án không có, và số
+  lần chèn từ của câu mồi giảm từ 26 xuống 20.
+- **Chi phí thời gian không đáng kể.** p95 của large-v3 tăng 0,16 giây mỗi mẫu (7,79 lên 7,95 giây trên T4).
 
 ### 3.9. Kết luận
 
-*Điền sau khi đo.*
+Dùng câu mồi E2 cho large-v3: `en_full_v1`, rồi tên tiếng Việt của các app đã cài, rồi lời trợ lý liền trước câu đó; lớp
+bảo vệ chỉ so với phần cố định. So với lần 2, bản ghép chép đúng thêm 3,3 điểm (`val_seen`) và 5,6 điểm (`val_unseen`, có
+ý nghĩa thống kê) mà câu thuần Việt không sai thêm, và tốn thêm khoảng 0,2 giây ở p95.
 
 ### 3.10. Giới hạn
 
@@ -783,37 +816,58 @@ tách theo từ của câu mồi, `merge_missed_english`. Tiêu chí so F với 
 
 ### 4.7. Kết quả
 
-**Bảng độ tin cậy trên tập học** (các từ của câu mồi có `written` từ 3 trở lên):
+**Bảng độ tin cậy trên tập học** (chữ RNNT và chữ large-v3 E2 của 793 mẫu, phiên K2; các từ của câu mồi có số lần viết
+ra từ 3 trở lên):
 
+| Từ | Số lần large-v3 viết ra khi RNNT không có | Số lần đúng | Độ tin cậy |
+|---|---|---|---|
+| SJC | 18 | 18 | 0,95 |
+| RON | 15 | 15 | 0,94 |
+| SMS | 17 | 16 | 0,89 |
+| voucher | 5 | 5 | 0,86 |
+| workshop | 4 | 4 | 0,83 |
+| tivi | 14 | 12 | 0,81 |
+| meeting | 8 | 7 | 0,80 |
+| VTV, MinhMart, Hale | 3 | 3 | 0,80 |
+| check | 11 | 9 | 0,77 |
+| robot | 10 | 8 | 0,75 |
+| Sarah, HTV, chill | 7 / 4 / 4 | 5 / 3 / 3 | 0,67 |
+| Foods | 6 | 4 | 0,63 |
+| Zalo | 8 | 5 | 0,60 |
+| demo, MinhPoint | 3 | 2 | 0,60 |
+| file | 5 | 3 | 0,57 |
+| Mail | 8 | 4 | 0,50 |
+| email | 7 | 3 | 0,44 |
+| list | 8 | 3 | 0,40 |
+| tour | 3 | 1 | 0,40 |
+| OK | 3 | 0 | 0,20 |
 
-| Từ      | Số lần large-v3 viết ra khi RNNT không có | Số lần đúng | Độ tin cậy |
-| ------- | ----------------------------------------- | ----------- | ---------- |
-| chưa đo |                                           |             |            |
+**Tập học, kiểm định chéo 5 phần, chọn θ** (độ chính xác quyết định đoạn, trung bình qua 5 phần; C0 không có tham số nên
+tính trên cả tập học):
 
+| Cách | C0 | θ = 0,3 | θ = 0,4 | θ = 0,5 | θ = 0,6 | θ = 0,7 | θ = 0,8 |
+|---|---|---|---|---|---|---|---|
+| Độ chính xác quyết định đoạn | 78,8% | 79,1% | **79,3%** | 78,8% | 77,8% | 77,8% | 76,1% |
 
-**Tập học, kiểm định chéo 5 phần, chọn θ** (trung bình qua 5 phần):
-
-
-| θ               | Độ chính xác quyết định đoạn | Từ câu mồi bị lấy nhầm | Từ câu mồi đúng bị bỏ |
-| --------------- | ---------------------------- | ---------------------- | --------------------- |
-| `context_other` | chưa đo                      | chưa đo                | chưa đo               |
-| 0,3             | chưa đo                      | chưa đo                | chưa đo               |
-| 0,4             | chưa đo                      | chưa đo                | chưa đo               |
-| 0,5             | chưa đo                      | chưa đo                | chưa đo               |
-| 0,6             | chưa đo                      | chưa đo                | chưa đo               |
-| 0,7             | chưa đo                      | chưa đo                | chưa đo               |
-| 0,8             | chưa đo                      | chưa đo                | chưa đo               |
-
-
-Kết quả của F trên tập dò và trên val nằm trong bảng chọn chung (mục 7).
+θ thắng là **0,4**: từ của câu mồi có độ tin cậy dưới 0,4 chỉ được nhận khi có trong từ điển ngữ cảnh của mẫu. Trong
+bảng trên chỉ có OK (0,20); ngoài bảng là các từ ít gặp mà lần nào viết ra cũng sai (ví dụ viết ra 1 lần, sai 1 lần, độ
+tin cậy 0,33). List và tour đúng bằng 0,40 nên vẫn được nhận như C0. Kết quả của F trên tập dò và val nằm trong bảng chọn chung (mục 7).
 
 ### 4.8. Phân tích
 
-*Điền sau khi đo.*
+- **Bảng độ tin cậy khớp với dự đoán ở mục 4.2.** Các từ không giống âm tiết Việt nào (SJC, RON, SMS, voucher) gần như
+  luôn đúng khi large-v3 viết ra. Các từ trông như chữ Việt (Mail giống "mai", list giống "lịch", OK) đúng một nửa hoặc ít
+  hơn.
+- **Nhưng các từ bị lọc xuất hiện quá ít để đổi kết quả nhiều.** OK chỉ được viết ra 3 lần trên cả tập học; các từ dưới
+  ngưỡng còn lại mỗi từ 1–2 lần. Trên tập dò, F giảm từ câu mồi bị lấy nhầm từ 20 xuống 17 và bỏ thêm 2 từ đúng; độ chính xác quyết định đoạn
+  tăng 1,1 điểm (70,7% lên 71,8%), không có ý nghĩa thống kê.
+- **θ cao hơn làm tệ đi** (θ từ 0,6 trở lên): nhiều từ đúng như Zalo (0,60) và Sarah (0,67) bắt đầu bị đòi ngữ cảnh, và
+  các từ này thường không có trong ngữ cảnh.
 
 ### 4.9. Kết luận
 
-*Điền sau khi đo.*
+F đúng hướng nhưng lợi ích nhỏ: các từ câu mồi hay bị viết nhầm hiếm gặp, nên lọc riêng chúng chỉ sửa được vài từ. F không hơn C0 có ý nghĩa thống kê trong bảng chọn chung (mục 7). Bảng độ tin cậy vẫn có ích làm đặc trưng
+của H, và cho thấy nên viết lại câu mồi cố định bỏ các từ OK, list, tour ở lần sau.
 
 ### 4.10. Giới hạn
 
@@ -894,7 +948,7 @@ decoder ép chuỗi cho mỗi câu ứng viên.
 đoạn mà H xét), dựng câu A (đoạn đó là chữ RNNT) và câu B (đoạn đó là chữ large-v3); phần còn lại của hai câu giống hệt
 nhau. Cả hai câu được đưa về cùng một kiểu viết trước khi chấm: chữ thường, bỏ dấu câu, như chữ RNNT. Lý do: large-v3
 quen viết hoa và có dấu câu; nếu chỉ câu B giữ kiểu viết đó thì câu B được lợi chỉ vì kiểu viết. Một câu có nhiều đoạn
-khác nhau được chấm lần lượt từng đoạn, từ trái sang phải, đoạn sau dựng trên kết quả của đoạn trước.
+khác nhau thì mỗi đoạn có một cặp câu riêng; ở mọi đoạn khác, cả A và B giữ chữ RNNT, nên các đoạn được chấm độc lập.
 
 **Quyết định.** Lấy chữ large-v3 khi `điểm_âm_thanh(B) > điểm_âm_thanh(A)`.
 
@@ -930,8 +984,8 @@ dùng nói tên đó. Có bốn lớp kiểm soát:
 kiện độ dài cố định của lần 2 không dùng nữa, vì số từ hai phía đã là đặc trưng. I lấy đoạn không chắc theo ứng viên thắng
 của bảng chọn chung (mục 8.3).
 
-**Câu dài hơn 30 giây.** Encoder chỉ nhận một cửa sổ 30 giây. Câu nói dài hơn 30 giây giữ quyết định của F, không chấm;
-số câu như vậy được đếm và ghi vào kết quả.
+**Câu dài hơn 30 giây.** Encoder chỉ nhận một cửa sổ 30 giây. Câu nói dài hơn 30 giây vẫn được chấm trên 30 giây đầu
+nhưng được đánh dấu, và quyết định của G cho câu đó lấy theo F.
 
 **Code.**
 
@@ -967,18 +1021,33 @@ Tiêu chí so G với các ứng viên khác: bảng chọn chung (mục 7).
 
 ### 5.7. Kết quả
 
-Kết quả của G trên tập dò và trên val nằm trong bảng chọn chung (mục 7).
+Phiên K3 chấm 201 đoạn của tập dò, 486 đoạn của tập học, 178 đoạn của `val_seen` và 103 đoạn của `val_unseen`. Chấm lại 50
+đoạn đầu của tập dò cho điểm giống hệt (0 đoạn khác). Thời gian chấm thêm mỗi mẫu trên T4: p95 0,73 giây (tập dò), 0,79 /
+0,77 giây (hai tập val), tối đa 1,9 giây; bộ nhớ GPU đỉnh của bước chấm 3,4 GB.
 
-Phân bố `Δâm_thanh` trên tập dò (p5, p50, p95), tách theo nhãn tự động: chưa đo. Số câu dài hơn 30 giây bị bỏ qua: chưa
-đo.
+Trên tập dò (chi tiết trong bảng chọn chung, mục 7):
+
+| Cách | Độ chính xác quyết định đoạn | Từ câu mồi bị lấy nhầm | Từ ngoài câu mồi bị lấy nhầm | Từ câu mồi đúng bị bỏ | Từ ngoài câu mồi đúng bị bỏ |
+|---|---|---|---|---|---|
+| C0 (luật lần 2) | 70,7% | 20 | 17 | 0 | 23 |
+| G (điểm âm thanh) | 69,0% | **4** | 60 | 11 | **13** |
 
 ### 5.8. Phân tích
 
-*Điền sau khi đo.*
+- **G sửa đúng loại lỗi mà G nhắm tới, và gây ra loại lỗi khác.** Từ của câu mồi bị lấy nhầm giảm từ 20 xuống 4: khi chấm
+  không câu mồi, large-v3 không còn bị "Mail" kéo, nên nghe ra "mai". G cũng cứu được 10 từ đúng ngoài câu mồi mà luật C0
+  bỏ (23 xuống 13), vì luật đòi các từ này có trong ngữ cảnh còn G thì không.
+- **Nhưng G lấy nhầm 60 từ ngoài câu mồi, so với 17 của C0.** Đây là các từ large-v3 tự bịa ("Toyota" cho "tôi ra đê"):
+  large-v3 không câu mồi vẫn thấy chuỗi tiếng Anh gần âm đó khớp âm thanh hơn chữ Việt đúng của RNNT. Điểm âm thanh của
+  large-v3 mang thói quen ngôn ngữ của chính large-v3 (rủi ro đã ghi ở mục 5.10), và với loại từ này thói quen đó sai.
+- **Kết quả: G đứng riêng không hơn C0.** Độ chính xác quyết định đoạn 69,0% so với 70,7%, CI của chênh lệch [−13,0; +9,9].
+  Hai cách sai ở hai loại từ khác nhau, nên kết hợp chúng (H) có lý.
 
 ### 5.9. Kết luận
 
-*Điền sau khi đo.*
+Điểm âm thanh là tín hiệu tốt cho từ của câu mồi và cho từ đúng mà ngữ cảnh không có, nhưng là tín hiệu xấu cho từ
+large-v3 tự bịa. G không dùng riêng được; hiệu điểm âm thanh có giá trị làm một đặc trưng của H (trọng số lớn thứ ba, mục
+6.7).
 
 ### 5.10. Giới hạn và rủi ro
 
@@ -1079,30 +1148,55 @@ Tiêu chí so H với các ứng viên khác: bảng chọn chung (mục 7).
 
 **Dữ liệu học:**
 
+| | Số đoạn | Nhãn 1 (lấy large-v3 đúng hơn) | Nhãn 0 | Đoạn hoà (bỏ) |
+|---|---|---|---|---|
+| Tập học | 486 | 226 | 180 | 80 |
+| `asr_tune` | 201 | 174 đoạn có nhãn | | 27 |
 
-|            | Số đoạn | Nhãn 1 (lấy large-v3 đúng hơn) | Nhãn 0  | Đoạn hoà (bỏ) |
-| ---------- | ------- | ------------------------------ | ------- | ------------- |
-| Tập học    | chưa đo | chưa đo                        | chưa đo | chưa đo       |
-| `asr_tune` | chưa đo | chưa đo                        | chưa đo | chưa đo       |
+**Chọn hệ số phạt bằng kiểm định chéo 5 phần theo mẫu trên tập học** (độ chính xác quyết định đoạn): 81,0% (0,01), 81,0%
+(0,1), 81,3% (1), **81,5% (10)**. Hệ số phạt thắng là 10.
 
-
-**Trọng số** (sau chuẩn hoá; dương là nghiêng về lấy large-v3):
-
+**Trọng số** (học trên cả tập học, đặc trưng đã chuẩn hoá về trung bình 0, độ lệch 1; dương là nghiêng về lấy large-v3):
 
 | Đặc trưng | Trọng số |
-| --------- | -------- |
-| chưa đo   |          |
+|---|---|
+| Có từ tiếng Anh mới thuộc câu mồi | +0,82 |
+| Có từ tiếng Anh mới trong từ điển ngữ cảnh | +0,80 |
+| Hiệu điểm âm thanh (G) | +0,63 |
+| `avg_logprob` của large-v3 | +0,47 |
+| Câu là lượt cuối | +0,15 |
+| Độ tin cậy thấp nhất của từ câu mồi trong đoạn (F) | +0,09 |
+| `no_speech_prob` | +0,08 |
+| Số từ phía large-v3 | −0,25 |
+| Tỉ lệ từ phía RNNT là chữ Việt | −0,28 |
+| Số từ phía RNNT | −0,31 |
+| Hệ số chặn | +0,39 |
 
+**Tập dò** (chênh lệch so với C0 kèm CI 95%; đủ bảng ở mục 7):
 
-Kết quả của H trên tập dò và trên val nằm trong bảng chọn chung (mục 7).
+| Cách | Độ chính xác quyết định đoạn | Chép đúng từ tiếng Anh | WER câu thuần Việt | WER mọi câu | Từ lấy nhầm (câu mồi / ngoài) | Từ đúng bị bỏ (câu mồi / ngoài) |
+|---|---|---|---|---|---|---|
+| C0 | 70,7% | 72,1% | 17,8% | 19,7% | 20 / 17 | 0 / 23 |
+| H | **76,4%** [0,0; +11,7] | 71,6% [−2,9; +2,0] | **17,6%** [−0,28; −0,03] | **19,5%** [−0,34; −0,02] | 12 / 17 | 5 / 21 |
 
 ### 6.8. Phân tích
 
-*Điền sau khi đo.*
+- **H học đúng các tín hiệu đã biết.** Hai trọng số lớn nhất là "từ thuộc câu mồi" và "từ có trong ngữ cảnh", tức chính
+  hai điều kiện của luật C0. Tín hiệu mới đứng thứ ba là hiệu điểm âm thanh của G. Đoạn càng dài (cả hai phía) và phía
+  RNNT càng là chữ Việt hợp lệ thì H càng nghiêng về giữ RNNT, đúng như ca "Toyota" cho "tôi ra đê".
+- **Độ tin cậy từng từ của F gần như không được dùng** (trọng số +0,09): thông tin đó đã nằm trong "từ thuộc câu mồi" và
+  hiệu điểm âm thanh.
+- **H là cách tốt nhất trên tập dò, nhưng chưa đủ chắc để thắng theo quy tắc đặt trước.** Độ chính xác quyết định đoạn
+  cao hơn C0 5,7 điểm và WER câu thuần Việt giảm có ý nghĩa thống kê (−0,14 điểm). Nhưng CI của chênh lệch độ chính xác
+  là [0,0; +11,7]: cận dưới đúng bằng 0, nên theo quy tắc chọn (mục 7) H chưa hơn C0 có ý nghĩa thống kê. Tập dò chỉ có
+  174 đoạn có nhãn, nên CI rộng.
 
 ### 6.9. Kết luận
 
-*Điền sau khi đo.*
+Bộ phân loại kết hợp được điểm âm thanh với các luật cũ và tốt nhất trên tập dò, nhưng chưa thắng C0 một cách chắc chắn
+với số đoạn hiện có. Theo quy tắc đặt trước, H không được chọn ở lần 3. Đây là ứng viên tốt nhất để thử lại khi có thêm
+dữ liệu có nhãn (ví dụ gộp tập học và tập dò rồi đo bằng kiểm định chéo), vì độ chính xác trong kiểm định chéo trên tập học
+cũng cao hơn C0 (81,5% so với 78,8%).
 
 ### 6.10. Giới hạn
 
@@ -1163,29 +1257,48 @@ chọn lại theo số của val.
 khi chạy hệ thống trên A30, nếu chấm ép chuỗi gặp lỗi kỹ thuật, hoặc nếu G không qua điều kiện chặn. F chỉ cần số đếm trên tập
 học đã có từ phiên K2, nên không tốn thêm GPU.
 
-**Kết quả trên tập dò** (chênh lệch so với C0 kèm CI 95%):
+**Kết quả trên tập dò** (chữ RNNT và large-v3 E2 của phiên K1; 201 đoạn cần quyết định, 174 đoạn có nhãn, 27 đoạn hoà;
+chênh lệch so với C0 kèm CI 95%):
 
 | Ứng viên | Độ chính xác quyết định đoạn | Chép đúng từ tiếng Anh | WER câu thuần Việt | WER câu chêm | WER mọi câu | Từ lấy nhầm (câu mồi / ngoài câu mồi) | Từ đúng bị bỏ | Thời gian chấm thêm p95 (s) |
 |---|---|---|---|---|---|---|---|---|
-| C0 | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | 0 |
-| F | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
-| G | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
-| H | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
+| C0 | 70,7% | 72,1% | 17,76% | 23,5% | 19,69% | 20 / 17 | 23 | 0 |
+| F (θ = 0,4) | 71,8% [−1,1; +3,7] | 71,6% [−1,4; 0,0] | 17,71% [−0,12; 0,00] | 23,5% [−0,1; +0,1] | 19,67% [−0,08; +0,03] | 17 / 17 | 25 | 0 |
+| G | 69,0% [−13,0; +9,9] | 71,1% [−4,7; +2,8] | 17,64% [−0,33; +0,07] | 23,4% [−0,9; +0,6] | 19,57% [−0,42; +0,18] | 4 / 60 | 24 | 0,73 |
+| H | **76,4%** [0,0; +11,7] | 71,6% [−2,9; +2,0] | **17,62%** [−0,28; −0,03] | 23,3% [−0,7; +0,1] | **19,52%** [−0,34; −0,02] | 12 / 17 | 26 | 0,73 |
+| RNNT đứng riêng (tham khảo) | | 49,0% | 17,48% | 25,8% | 20,29% | | | |
 
-Số đoạn được quyết định, số đoạn có nhãn, số đoạn hoà: chưa đo.
+**Áp quy tắc chọn:**
 
-**Kết quả trên tập kiểm tra** (đo một lần):
+1. Không ứng viên nào tệ hơn C0 có ý nghĩa thống kê ở chép đúng từ tiếng Anh hay WER câu thuần Việt, và thời gian chấm thêm
+   của G, H (0,73 giây ở p95) dưới ngưỡng 1 giây. Cả bốn ứng viên qua điều kiện chặn.
+2. Độ chính xác quyết định đoạn cao nhất là H (76,4%).
+3. So H với ứng viên đơn giản nhất là C0: CI của chênh lệch [0,0; +11,7] có cận dưới bằng 0, tức H không hơn C0 có ý nghĩa
+   thống kê. Theo quy tắc, chọn ứng viên đơn giản hơn.
+
+**Ứng viên thắng: C0** (luật `context_other` của lần 2, trên chữ large-v3 với câu mồi E2).
+
+**Kết quả trên tập kiểm tra** (đo một lần; vì C0 thắng, bảng chỉ có C0 và RNNT):
 
 | Tập | Hệ thống | Độ chính xác quyết định đoạn | Chép đúng từ tiếng Anh | WER câu thuần Việt | WER câu chêm | WER mọi câu | Bỏ sót giá trị tham số |
 |---|---|---|---|---|---|---|---|
-| val\_seen | RNNT | | 49,9 | 17,7 | 24,8 | 20,0 | chưa đo |
-| | C0 | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
-| | Ứng viên thắng | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
-| val\_unseen | RNNT | | 51,6 | 17,5 | 24,1 | 19,8 | chưa đo |
-| | C0 | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
-| | Ứng viên thắng | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
+| val\_seen | RNNT | | 49,9% | 17,7% | 24,8% | 20,0% | 32,1% |
+| | C0 trên E2 | 80,3% (152 đoạn có nhãn) | 75,5% | 17,9% | 21,7% | 19,1% | 30,3% |
+| val\_unseen | RNNT | | 51,6% | 17,5% | 24,1% | 19,8% | 48,1% |
+| | C0 trên E2 | 77,5% (80 đoạn có nhãn) | 68,7% | 17,6% | 22,0% | 19,2% | 44,4% |
 
-Hàng C0 trên val dùng câu mồi thắng của E, nên có thể khác số của lần 2.
+**Phân tích.**
+
+- **Ba cách mới cùng không vượt được C0 một cách chắc chắn**, nhưng vì ba lý do khác nhau. F sửa đúng loại lỗi nhưng loại
+  lỗi đó quá hiếm (mục 4.8). G sửa từ câu mồi nhưng lấy nhầm nhiều từ large-v3 tự bịa (mục 5.8). H kết hợp được cả hai và
+  tốt nhất, nhưng 174 đoạn có nhãn chưa đủ để CI tách khỏi 0 (mục 6.8).
+- **Phần còn lại để cải thiện ở bước ghép là nhỏ.** Trên tập dò, C0 còn lấy nhầm 37 từ và bỏ 23 từ đúng trên khoảng
+  400 từ tiếng Anh; phần lớn mức chép đúng đã đến từ câu mồi E2 (mục 3.7).
+- **Thứ hạng giữ trên val.** Độ chính xác quyết định đoạn của C0 trên val (77–80%) còn cao hơn trên tập dò (70,7%), nên
+  không có dấu hiệu tập dò khó bất thường.
+
+**Kết luận.** Giữ luật C0 cho bước ghép. Cấu hình ASR tốt nhất của lần 3 là: RNNT + large-v3 với câu mồi E2 + luật
+`context_other` của lần 2 (từ điển ngữ cảnh bỏ khoá JSON). H là hướng nên thử lại khi có thêm dữ liệu có nhãn.
 
 **Giới hạn.** Bốn ứng viên được so trên 300 mẫu, nên ứng viên thắng trên tập dò vẫn có thể thắng một phần nhờ may; số val
 đo một lần là số để tin. Độ chính xác quyết định đoạn coi lấy nhầm và bỏ sót nặng như nhau, trong khi lấy nhầm một từ
@@ -1273,21 +1386,36 @@ so với bản chốt. Dưới mức đó, lợi ích tối đa nhỏ hơn mức
 
 ### 8.7. Kết quả
 
-| Tập         | Chép đúng, bản chốt | Trần với hai phương án | Đoạn cứu được | Đoạn rủi ro | Đoạn không cứu được | Câu thuần Việt có đoạn không chắc | Token thêm mỗi mẫu: p50 / p95 / tối đa |
-| ----------- | ------------------- | ---------------------- | ------------- | ----------- | ------------------- | --------------------------------- | -------------------------------------- |
-| `asr_tune`  | chưa đo             | chưa đo                | chưa đo       | chưa đo     | chưa đo             | chưa đo                           | chưa đo                                |
-| val\_seen   | chưa đo             | chưa đo                | chưa đo       | chưa đo     | chưa đo             | chưa đo                           | chưa đo                                |
-| val\_unseen | chưa đo             | chưa đo                | chưa đo       | chưa đo     | chưa đo             | chưa đo                           | chưa đo                                |
+Cách thắng của bảng chọn chung là C0 (luật), nên đoạn không chắc là đoạn mà bộ lọc ngữ cảnh loại, tức phép ghép giữ chữ
+RNNT dù large-v3 đề xuất một từ tiếng Anh mới (mục 8.3).
+
+| Tập | Chép đúng, bản chốt | Trần với hai phương án | Trần trừ bản chốt (CI 95%) | Đoạn không chắc | Cứu được | Rủi ro | Hoà | Câu thuần Việt có đoạn không chắc | Token thêm mỗi mẫu (mọi mẫu): p50 / p95 / tối đa |
+|---|---|---|---|---|---|---|---|---|---|
+| `asr_tune` | 72,1% | 76,9% | **+4,8** [+2,3; +7,6] | 88 | 23 | 50 | 15 | 28 | |
+| val\_seen | 75,5% | 77,9% | +2,4 [+0,3; +4,6] | 75 | 15 | 44 | 16 | 28 | 0 / 12 / 23 |
+| val\_unseen | 68,7% | 72,6% | +4,0 [+1,7; +6,8] | 58 | 16 | 24 | 18 | 13 | 0 / 10 / 20 |
+
+"Cứu được": bản chốt giữ RNNT nhưng chữ large-v3 ít lỗi hơn. "Rủi ro": bản chốt đã ít lỗi hơn, đưa thêm phương án large-v3
+thì LLM có thể chọn nhầm. "Hoà": hai phương án cùng số lỗi. Trên val, 61 trên 274 mẫu (`val_seen`) và 45 trên 178 mẫu
+(`val_unseen`) có ít nhất một đoạn hai phương án; các mẫu đó thêm trung vị 7 token, tối đa 23 token.
+
+**Áp tiêu chí đặt trước:** trần trên `asr_tune` cứu thêm 4,8 điểm phần trăm, từ 3 điểm trở lên, nên **chạy I2** (nguồn J4
+của thử nghiệm J).
 
 Kết quả của I2 nằm ở mục 9.
 
 ### 8.8. Phân tích
 
-*Điền sau khi đo.*
+- **Trần có ý nghĩa thống kê trên cả ba tập**, từ +2,4 tới +4,8 điểm chép đúng từ tiếng Anh, nếu LLM luôn chọn đúng.
+- **Nhưng số đoạn "rủi ro" gấp đôi số đoạn "cứu được"** (50 so với 23 trên tập dò; 44 so với 15 trên `val_seen`). Bộ lọc
+  ngữ cảnh thường loại đúng: ở phần lớn đoạn bị loại, chữ RNNT mới là chữ đúng. LLM phải chọn đúng ở các đoạn rủi ro thì
+  mới không mất điểm; vì vậy chỉ trần thôi chưa đủ để quyết định, cần I2.
+- **Chi phí token rất nhỏ**: phần lớn mẫu không đổi, mẫu có đoạn không chắc chỉ thêm khoảng 7 token.
 
 ### 8.9. Kết luận
 
-*Điền sau khi đo.*
+Định dạng hai phương án có trần đủ cao (+4,8 điểm trên tập dò) và rẻ (vài token), nên được thử thật với LLM ở thử nghiệm J
+(nguồn J4). Rủi ro chính là các đoạn mà bản chốt đã đúng chiếm phần lớn đoạn không chắc.
 
 ### 8.10. Giới hạn
 
@@ -1428,35 +1556,36 @@ chung), nên số tập dò của bước chọn thứ hai lạc quan hơn (mụ
 | `lifemate/io/zaic.py` › `load_catalog`                              | hàm          | thư mục dữ liệu, split → catalog tool                                        | Đọc catalog (không đọc file môi trường)       |
 
 
-### A.2. Code sẽ viết hoặc sửa ở lần 3
+### A.2. Code đã viết hoặc sửa ở lần 3
 
+| File › tên | Loại | Đầu vào → đầu ra | Việc làm | Thử nghiệm |
+|---|---|---|---|---|
+| `lifemate/eval/make_splits.py` | sửa | ghi thêm `configs/splits/asr_learn.txt` (793 mã) | Danh sách tập học | F, G, H |
+| `lifemate/eval/asr_merge.py` › `sample_context_words` | sửa | mẫu, catalog → tập từ, chỉ lấy giá trị JSON | Từ điển ngữ cảnh bỏ khoá | mọi cách ghép |
+| `lifemate/eval/asr_merge.py` › `Region`, `split_regions`, `candidate_regions`, `assemble`, `rule_decision` | mới | hai câu → từ khớp và vùng khác nhau; hàm quyết định → câu ghép | Dùng chung cho C0, F, G, H; ghép lại giống hệt lần 2 từng byte | mọi cách ghép |
+| `lifemate/backends/asr_prompt.py` › `build_sample_prompts` | module mới | mẫu, catalog, câu mồi cố định, biến thể → câu mồi từng câu theo thứ tự file | Câu mồi theo mẫu | E |
+| `lifemate/backends/asr.py` › `FasterWhisperASR.transcribe_one` | hàm mới | âm thanh, câu mồi → chữ, `avg_logprob`, `no_speech_prob` | Câu mồi riêng từng câu, điểm tin cậy | E, H |
+| `lifemate/backends/asr.py` › `FasterWhisperASR.score_texts` | hàm mới | âm thanh, các câu → (tổng log xác suất, số token) | Chấm ép chuỗi không câu mồi (`encode` một lần, `align` từng câu) | G |
+| `lifemate/eval/asr_v3.py` › `transcribe_variants`, `score_candidates` | module mới | file id, biến thể → `hyps.jsonl`, `timing.jsonl`, `summary.json`; chữ hai mô hình → điểm âm thanh | Bộ chạy các phiên K1–K3: RNNT, large-v3 với lớp bảo vệ so phần cố định, bộ lọc câu bịa, ghép, chấm điểm, đo thời gian từng bước, `--resume` | E, F, G, H |
+| `lifemate/eval/gpu_memory.py` › `GpuMemoryMonitor` | module mới | chạy nền `nvidia-smi` → `gpu_memory.csv`, bộ nhớ đỉnh | Đo bộ nhớ | mọi phiên |
+| `lifemate/eval/candidate_scoring.py` › `candidate_pairs`, `decide_g` | module mới | chữ RNNT, chữ large-v3 → câu ứng viên A, B; điểm → quyết định | Câu ứng viên của G | G |
+| `lifemate/eval/asr_v3_analysis.py` | module mới | `hyps.jsonl`, điểm âm thanh → vùng có nhãn, bảng độ tin cậy, các cách quyết định C0, F, G, H, hồi quy logistic, độ chính xác quyết định đoạn kèm bootstrap, hai phương án | Phân tích offline | F, G, H, bảng chọn chung, I |
+| `lifemate/eval/asr_v3_report.py` | module mới | thư mục kết quả K1–K3 → các bảng số (`e.json`, `select.json`) và chữ của các nguồn J | Tính số cho báo cáo | E–I |
+| `lifemate/eval/asr_v3_agent.py` | module mới | thư mục run agent → điểm từng nguồn, CI, đếm loại lỗi, dấu ngoặc lọt vào tham số | Chấm thử nghiệm J; mẫu có chữ giống J1 dùng lại điểm J1 | J |
+| `lifemate/run/cli.py` › `--transcripts replay --hyps`, `--set` | sửa | file `hyps.jsonl` → agent đọc chữ đã lưu | Chạy agent trên chữ đã lưu | J |
+| `configs/prompts/system_v1_alternatives.md` | file mới | `system_v1.md` thêm quy tắc 15 | Prompt cho J4 | J |
+| `ops/colab/asr_v3_setup.py`, `ops/colab/asr_v3_launch.py` | script mới | | Chuẩn bị máy Colab và chạy nền một phiên | mọi phiên |
+| `ops/kaggle/asr_v3/` | kernel mới | | Bản Kaggle của K1–K3 (chưa dùng được vì hết hạn mức GPU tuần này) | |
 
-| File › tên                                                                                                         | Loại       | Đầu vào → đầu ra                                                             | Việc làm                             | Thử nghiệm              |
-| ------------------------------------------------------------------------------------------------------------------ | ---------- | ---------------------------------------------------------------------------- | ------------------------------------ | ----------------------- |
-| `lifemate/backends/asr_prompt.py` › `build_sample_prompts`                                                         | hàm (mới)  | mẫu, catalog, câu mồi cố định, biến thể → danh sách câu mồi theo thứ tự file | Dựng câu mồi theo mẫu                | E                       |
-| `lifemate/backends/asr.py` › `FasterWhisperASR.transcribe_batch`                                                   | sửa        | thêm `prompts` theo từng file; trả thêm điểm tin cậy             | Câu mồi theo câu, điểm tin cậy       | E, H                    |
-| `lifemate/core/config.py` › `ASRConfig.prompt_mode`                                                                | khoá mới   | `"fixed"` hoặc `"sample"`                                                    | Bật câu mồi theo mẫu                 | E                       |
-| `lifemate/backends/asr_guard.py` › `needs_retry`                                                                   | sửa        | so với phần cố định của câu mồi                                              | Lớp bảo vệ khi câu mồi có lời trợ lý | E                       |
-| `lifemate/backends/asr.py` › `MergedASR`                                                                           | lớp (mới)  | mẫu → chữ ghép của mọi câu, thời gian từng bước                              | Engine ghép trong hệ thống thật      | Mọi phiên GPU           |
-| `lifemate/eval/eval_asr.py` › chỉ số `en_context`, `assistant_echo`, `merge_wrong_english`, `merge_missed_english` | sửa        |                                                                              | Chỉ số mới (mục 2.2)                 | E, F, H                 |
-| `lifemate/eval/make_splits.py`                                                                                     | sửa        | ghi thêm `asr_learn.txt`                                                     | Danh sách tập học                    | F, H                    |
-| `lifemate/eval/asr_merge.py` › `sample_context_words`                                                             | sửa        | chỉ lấy giá trị của dict, bỏ khoá                                            | Từ điển ngữ cảnh bỏ khoá JSON        | mọi thử nghiệm          |
-| `lifemate/eval/prompt_word_reliability.py` › `count_prompt_words`, `reliability`                                   | module mới | mẫu, chữ RNNT, chữ large-v3 → từ → (viết ra, đúng) → độ tin cậy              | Bảng độ tin cậy                      | F                       |
-| `lifemate/eval/asr_merge.py` › `context_reliable`                                                                  | sửa        | thêm bảng độ tin cậy và ngưỡng                                               | Cách lọc mới                         | F                       |
-| `lifemate/eval/candidate_scoring.py` › `candidate_pairs`, `decide_j` | module mới | chữ RNNT, chữ large-v3 → câu ứng viên; điểm → quyết định | Chấm điểm hai phương án | G, H |
-| `lifemate/backends/asr.py` › `FasterWhisperASR.score_texts` | hàm (mới) | âm thanh, các câu → điểm âm thanh từng câu | Chấm ép chuỗi không câu mồi | G |
-| `lifemate/eval/merge_classifier.py` › `region_features`, `region_labels`, `fit_logistic`, `predict`                | module mới | đoạn khác nhau → đặc trưng, nhãn → trọng số → xác suất                       | Bộ phân loại ghép                    | H                       |
-| `lifemate/eval/asr_merge.py` › `merge_decision_accuracy`, bảng chọn chung | hàm (mới) | quyết định của các ứng viên, nhãn tự động → độ chính xác, ứng viên thắng theo quy tắc mục 7 | Bảng chọn chung | C0, F, G, H |
-| `lifemate/eval/asr_alternatives.py` › `format_alternatives`, `alternatives_ceiling`, `alternatives_tokens`         | module mới | chữ hai bản, đoạn không chắc → chữ hai phương án, trần, số token             | Thử nghiệm hai phương án             | I                       |
-| `lifemate/run/cli.py` › `--transcripts replay --hyps <file>` | sửa | file `hyps.jsonl` → agent đọc chữ đã lưu qua `ReplayTranscriber` | Chạy agent trên chữ đã lưu | J |
-| Prompt hệ thống của agent | sửa (chỉ cho J4) | thêm một câu giải thích định dạng `{A \| B}` | Hai phương án | J4 |
-| `lifemate/eval/gpu_memory.py` › `GpuMemoryMonitor`                                                                 | lớp mới    | chạy nền `nvidia-smi` → `gpu_memory.csv`, bộ nhớ đỉnh                        | Đo bộ nhớ                            | Mọi phiên GPU           |
-| `ops/kaggle/asr_v3/`                                                                                               | kernel mới |                                                                              | Phiên K1–K4                          | Mọi thử nghiệm          |
-
+**Chưa làm ở lần 3:** engine ghép cho hệ thống thật (`MergedASR` trong `lifemate/backends/asr.py`) và khoá config
+`ASRConfig.prompt_mode`. Thời gian ở lần 3 được đo bằng bộ chạy `lifemate/eval/asr_v3.py`, chạy đúng các bước của engine
+theo cùng thứ tự trong cùng một tiến trình; engine cho hệ thống thật là việc của bước sau lần 3.
 
 ## Phụ lục B. Code cần viết và lịch các phiên GPU
 
 ### B.1. Việc chuẩn bị (máy dev, không cần GPU)
+
+Trạng thái: đã làm, trừ P8 (engine `MergedASR` cho hệ thống thật) và phần `ASRConfig.prompt_mode` của P7; xem Phụ lục A.2.
 
 
 | Mã  | Cho | Việc | Kiểm tra |
@@ -1480,16 +1609,16 @@ chung), nên số tập dò của bước chọn thứ hai lạc quan hơn (mụ
 
 ### B.2. Các phiên GPU
 
-Ước tính theo tốc độ của lần 2 trên T4: large-v3 khoảng 1,2 giây mỗi câu, RNNT nhanh hơn khoảng 3 lần.
+**Máy chạy thực tế.** Hạn mức GPU Kaggle của tuần đã hết (30 giờ) khi bắt đầu lần 3, nên mọi phiên chạy trên **Colab T4**
+(15 GB) qua Colab CLI. Máy Colab miễn phí bị thu hồi sau khoảng 50–60 phút mỗi lần; bộ chạy có `--resume` (giữ các mẫu đã
+xong, xoá dòng của mẫu đang dở), và kết quả được tải về máy dev mỗi 4–10 phút, nên mỗi lần bị thu hồi chỉ mất vài mẫu.
+Máy Colab dùng CUDA 13; CTranslate2 cần thêm `nvidia-cublas-cu12` và cuDNN 9 (`ops/colab/asr_v3_setup.py`).
 
+| Phiên | Máy | Chạy gì | Số câu hoặc mẫu | Thời gian thực |
+|---|---|---|---|---|
+| K1 | Colab T4, 3 máy nối tiếp | RNNT và large-v3 E0, E1, E2 trên `asr_tune`; chép lại 50 mẫu | 300 mẫu, 1 024 câu | Khoảng 27 phút cho máy cuối (gồm chép lại); tổng hơn 1 giờ |
+| K2 | Colab T4, 2 máy | RNNT và large-v3 E2 trên `val_seen`, `val_unseen`, tập học | 1 245 mẫu, 4 012 câu | Khoảng 1 giờ 40 phút |
+| K3 | Colab T4 | Điểm âm thanh của mọi vùng cần quyết định | 968 vùng | Khoảng 6 phút |
+| K4 | Colab T4 | vLLM 0.32.0 với Qwen3-4B; agent trên val: J0, J1 đủ mẫu; J2, J3, J4 trên các mẫu có chữ khác J1 | 452 + 452 + 119 + 112 + 188 mẫu | Ghi ở mục 9 |
 
-| Phiên | Máy                                                | Chạy gì                                                                                                              | Số câu                   | Ước tính                                                       |
-| ----- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------ | -------------------------------------------------------------- |
-| K1    | Kaggle T4                                          | large-v3 E0, E1, E2 trên `asr_tune` (qua engine ghép, RNNT chạy kèm) | 3 × 1 024 | Khoảng 1 giờ 10 phút |
-| K2    | Kaggle T4                                          | Tập học: RNNT, large-v3 biến thể thắng. Val: large-v3 biến thể thắng | 2 × 2 569 + 1 443 | Khoảng 2 giờ 30 phút |
-| K3    | Kaggle T4                                          | Điểm âm thanh (encoder + `align` không câu mồi) cho câu có đoạn cần quyết định | Câu có đoạn cần quyết định của tập học, `asr_tune`, val (ước khoảng 20% số câu) | Khoảng 1 giờ |
-| K4    | Kaggle T4                                          | vLLM với Qwen3-4B; agent trên val với chữ đọc lại: J0–J3, và J4 nếu I1 đạt | 4 hoặc 5 × 452 mẫu | Chưa ước được: chạy J0 trước, đo thời gian, rồi ước các nguồn còn lại |
-
-
-Tổng GPU Kaggle khoảng 4 giờ 40 phút cho K1–K3, cộng thời gian của K4 (ghi sau khi chạy J0), trong hạn mức 30 giờ mỗi
-tuần. Lần 3 không thuê máy.
+Kết quả thô: `artifacts/runs/colab/asr/10-30_v3/` (`k1/`, `k2_*/`, `k3/`, `k4/`, `analysis/`, `j_sources/`).
