@@ -9,7 +9,7 @@ Tài liệu của dự án. `SPEC.md` là nguồn sự thật cho mã: đổi h�
 | `experiments.md` | Nhật ký thí nghiệm: mỗi lần chạy một dòng, kèm điểm và đường dẫn kết quả thô. |
 | `reports/benchmark/asr_v1.md` | Báo cáo so sánh mô hình và cấu hình ASR (whisper-large-v3, PhoWhisper, ChunkFormer, Parakeet): vấn đề, cấu hình từng mô hình kèm lý do, phương pháp, kết quả. |
 | `reports/benchmark/asr_v2.md` | Báo cáo benchmark ASR lần 2: bốn mô hình tốt nhất của lần 1 đo trên các câu tiếng Việt chêm tiếng Anh, câu mồi, ghép RNNT + large-v3 (xong). |
-| `reports/benchmark/asr_v3.md` | Báo cáo benchmark ASR lần 3: câu mồi theo mẫu, độ tin cậy từng từ, bộ phân loại ghép, hai phương án cho LLM, thời gian và bộ nhớ (kế hoạch, chưa chạy). |
+| `reports/benchmark/asr_v3.md` | Báo cáo benchmark ASR lần 3: câu mồi theo mẫu (E); ba cách quyết định ghép — độ tin cậy từng từ (F), điểm âm thanh (G), bộ phân loại (H) — so trong một bảng chọn chung; hai phương án cho LLM (I); điểm thi khi chạy agent trên chữ đã lưu (J); thời gian đo kèm mọi phiên (kế hoạch, chưa chạy). |
 | `rationale.md` | Phân tích nguyên lý gốc về fine-tune LLM và ASR (27/10/2026). |
 | `overview.md` | Đề bài: đầu vào, đầu ra, cách chấm, ràng buộc, cấu trúc dữ liệu. |
 | `eda.md` | Phân tích dữ liệu: số mẫu, phân bố app, độ dài, đặc điểm âm thanh. |
