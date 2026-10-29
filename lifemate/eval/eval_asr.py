@@ -24,10 +24,10 @@ Cách hoạt động:
   engine (ví dụ đầu ra NaN), không phải lỗi nghe, nên được đếm riêng dù cũng nằm trong `n_empty`.
 - Từ tiếng Anh chêm trong câu (`lifemate.eval.foreign_words`), tính trên các câu có ít nhất một từ ngoại trong đáp án:
   `en_utterances` (số câu), `en_mixed_wer` (WER trên các câu đó), `en_word_recall` (tỉ lệ từ ngoại của đáp án có mặt
-  trong chữ ASR, so sau khi chuẩn hoá, đếm theo số lần xuất hiện), `en_word_recall_lenient` (chấp nhận "TV" cho "tivi" và
-  ngược lại, "Minh Mart" cho "MinhMart"…), `en_groups` (nhóm -> [số từ, số từ chép đúng]), `en_prompt` ("in"/"out" ->
-  [số từ, số từ chép đúng], tách theo từ có hay không có trong câu mồi). `vi_only_wer`: WER trên các câu còn lại
-  (không có từ ngoại), để biết câu mồi tiếng Anh có làm hại câu thuần Việt không.
+  trong chữ ASR, so sau khi chuẩn hoá, đếm theo số lần xuất hiện), `en_word_recall_lenient` (chấp nhận "TV" cho
+  "tivi" và ngược lại, "Minh Mart" cho "MinhMart"…), `en_groups` (nhóm -> [số từ, số từ chép đúng]), `en_prompt`
+  ("in"/"out" -> [số từ, số từ chép đúng], tách theo từ có hay không có trong câu mồi). `vi_only_wer`: WER trên các
+  câu còn lại (không có từ ngoại), để biết câu mồi tiếng Anh có làm câu thuần Việt sai thêm không.
 - `prompt_insertions`: số lần một từ ngoại của câu mồi có trong chữ ASR mà không có trong đáp án của câu đó (đếm mỗi
   từ một lần mỗi câu), trên mọi câu. Đáp án viết khác ("ti vi", "TV" cho "tivi") vẫn tính là có
   (`foreign_words.contains_word`). Đo việc câu mồi làm model viết ra từ không được nói.

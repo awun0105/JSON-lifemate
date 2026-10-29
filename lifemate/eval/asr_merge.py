@@ -12,8 +12,8 @@ Nội dung chính:
 - `main`: CLI ghép hai file `hyps.jsonl`; file ra chấm được bằng `lifemate.eval.rescore_asr`.
 
 Cách hoạt động (`merge_transcripts`):
-1. Tách hai câu thành từ (giữ nguyên cách viết để ghép lại), gióng hàng trên dạng đã chuẩn hoá (chữ thường, bỏ dấu, bỏ dấu
-   câu).
+1. Tách hai câu thành từ (giữ nguyên cách viết để ghép lại), gióng hàng trên dạng đã chuẩn hoá (chữ thường, bỏ
+   dấu, bỏ dấu câu).
 2. Gom các cặp không khớp nằm giữa hai từ khớp thành một "vùng khác nhau".
 3. Ở mỗi vùng: nếu phía model phụ có từ tiếng Anh (`foreign_words.find_foreign_words`) mà phía model chính không
    có, và vùng phía phụ không dài quá `2 x (số từ phía chính) + 2` (chặn câu bịa), thì lấy chữ của model phụ cho cả

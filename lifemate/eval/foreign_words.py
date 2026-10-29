@@ -51,9 +51,9 @@ WORD_GROUPS = ("common", "acronym", "name", "loanword")
 VIETNAMIZED_LOANWORDS = frozenset({"tivi", "gara"})
 # Từ tiếng Anh ghép được thành một âm tiết Việt không dấu, nên quy tắc âm tiết không bắt được; liệt kê tay.
 ENGLISH_SPELLED_LIKE_VIETNAMESE = frozenset({"chat", "top", "hot"})
-# Từ (đã chuẩn hoá) -> các cách viết khác mà LLM vẫn hiểu đúng. Tra theo cả hai chiều (`equivalent_spellings`). Dùng cho số
-# "chép đúng" nới lỏng (`match_words_in_transcript(lenient=True)`) và để không tính nhầm một cách viết khác là từ câu
-# mồi chèn vào (`contains_word`).
+# Từ (đã chuẩn hoá) -> các cách viết khác mà LLM vẫn hiểu đúng. Tra theo cả hai chiều (`equivalent_spellings`). Dùng
+# cho số "chép đúng" nới lỏng (`match_words_in_transcript(lenient=True)`) và để không tính nhầm một cách viết khác là
+# từ câu mồi chèn vào (`contains_word`).
 EQUIVALENT_SPELLINGS: dict[str, tuple[str, ...]] = {"tivi": ("tv",), "ok": ("okay", "oke"), "email": ("mail",)}
 # Mỗi cách viết -> cả nhóm cách viết của nó, dựng từ `EQUIVALENT_SPELLINGS` ("tv" -> {"tivi", "tv"}).
 _SPELLING_FAMILY: dict[str, frozenset[str]] = {
@@ -189,11 +189,11 @@ def _adjacent_joins(words: Sequence[str]) -> list[str]:
 
 
 def equivalent_spellings(folded: str) -> frozenset[str]:
-    """Các cách viết tương đương của một từ đã chuẩn hoá theo `EQUIVALENT_SPELLINGS`, tra cả hai chiều; luôn gồm chính nó."""
+    """Các cách viết tương đương của một từ đã chuẩn hoá theo `EQUIVALENT_SPELLINGS`, tra cả hai chiều; gồm chính nó."""
     return _SPELLING_FAMILY.get(folded, frozenset({folded}))
 
 
 def contains_word(folded: str, words: Sequence[str]) -> bool:
-    """`True` khi dãy từ đã chuẩn hoá `words` có từ `folded`, tính cả cách viết tương đương và từ bị tách 2 hoặc 3 phần."""
+    """`True` khi dãy từ đã chuẩn hoá `words` có từ `folded`, kể cả cách viết tương đương và từ bị tách 2–3 phần."""
     present = set(words) | set(_adjacent_joins(words))
     return any(s in present for s in equivalent_spellings(folded))
