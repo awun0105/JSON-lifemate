@@ -1248,7 +1248,7 @@ chấm; số câu như vậy được đếm và ghi vào kết quả.
   nhãn "A"; kết quả phụ thuộc cách viết câu hỏi, tức lại thêm một thứ tự đặt; và LLM không nghe âm thanh nên dễ chọn câu
   "hợp lý" thay cho câu được nói. Xác suất của cả câu không có nhãn phương án, không cần câu hỏi, và được dùng như một
   thành phần cộng với điểm âm thanh, không tự quyết định.
-- **Vẫn đo J1 dù LLM không nghe âm thanh.** J1 đứng một mình có rủi ro chọn câu "hợp lý" thay cho câu được nói (mục
+- **Vẫn đo J1 dù LLM không nghe âm thanh.** Dùng riêng, J1 có rủi ro chọn câu "hợp lý" thay cho câu được nói (mục
   8.10). J1 vẫn được đo vì hai lý do: điểm ngữ cảnh đã tính sẵn cho J2 nên J1 gần như không tốn thêm; và chỉ khi có J1
   mới tách được phần đóng góp của âm thanh và của ngữ cảnh trong J2.
 - **Không thêm tham số.** J0 dùng large-v3 có sẵn, J1 và J2 dùng thêm Qwen3-4B có sẵn; tổng vẫn 5,68B.
