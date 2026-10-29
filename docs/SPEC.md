@@ -163,6 +163,7 @@ lifemate/                 # code, chia theo vai trò; mỗi gói 2–7 module
 │   ├── asr_tune.py       # chọn mô hình và cấu hình ASR (D36, D40)
 │   ├── rescore_asr.py    # chấm lại hyps.jsonl đã có trên một tập con, không chạy model
 │   ├── asr_compare.py    # bảng so sánh nhiều hệ thống ASR từ hyps.jsonl, khoảng tin cậy bootstrap
+│   ├── foreign_words_audit.py  # đo quy tắc tìm từ ngoại bằng nhãn rà tay
 │   └── asr_merge.py      # ghép chữ RNNT với từ tiếng Anh của Whisper, lọc theo từ điển ngữ cảnh (thử offline)
 └── train/                # fine-tune: common, sft_data, sft, swift_sft (ms-swift), llm_pipeline, asr_cache, asr_data, asr, asr_pipeline (6.2, 6.4, 6.5)
 tests/                    # pytest, CPU; tests/train/ cho phần fine-tune

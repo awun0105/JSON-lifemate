@@ -34,6 +34,7 @@ Bộ kiểm thử pytest. Chạy bằng `make test`, trên CPU, không cần GPU
 | `test_asr_transcriber.py` | `ASRTranscriber` với backend giả: giữ thứ tự, chia batch, chọn engine, engine `faster_whisper` và bộ lọc. |
 | `test_eval_asr.py` | Các chỉ số đo ASR, gồm chỉ số câu chêm tiếng Anh, và việc chấm lại chữ ASR đã có (`rescore_asr`). |
 | `test_foreign_words.py` | Tìm từ tiếng Anh chêm trong câu, xếp nhóm, và chọn mẫu cho các tập `*_en_mixed`. |
+| `test_foreign_words_audit.py` | So quy tắc tìm từ ngoại với nhãn rà tay (nhận nhầm, bỏ sót), chấm lại theo nhãn rà tay, đọc file nhãn theo vị trí. |
 | `test_asr_merge.py` | Ghép chữ hai ASR: gióng hàng, chỉ lấy từ tiếng Anh mới, bỏ câu bị lọc ảo giác, lọc theo từ điển ngữ cảnh (bốn cách lọc, từ điển chỉ lấy đầu vào dạng chữ). |
 | `test_asr_prompts.py` | File câu mồi: không trùng cụm 4 từ nào của 5 036 câu đáp án, cụm 3 từ dưới 0,5% (marker `data`). |
 | `test_asr_guard.py` | Lớp bảo vệ câu mồi: bốn dấu hiệu câu hỏng, `ASRTranscriber` chỉ chép lại câu hỏng, báo lỗi khi engine không chép lại được. |

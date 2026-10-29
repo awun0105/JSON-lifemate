@@ -191,7 +191,8 @@ tốt). "Tỉ lệ lỗi từ" (WER) là số từ sai chia cho số từ của 
    không mất phần tiếng Anh (mục "Quy tắc ghép hai mô hình và cách siết" ở dưới).
 5. **Kết quả tin được.** Chạy lại RNNT (2 467 câu) và large-v3 (1 024 câu) trên một máy khác cho ra chữ giống hệt từng ký
    tự (mục 5). Vì vậy số chấm lại trên chữ cũ dùng được như số chạy thật, và cấu hình large-v3 đạt yêu cầu "kết quả lặp
-   lại được" của thể lệ.
+   lại được" của thể lệ. Quy tắc tìm từ tiếng Anh cũng đã được rà tay trên 2 467 câu: đúng 99,7% khi nhận và tìm được
+   94,3% số từ tiếng Anh. Chấm lại theo nhãn rà tay, mọi tỉ lệ chép đúng lệch tối đa 1,1 điểm và thứ hạng không đổi.
 
 **Chi phí.** Ghép hai mô hình cộng thêm whisper-large-v3: tổng tham số RNNT 0,11B + large-v3 1,55B + LLM 4,02B = 5,68B,
 dưới trần 6B của thể lệ. Riêng large-v3 chép xong 95% số **mẫu** trong khoảng 8,7 giây trên GPU T4. Một mẫu gồm lượt
@@ -302,6 +303,7 @@ Cấu hình hệ thống đang dùng (`configs/v0.toml`) chưa đổi.
 | `artifacts/runs/kaggle/asr/10-29_tune_v5a_en_mixed/`  | Thử nghiệm B và C, phiên v5a (PhoWhisper, ChunkFormer RNNT), cùng cấu trúc file với lần 1; `compare/` là bảng so sánh có khoảng tin cậy                                     |
 | `artifacts/runs/kaggle/asr/10-29_tune_v5b_en_mixed/`  | Thử nghiệm B và C, phiên v5b (whisper-large-v3), cùng cấu trúc và có `compare/`                                                                                             |
 | `artifacts/runs/local/asr/10-29_en_mixed_merge_v3/`   | Thử nghiệm D với large-v3 cấu hình thắng (mục 6.5.2): chữ đã ghép, `cmp_*.json`, `merge_effect.json`                                                                        |
+| `artifacts/runs/local/asr/10-29_foreign_words_audit_v1/` | Kiểm tra quy tắc tìm từ ngoại bằng rà tay (mục 2.1): `<tập>.json` gồm độ chính xác của quy tắc và tỉ lệ chép đúng theo hai cách gán nhãn |
 | `artifacts/runs/local/asr/10-29_en_mixed_merge_v4/`   | Siết quy tắc ghép (mục 6.8): `merge_<cách lọc>__<tập>.hyps.jsonl`, `cmp_*.json` (so với RNNT), `cmp_vs_all_*.json` (so với quy tắc gốc)                                   |
 
 
@@ -434,13 +436,6 @@ Anh. Đáp án của BTC (`audio_text`) không đánh dấu điều này. Việc
 Lần 2 dùng quy tắc vì cần cùng một cách tìm ở cả bốn chỗ: nếu đáp án dùng danh sách rà tay còn phép ghép dùng quy tắc,
 thì chỉ số đo một định nghĩa "từ tiếng Anh" còn phép ghép tối ưu một định nghĩa khác.
 
-**Rà tay vẫn cần, để đo quy tắc.** Danh sách rà tay chỉ cần ghi vị trí (mã mẫu, lượt, thứ tự từ, nhóm), không chép chữ
-nào của dữ liệu, và để ngoài git giống các file id trong `configs/splits/` (đã được git bỏ qua, sinh lại bằng `make
-splits`). Việc còn thiếu là **chưa đo độ chính xác của quy tắc**. Muốn đo thì phải rà tay một lần: quy tắc tìm ra 1 953 lần
-xuất hiện của 390 từ khác nhau trong 5 036 câu đáp án của gói train của BTC. Rà 390 từ để tìm từ bị nhận nhầm là việc nhỏ. Tìm từ
-bị bỏ sót (từ tiếng Anh trông như âm tiết Việt) thì phải đọc toàn bộ câu. Danh sách rà tay khi có sẽ dùng làm nhãn cho
-phía đáp án, còn quy tắc vẫn giữ cho phía chữ ASR. Việc này chưa làm (xem Giới hạn).
-
 **Ý tưởng của quy tắc.** Tiếng Việt viết theo âm tiết, mỗi âm tiết có cấu trúc chặt: phụ âm đầu, vần, phụ âm cuối, và
 thường có dấu thanh. Từ tiếng Anh hay vi phạm cấu trúc này ("check" không có vần hợp lệ, "Zalo" có chữ "z" không có
 trong tiếng Việt). Vì vậy, một từ không dấu mà không ghép được thành âm tiết Việt thì gần như chắc là từ ngoại.
@@ -476,7 +471,64 @@ Ví dụ: "Nhắn Zalo cho Lan, giá vàng SJC, xăng RON95" cho ba từ ngoại
 - Bỏ sót từ tiếng Anh trông như âm tiết Việt mà không có trong `ENGLISH_SPELLED_LIKE_VIETNAMESE`, ví dụ "man", "ban".
 - Tên tiếng Việt viết liền không dấu ("MinhMart") được tính là tên ngoại. Đây là chủ ý, vì đó là tên thương hiệu.
 - Nhóm của từ viết hoa đầu câu phụ thuộc tập đang chấm. Tổng số từ ngoại và số từ chép đúng thì không phụ thuộc.
-- Chưa đo độ chính xác so với rà tay (xem trên).
+- Độ chính xác đo bằng rà tay ở phần dưới: đúng 99,7% khi nhận, tìm được 94,3% số từ tiếng Anh.
+
+#### Kiểm tra quy tắc bằng rà tay
+
+**Vấn đề.** Mọi con số "chép đúng từ tiếng Anh" trong báo cáo dựa vào quy tắc ở trên. Nếu quy tắc nhận nhầm nhiều từ
+Việt là từ tiếng Anh, hoặc bỏ sót nhiều từ tiếng Anh, thì các con số và thứ hạng giữa các hệ thống có thể sai.
+
+**Cách kiểm tra.** Rà tay trên mọi câu đáp án mà các chỉ số dùng: tập dò, `val_seen` và `val_unseen`, tổng 2 467 câu.
+Quy tắc chỉ có thể sai theo hai cách, và mỗi cách có một danh sách hữu hạn để rà:
+
+- **Nhận nhầm:** rà từng từ quy tắc đã nhận là từ ngoại (291 từ khác nhau, 981 lần xuất hiện).
+- **Bỏ sót:** quy tắc bỏ qua mọi từ có dấu tiếng Việt, và chỉ bỏ sót được từ không dấu ghép được thành âm tiết Việt.
+  Vì vậy chỉ cần rà các từ không dấu mà quy tắc bỏ qua (185 từ khác nhau, 6 418 lần xuất hiện), xem từng từ trong câu
+  khi từ đó có thể là cả hai (ví dụ "in" trong "check-in" và trong "bản in").
+
+Kết quả rà tay ghi theo vị trí (mã mẫu, lượt, thứ tự từ trong câu, nhóm) vào `data/labels/foreign_words_hand_v1.jsonl`,
+ngoài git. Code: `lifemate/eval/foreign_words_audit.py` › `audit_rule` (so quy tắc với nhãn rà tay) và
+`english_recall` (chấm lại tỉ lệ chép đúng theo nhãn rà tay).
+
+**Kết quả.**
+
+| Tập | Từ ngoại theo quy tắc | Theo rà tay | Quy tắc đúng khi nhận (độ chính xác) | Quy tắc tìm được (độ phủ) |
+|---|---|---|---|---|
+| Tập dò | 394 | 407 | 99,5% | 96,3% |
+| val_seen | 335 | 353 | 100% | 94,9% |
+| val_unseen | 252 | 277 | 99,6% | 90,6% |
+| **Cả ba** | **981** | **1 037** | **99,7%** | **94,3%** |
+
+- **Nhận nhầm 3 lần**, đều là tiếng cười: "hihi" (2), "haha" (1).
+- **Bỏ sót 59 lần**, đều là từ tiếng Anh viết giống một âm tiết Việt không dấu: "team" (15), "gym" (8), "in" trong
+  "check-in" (6), "The" và "Tree" trong tên quán ("The Lemon Tree Café"), tên người ("Tom", "Lee", "Mia", "Ben", "Liam",
+  "Ryan"), "Hong Kong", "Chiang", "up" ("top up", "follow-up"), "out" ("check-out"), "Cup" ("AFF Cup"), "Pay", "Ron"
+  (trong "Ron 95"). val_unseen bỏ sót nhiều nhất (26 lần), vì app lạ có nhiều từ loại này ("gym", "check-in").
+- **Xếp nhóm sai 11 lần** trên 978 từ quy tắc nhận đúng: 8 lần "Ok" đầu câu ở val_seen bị xếp vào nhóm tên (val_seen
+  không có "ok" viết thường nào để quy tắc biết đây là từ thường), và "canxi", "magie", "siro" bị xếp vào từ thường thay
+  vì từ mượn đã Việt hoá.
+
+**Chấm lại tỉ lệ chép đúng từ tiếng Anh theo nhãn rà tay** (mọi câu của tập):
+
+| Hệ thống | Tập dò: quy tắc / rà tay | val_seen: quy tắc / rà tay | val_unseen: quy tắc / rà tay |
+|---|---|---|---|
+| ChunkFormer RNNT | 49,0 / 48,9 | 49,9 / 49,6 | 51,6 / 51,6 |
+| large-v3 + `en_full_v1` + g4 | 70,6 / 70,8 | 72,2 / 71,1 | 61,1 / 61,4 |
+| Ghép, quy tắc gốc | 72,3 / 72,0 | 72,5 / 71,4 | 63,9 / 64,3 |
+| Ghép, quy tắc đã siết (`context_other`) | 69,0 / 68,6 | 72,2 / 71,1 | 63,1 / 63,2 |
+
+Số theo quy tắc trong bảng này trùng với số ở các mục sau. Hai cách gán nhãn lệch nhau tối đa 1,1 điểm, và thứ hạng các
+hệ thống không đổi ở tập nào. Mức tăng của bản ghép đã siết so với RNNT theo nhãn rà tay là +21,5 (seen) và +11,6
+(unseen) điểm, so với +22,3 và +11,5 theo quy tắc.
+
+**Kết luận.** Quy tắc đủ chính xác cho các phép so sánh trong báo cáo. Các con số giữ nguyên theo quy tắc, vì phép ghép
+cũng dùng chính quy tắc này trên chữ ASR, nên chỉ số và phép ghép dùng cùng một định nghĩa "từ tiếng Anh".
+
+**Giới hạn.**
+
+- Rà tay do trợ lý AI (Claude) làm trong phiên làm việc, chưa có thành viên nào của team rà lại.
+- Từ một chữ cái bị bỏ qua cả khi rà ("vitamin C"), giống quy tắc.
+- "Mai" trong "Chiang Mai" được giữ là từ Việt, vì cùng mặt chữ với "mai" (ngày mai).
 
 ### 2.2. Dữ liệu: từ gói của BTC tới các tập của lần 2
 
@@ -1489,7 +1541,7 @@ do cần một phiên GPU: mục "Quy tắc ghép hai mô hình và cách siết
 **Giới hạn.**
 
 - Tập dò chỉ có khoảng 150 từ sai bị lấy vào, nên số đếm theo nhóm còn ít.
-- Số "đúng" và "sai" dựa vào quy tắc tìm từ ngoại (mục 2.1), mà độ chính xác của quy tắc này chưa được đo.
+- Số "đúng" và "sai" dựa vào quy tắc tìm từ ngoại (mục 2.1; rà tay cho độ chính xác 99,7%, độ phủ 94,3%).
 - Mục tiêu cuối là LLM gọi đúng tool. Một lỗi chèn nhầm có thể không đổi lời gọi tool nào, nên cách siết thắng cần được
   kiểm tra lại bằng điểm của agent khi agent chạy được trên chữ ASR.
 
@@ -1498,14 +1550,14 @@ do cần một phiên GPU: mục "Quy tắc ghép hai mô hình và cách siết
 - Thời gian đo trên T4 chạy ASR riêng, chưa phải A30 và chưa chạy cạnh vLLM.
 - Mỗi nhóm từ chỉ có vài chục lần xuất hiện (từ mượn chỉ 15 và 2), nên chênh vài từ đã là vài điểm phần trăm; dùng CI ở
 mục 3.5 và 6.5 thay vì so số trần.
-- Quy tắc tìm từ tiếng Anh bỏ sót từ trông như âm tiết Việt; nhóm của từ viết hoa đầu câu phụ thuộc tập đang chấm.
+- Quy tắc tìm từ tiếng Anh bỏ sót từ trông như âm tiết Việt: tìm được 94,3% số từ tiếng Anh theo rà tay (90,6% trên
+  val_unseen); nhóm của từ viết hoa đầu câu phụ thuộc tập đang chấm. Chấm lại theo nhãn rà tay lệch tối đa 1,1 điểm và
+  không đổi thứ hạng (mục 2.1).
 - Chép đúng từ ngoại so theo từ có mặt trong câu, không kiểm tra vị trí, nên có thể khớp nhầm.
 - Số của large-v3 ở thử nghiệm A và ở mục 6.5.1 đến từ cấu hình nhiệt độ thử lại (không tất định); mục 4.7.6–4.7.7 và 6.5.2
 dùng cấu hình tất định.
 - Cấu hình thắng được chọn trên tập dò 300 mẫu (394 từ ngoại); số trên tập dò lạc quan hơn thực tế, dùng số val.
 - Câu mồi chọn từ theo chữ large-v3 beam 5 trong `data/asr/train_asr.json`, không phải cấu hình tham lam + VAD đang dò.
-- Độ chính xác của quy tắc tìm từ ngoại chưa được đo so với rà tay (mục 2.1). Số từ ngoại của mọi tập, và vì vậy mọi tỉ
-  lệ chép đúng, phụ thuộc quy tắc này.
 
 
 ## Phụ lục A. Bảng tra code
@@ -1530,6 +1582,10 @@ Mọi đường dẫn tính từ thư mục gốc repo. "Từ điển" là kiể
 | `match_words_in_transcript` | hàm | danh sách `ForeignWord` của đáp án, chữ ASR, `lenient` → danh sách đúng/sai | Từng từ ngoại của đáp án có được chép đúng không, đếm theo số lần xuất hiện |
 | `equivalent_spellings` | hàm | từ đã gập → tập cách viết | Mọi cách viết tương đương của một từ, tra hai chiều |
 | `contains_word` | hàm | từ đã gập, danh sách từ đã gập → đúng/sai | Dãy từ có chứa từ đó không, tính cả cách viết tương đương và từ bị tách 2–3 phần ("ti vi") |
+
+| `foreign_words_audit.py` › `audit_rule` | hàm | danh sách mẫu, nhãn rà tay → từ điển kết quả | So quy tắc với nhãn rà tay: số lần đúng, nhận nhầm, bỏ sót, độ khớp nhóm (mục 2.1) |
+| `foreign_words_audit.py` › `english_recall` | hàm | danh sách mẫu, dòng `hyps.jsonl`, nhãn rà tay → từ điển kết quả | Tỉ lệ chép đúng từ tiếng Anh theo quy tắc và theo nhãn rà tay |
+| `foreign_words_audit.py` › `load_hand_labels` | hàm | đường dẫn file nhãn → từ điển (mã mẫu, lượt) → thứ tự từ → nhóm | Đọc nhãn rà tay (`data/labels/foreign_words_hand_v1.jsonl`, ngoài git) |
 
 ### A.2. Chấm điểm: `lifemate/eval/`
 
