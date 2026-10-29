@@ -35,6 +35,66 @@ Lần 1 (`docs/reports/asr_benchmark.md`) đã chọn mô hình ASR theo chất 
 - **Ghép hai mô hình**: lấy chữ của ChunkFormer RNNT (giỏi tiếng Việt), chỉ thay những đoạn mà whisper-large-v3 (giỏi
   tiếng Anh hơn) nghe ra một từ tiếng Anh mà RNNT không có.
 
+### Các câu mồi đã thử
+
+Có bốn câu mồi, mỗi câu là một file chữ trong `configs/asr_prompts/`. Câu mồi ngắn là câu của lần 1, giữ lại để so sánh.
+Ba câu mồi mới được viết cho lần 2 và **lồng nhau**: câu dài hơn bằng câu ngắn hơn cộng thêm vài câu phía trước. Nhờ vậy,
+kết quả trả lời thẳng câu hỏi "đưa nhiều từ hơn vào câu mồi có tốt hơn không".
+
+Từ đưa vào câu mồi là những từ tiếng Anh mà large-v3 hay chép sai, đếm trên phần train không dùng để dò hay kiểm tra (mục
+2.2.4). Câu mồi là câu tự viết, không chép câu nào của dữ liệu thi. Lý do: lớp bảo vệ coi câu ASR có cụm từ trùng câu mồi
+là "in lại câu mồi", nên câu mồi giống lời nói thật thì câu nói đúng cũng bị coi là hỏng. Từ hay sai nhất (Zalo, SJC, SMS,
+check) đặt cuối, vì phần cuối gần đoạn âm thanh nhất.
+
+| Câu mồi | Số từ khoá | Độ dài (token của large-v3) | Nội dung |
+|---|---|---|---|
+| `short_v1` (lần 1) | 2 | 18 | Nhắn Zalo cho Lan. Chuyển sang kênh VTV3. |
+| `en_top10_v1` | 10 | 56 | Ok, robot đồ chơi hết pin. File ảnh Sarah giữ, tối book bàn online. Voucher nằm trong SMS, check kỹ rồi gửi Zalo cả xóm, coi miếng SJC luôn. |
+| `en_top20_v1` | 21 | 106 | Tivi phát cả list chill. Camera gara thấy shipper, mail báo tour biển và workshop gốm của Greenhaven Foods. Brightpath tặng điểm, MinhMart giảm sâu. *(rồi toàn bộ `en_top10_v1`)* |
+| `en_full_v1` | 38 | 183 | QR trên app mờ quá. Email của Grace Nakamura tới, Peter Hale mượn laptop chạy demo cho Nexora Labs, nhớ viết note. Điểm MinhPoint cộng chậm, podcast vô playlist, meeting dời vì deadline. Xăng RON, bóng đá VTV với HTV. *(rồi toàn bộ `en_top20_v1`)* |
+
+Whisper chỉ dùng 223 token cuối của câu mồi, nên `en_full_v1` (183 token) đã gần chạm trần.
+
+Mỗi câu mồi được thử ở ba mức lớp bảo vệ: không bảo vệ, g3 và g4. g3 coi câu là "in lại câu mồi" khi có 3 từ liên tiếp
+trùng câu mồi, g4 khi có 4 từ. Tính cả lựa chọn không câu mồi, có 13 tổ hợp cho mỗi mô hình Whisper. Cả 13 tổ hợp chạy trên
+**tập dò** (1 024 câu rút từ train, chỉ dùng để chọn cấu hình). Tổ hợp tốt nhất sau đó được đo một lần trên hai tập kiểm
+tra.
+
+Kết quả trên tập dò, dòng tốt nhất của mỗi câu mồi:
+
+| Câu mồi | large-v3: chép đúng từ tiếng Anh | large-v3: lỗi từ câu thuần Việt | large-v3: số lần chèn từ không được nói | PhoWhisper: chép đúng từ tiếng Anh |
+|---|---|---|---|---|
+| Không câu mồi | 47,7% | 29,9% | 0 | 31,0% |
+| `short_v1` không bảo vệ | 51,8% | 34,7% (21 câu bịa) | 46 | 33,0% |
+| `short_v1` + g4 | 52,5% | 30,2% | 6 | 33,0% |
+| `en_top10_v1` + g4 | 62,7% | 29,6% | 18 | 35,5% |
+| `en_top20_v1` + g4 | 66,0% | 29,2% | 29 | **37,6%** |
+| **`en_full_v1` + g4** | **70,6%** | 29,5% | 26 | 34,5% |
+
+"Chèn từ không được nói" đếm số câu mà ASR viết ra một từ của câu mồi trong khi người dùng không nói từ đó (ví dụ "Mai"
+thành "Mail").
+
+**Câu mồi tốt nhất: `en_full_v1` + lớp bảo vệ g4, dùng cho whisper-large-v3.** Kết luận:
+
+- **Với large-v3, câu mồi càng dài càng tốt.** Mỗi lần thêm từ, tỉ lệ chép đúng từ tiếng Anh tăng: 48% → 53% → 63% → 66% →
+  71% trên tập dò. Câu mồi dài còn làm large-v3 ít bịa câu hơn. Trên hai tập kiểm tra, `en_full_v1` + g4 vẫn giữ được mức
+  tăng: 52% → 72% (seen) và 56% → 61% (unseen).
+- **Câu mồi chỉ giúp các từ có trong câu mồi.** Trên seen, từ có trong câu mồi được chép đúng từ 48% lên 84%. Từ không có
+  trong câu mồi gần như không đổi. Vì vậy mức tăng trên unseen nhỏ hơn: app lạ dùng nhiều từ không có trong câu mồi.
+- **Câu mồi ngắn của lần 1 là lựa chọn tệ.** Không có lớp bảo vệ, `short_v1` làm câu thuần Việt sai thêm gần 5 điểm và
+  sinh 21 câu bịa. Lý do là câu mồi này quá giống lời nói thật ("nhắn Zalo cho…"). Lớp bảo vệ kéo lỗi về mức không câu
+  mồi, nhưng gần như không còn lợi ích.
+- **Cần dùng lớp bảo vệ g4, không cần g3.** g4 không thua g3 ở tổ hợp nào. g3 bắt cả những câu nói đúng mà có 3 từ trùng
+  câu mồi.
+- **Với PhoWhisper, không câu mồi nào đáng dùng.** `en_top20_v1` tốt nhất trên tập dò (+6,6 điểm). Trên hai tập kiểm tra,
+  mức tăng gần bằng 0 (+0,9 và 0,0 điểm, nằm trong sai số). Câu mồi dài hơn còn làm PhoWhisper kém đi. PhoWhisper đã được
+  huấn luyện thêm trên tiếng Việt, nên khi nghe "SJC" hay "check", mô hình vẫn viết thành chữ Việt gần âm, câu mồi không
+  kéo lại được.
+- **Rủi ro còn lại là chèn từ.** Với `en_full_v1` + g4, large-v3 chèn từ của câu mồi vào 26 trên 1 024 câu ở tập dò.
+  Không có câu mồi thì chỉ có 3 câu như vậy. Cách sửa nằm ở việc siết quy tắc ghép (mục "Việc tiếp theo").
+
+Chi tiết cách viết câu mồi ở mục 4.3.1. Bảng đủ 13 tổ hợp ở mục 4.7.1 (PhoWhisper) và 4.7.6 (large-v3).
+
 ### Kết quả chính
 
 Bốn mô hình ASR được so là bốn mô hình tốt nhất của lần 1: **ChunkFormer RNNT** và **ChunkFormer CTC** (hai mô hình tiếng
@@ -51,7 +111,7 @@ tốt). "Tỉ lệ lỗi từ" (WER) là số từ sai chia cho số từ của 
 | ChunkFormer CTC | 34,6% / 39,7% | 27,5% / 26,9% |
 | PhoWhisper | 36,1% / 36,5% | 32,5% / 33,1% |
 | whisper-large-v3, không câu mồi | 51,6% / 56,0% | 32,8% / 33,9% |
-| whisper-large-v3 + câu mồi tốt nhất | 72,2% / 61,1% | 28,7% / 33,5% |
+| whisper-large-v3 + câu mồi tốt nhất (`en_full_v1` + g4) | 72,2% / 61,1% | 28,7% / 33,5% |
 | **Ghép RNNT + whisper-large-v3 có câu mồi** | **72,5% / 63,9%** | **22,8% / 22,8%** |
 
 Đọc bảng:
@@ -59,7 +119,8 @@ tốt). "Tỉ lệ lỗi từ" (WER) là số từ sai chia cho số từ của 
 1. **RNNT vẫn là mô hình đơn tốt nhất.** RNNT chép đúng khoảng một nửa số từ tiếng Anh, và phần tiếng Việt tốt hơn hẳn
    các mô hình khác. Không mô hình Whisper nào thay được RNNT: phần tiếng Việt của Whisper sai nhiều hơn khoảng 8–12
    điểm phần trăm.
-2. **Câu mồi giúp whisper-large-v3 rõ rệt, không giúp PhoWhisper.** Với large-v3, tỉ lệ chép đúng từ tiếng Anh tăng từ
+2. **Câu mồi giúp whisper-large-v3 rõ rệt, không giúp PhoWhisper.** Câu mồi tốt nhất là `en_full_v1` + lớp bảo vệ g4
+   (mục "Các câu mồi đã thử" ở trên). Với large-v3, tỉ lệ chép đúng từ tiếng Anh tăng từ
    khoảng 52% lên 72% trên seen. Phần tăng gần như chỉ đến từ các từ **có trong câu mồi**. Vì vậy trên unseen, nơi chỉ
    một phần tư số từ tiếng Anh có trong câu mồi, mức tăng nhỏ hơn nhiều (56% lên 61%). Với PhoWhisper, câu mồi gần như
    không đổi kết quả trên tập kiểm tra.
