@@ -35,8 +35,8 @@ Cách hoạt động:
 5. Tuỳ chọn `--smoke`: lấy N id của `val_seen`, phân tầng theo (loại câu trả lời, có lịch sử hay không).
    Tuỳ chọn `--asr-tune`: lấy N id của train theo cùng cách phân tầng, làm tập dò config ASR.
    Tuỳ chọn `--en-mixed`: ghi `{asr_tune,val_seen,val_unseen}_en_mixed.txt`, gồm các mẫu của tập tương ứng có ít nhất
-   một lượt người dùng (lượt cuối hoặc lịch sử) chêm từ tiếng Anh (`lifemate.eval.en_mixed.has_english`). Các tập
-   gốc không đổi.
+   một lượt người dùng (lượt cuối hoặc lịch sử) chêm từ tiếng Anh (`lifemate.eval.foreign_words.has_foreign_word`).
+   Các tập gốc không đổi.
 
 Lưu ý:
 - Nguồn: Adapted from the team lead's repo ThanhDanh1510/ZaloAI2026 src/preprocessing/dataset/split.py@7033c9f
@@ -57,7 +57,7 @@ from lifemate.core.config import load_profile
 from lifemate.core.paths import REPO_ROOT as REPO
 from lifemate.core.paths import local_data_root, repo_path
 from lifemate.core.textsim import cluster_near_duplicates
-from lifemate.eval.en_mixed import has_english
+from lifemate.eval.foreign_words import has_foreign_word
 
 DEFAULT_ROOT = local_data_root()
 # Lựa chọn của trưởng nhóm: mỗi miền một app (sức khoẻ, thể thao, du lịch, di chuyển, cá nhân, tài chính).
@@ -184,14 +184,14 @@ def smoke_sample(val_seen: list[dict], n: int, seed: int) -> list[str]:
 
 def en_mixed_ids(items: list[dict]) -> list[str]:
     """Trả về id (đã sắp xếp) của các mẫu có lượt cuối hoặc một lượt user trong lịch sử chêm từ tiếng Anh."""
-    out = []
-    for it in items:
-        texts = [it.get("audio_text") or ""] + [
-            h.get("audio_text") or "" for h in it["history"] if h.get("role") == "user"
+    ids = []
+    for item in items:
+        user_texts = [item.get("audio_text") or ""] + [
+            turn.get("audio_text") or "" for turn in item["history"] if turn.get("role") == "user"
         ]
-        if any(has_english(t) for t in texts):
-            out.append(it["id"])
-    return sorted(out)
+        if any(has_foreign_word(text) for text in user_texts):
+            ids.append(item["id"])
+    return sorted(ids)
 
 
 def main() -> None:

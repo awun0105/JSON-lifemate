@@ -22,15 +22,15 @@ Cách hoạt động:
 - `terms`: với mỗi tên riêng trong `TERMS`, cặp [số câu đáp án có tên đó, số câu ASR cũng viết ra tên đó].
 - `n_unk`: số câu mà chữ ASR chỉ gồm ký hiệu token không biết (`⁇` hoặc `<unk>`). Đây là lỗi của model hoặc
   engine (ví dụ đầu ra NaN), không phải lỗi nghe, nên được đếm riêng dù cũng nằm trong `n_empty`.
-- Từ tiếng Anh chêm trong câu (`lifemate.eval.en_mixed`), tính trên các câu có ít nhất một từ ngoại trong đáp án:
+- Từ tiếng Anh chêm trong câu (`lifemate.eval.foreign_words`), tính trên các câu có ít nhất một từ ngoại trong đáp án:
   `en_utterances` (số câu), `en_mixed_wer` (WER trên các câu đó), `en_word_recall` (tỉ lệ từ ngoại của đáp án có mặt
   trong chữ ASR, so sau khi gập, đếm theo số lần xuất hiện), `en_word_recall_lenient` (chấp nhận "TV" cho "tivi" và
   ngược lại, "Minh Mart" cho "MinhMart"…), `en_groups` (nhóm -> [số từ, số từ chép đúng]), `en_prompt` ("in"/"out" ->
   [số từ, số từ chép đúng], tách theo từ có hay không có trong câu mồi). `vi_only_wer`: WER trên các câu còn lại
   (không có từ ngoại), để biết câu mồi tiếng Anh có làm hại câu thuần Việt không.
 - `prompt_insertions`: số lần một từ ngoại của câu mồi có trong chữ ASR mà không có trong đáp án của câu đó (đếm mỗi
-  từ một lần mỗi câu), trên mọi câu. Đáp án viết khác ("ti vi", "TV" cho "tivi") vẫn tính là có (`spelled_in`). Đo
-  việc câu mồi làm model viết ra từ không được nói.
+  từ một lần mỗi câu), trên mọi câu. Đáp án viết khác ("ti vi", "TV" cho "tivi") vẫn tính là có
+  (`foreign_words.contains_word`). Đo việc câu mồi làm model viết ra từ không được nói.
 - `n_prompt_retries`: số câu lớp bảo vệ câu mồi đã chép lại không câu mồi (`ASRTranscriber.n_prompt_retries`).
 - `--set mục.khoá=giá_trị`: ghi đè config từ dòng lệnh (ví dụ `--set asr.dtype=float32`), dùng để chẩn đoán.
 """
@@ -49,7 +49,14 @@ from typing import Any
 
 from lifemate.core.paths import REPO_ROOT, repo_path
 from lifemate.core.types import Sample, Transcriber, Transcript
-from lifemate.eval.en_mixed import GROUPS, english_words, hits, letter_tokens, letter_words, spelled_in
+from lifemate.eval.foreign_words import (
+    WORD_GROUPS,
+    contains_word,
+    find_foreign_words,
+    folded_word_set,
+    folded_words,
+    match_words_in_transcript,
+)
 
 _PUNCT = re.compile(r"[^\w\s]|_")
 
@@ -307,8 +314,10 @@ class AsrReport:
         en_prompt: "in"/"out" -> [số từ, số từ chép đúng], theo từ có hay không có trong câu mồi.
         prompt_insertions: số lần từ ngoại của câu mồi xuất hiện trong chữ ASR mà đáp án không có.
         n_prompt_retries: số câu lớp bảo vệ câu mồi đã chép lại.
-        counts: tử số và mẫu số của các tỉ lệ (`wer_err`, `wer_n`, `nonum_err`, `nonum_n`, `en_err`, `en_n`, `vi_err`,
-            `vi_n`, `en_words`, `en_hit`, `en_hit_lenient`, `entity_missed`, `entity_total`).
+        counts: tử số và mẫu số của các tỉ lệ, dạng `{tên: số nguyên}`: số lỗi và số từ đáp án của WER
+            (`wer_errors`, `wer_words`), WER bỏ số (`wer_nonum_*`), câu chêm tiếng Anh (`en_mixed_*`), câu thuần Việt
+            (`vi_only_*`); số từ ngoại (`en_words`), số chép đúng (`en_hits`, `en_hits_lenient`); số giá trị tham số
+            bị bỏ sót và tổng số (`entity_missed`, `entity_total`).
     """
 
     n_samples: int
@@ -332,7 +341,9 @@ class AsrReport:
     en_words: int = 0
     en_words_hit: int = 0
     en_word_recall: float = 0.0
-    en_word_recall_lenient: float = 0.0  # chấp nhận cách viết tương đương (`en_mixed.EQUIVALENTS`, tên ghép bị tách)
+    en_word_recall_lenient: float = (
+        0.0  # chấp nhận cách viết tương đương (`foreign_words.EQUIVALENT_SPELLINGS`, tên ghép bị tách)
+    )
     vi_only_wer: float = 0.0  # WER trên các câu không có từ ngoại: câu mồi có làm hại câu thuần Việt không
     en_groups: dict[str, list[int]] = field(default_factory=dict)  # nhóm -> [số từ, số từ chép đúng]
     en_prompt: dict[str, list[int]] = field(default_factory=dict)  # "in"/"out" câu mồi -> [số từ, số từ chép đúng]
@@ -391,15 +402,18 @@ def evaluate(
 
     transcriber.warmup()
     transcripts = [transcriber.transcribe(s) for s in samples]
-    w_err = w_n = c_err = c_n = n_utt = n_empty = nn_err = nn_n = n_hall = n_unk = 0
+    wer_errors = wer_words = cer_errors = cer_chars = n_utt = n_empty = nonum_errors = nonum_words = n_hall = n_unk = 0
     terms = {name: [0, 0] for name in TERMS}
     # Từ ngoại: từ viết hoa đứng đầu câu được xếp nhóm nhờ các từ viết thường gặp ở bất kỳ đáp án nào trong tập.
-    refs = [x for s in samples for x in [s.audio_text, *(h.audio_text for h in s.history)] if x]
-    lowercase_seen = {w.folded for x in refs for w in english_words(x) if w.text.islower()}
-    prompt_words = {w.folded for w in english_words(prompt, lowercase_seen)}
-    en_utt = en_err = en_n = en_tot = en_hit = en_hit_lenient = ins = vi_err = vi_n = 0
-    groups = {g: [0, 0] for g in GROUPS}
-    by_prompt = {"in": [0, 0], "out": [0, 0]}
+    reference_texts = [x for s in samples for x in [s.audio_text, *(h.audio_text for h in s.history)] if x]
+    lowercase_vocabulary = {w.folded for text in reference_texts for w in find_foreign_words(text) if w.text.islower()}
+    prompt_words = {w.folded for w in find_foreign_words(prompt, lowercase_vocabulary)}
+    # Câu có từ ngoại (`en_mixed_*`) và câu không có (`vi_only_*`): số câu, lỗi WER, số từ đáp án.
+    en_mixed_utterances = en_mixed_errors = en_mixed_words = vi_only_errors = vi_only_words = 0
+    # Từ ngoại của đáp án: tổng số, số chép đúng (chặt / nới lỏng), số lần từ câu mồi bị chèn vào.
+    en_words_total = en_hits = en_hits_lenient = prompt_insertions = 0
+    by_group = {g: [0, 0] for g in WORD_GROUPS}  # nhóm -> [số từ, số từ chép đúng]
+    by_prompt = {"in": [0, 0], "out": [0, 0]}  # từ có / không có trong câu mồi -> [số từ, số từ chép đúng]
     for s, t in zip(samples, transcripts, strict=True):
         # Ghép (tham chiếu, giả thuyết, chữ trước khi lọc) cho mọi câu có cả hai phía. `raw` theo thứ tự file: các lượt
         # user trong lịch sử trước, lượt cuối sau. Vì vậy `k` chỉ tăng ở lượt user.
@@ -425,13 +439,14 @@ def evaluate(
             r, h = normalize_text(ref), normalize_text(hyp)
             n_empty += int(bool(r) and not h)
             n_unk += int(is_unk_only(hyp))
-            w_err += _edit_distance(r.split(), h.split())
-            w_n += len(r.split())
+            word_errors = _edit_distance(r.split(), h.split())
+            wer_errors += word_errors
+            wer_words += len(r.split())
             rn, hn = strip_numbers(r), strip_numbers(h)
-            nn_err += _edit_distance(rn, hn)
-            nn_n += len(rn)
-            c_err += _edit_distance(list(r), list(h))
-            c_n += len(r)
+            nonum_errors += _edit_distance(rn, hn)
+            nonum_words += len(rn)
+            cer_errors += _edit_distance(list(r), list(h))
+            cer_chars += len(r)
             n_utt += 1
             # Câu bịa: bộ lọc tìm thấy cụm phụ đề trong chữ trước khi lọc.
             if raw_text is not None and strip_hallucinations(raw_text) != raw_text.strip():
@@ -442,35 +457,35 @@ def evaluate(
                     terms[name][0] += 1
                     terms[name][1] += int(bool(re.search(pat, fh)))
             # Từ câu mồi có trong chữ ASR mà đáp án không có, kể cả dưới cách viết khác ("ti vi", "TV" cho "tivi").
-            rtoks = letter_tokens(ref)
-            ins += sum(not spelled_in(w, rtoks) for w in prompt_words & letter_words(hyp))
-            en = english_words(ref, lowercase_seen)
-            if not en:
-                vi_err += _edit_distance(r.split(), h.split())
-                vi_n += len(r.split())
+            reference_words = folded_words(ref)
+            prompt_insertions += sum(not contains_word(w, reference_words) for w in prompt_words & folded_word_set(hyp))
+            foreign = find_foreign_words(ref, lowercase_vocabulary)
+            if not foreign:
+                vi_only_errors += word_errors
+                vi_only_words += len(r.split())
             else:
-                en_utt += 1
-                en_err += _edit_distance(r.split(), h.split())
-                en_n += len(r.split())
-                strict, loose = hits(en, hyp), hits(en, hyp, lenient=True)
-                en_hit_lenient += sum(loose)
-                for w, ok in zip(en, strict, strict=True):
+                en_mixed_utterances += 1
+                en_mixed_errors += word_errors
+                en_mixed_words += len(r.split())
+                strict = match_words_in_transcript(foreign, hyp)
+                en_hits_lenient += sum(match_words_in_transcript(foreign, hyp, lenient=True))
+                for word, ok in zip(foreign, strict, strict=True):
                     hit = int(ok)
-                    en_tot += 1
-                    en_hit += hit
-                    groups[w.group][0] += 1
-                    groups[w.group][1] += hit
-                    side = by_prompt["in" if w.folded in prompt_words else "out"]
-                    side[0] += 1
-                    side[1] += hit
+                    en_words_total += 1
+                    en_hits += hit
+                    by_group[word.group][0] += 1
+                    by_group[word.group][1] += hit
+                    prompt_side = by_prompt["in" if word.folded in prompt_words else "out"]
+                    prompt_side[0] += 1
+                    prompt_side[1] += hit
     missed, total, rate, details = entity_miss_rate(samples, transcripts)
     secs = [t.seconds for t in transcripts]
     return AsrReport(
         n_samples=len(samples),
         n_utterances=n_utt,
         n_empty=n_empty,
-        wer=_rate(w_err, w_n),
-        cer=_rate(c_err, c_n),
+        wer=_rate(wer_errors, wer_words),
+        cer=_rate(cer_errors, cer_chars),
         entity_missed=missed,
         entity_total=total,
         entity_miss_rate=rate,
@@ -478,33 +493,33 @@ def evaluate(
         p95_s=percentile(secs, 95),
         max_s=max(secs, default=0.0),
         entity_details=details,
-        wer_nonum=_rate(nn_err, nn_n),
+        wer_nonum=_rate(nonum_errors, nonum_words),
         n_hallucinated=n_hall,
         terms={k: v for k, v in terms.items() if v[0]},
         n_unk=n_unk,
-        en_utterances=en_utt,
-        en_mixed_wer=_rate(en_err, en_n),
-        en_words=en_tot,
-        en_words_hit=en_hit,
-        en_word_recall=_rate(en_hit, en_tot),
-        en_word_recall_lenient=_rate(en_hit_lenient, en_tot),
-        vi_only_wer=_rate(vi_err, vi_n),
-        en_groups={g: v for g, v in groups.items() if v[0]},
+        en_utterances=en_mixed_utterances,
+        en_mixed_wer=_rate(en_mixed_errors, en_mixed_words),
+        en_words=en_words_total,
+        en_words_hit=en_hits,
+        en_word_recall=_rate(en_hits, en_words_total),
+        en_word_recall_lenient=_rate(en_hits_lenient, en_words_total),
+        vi_only_wer=_rate(vi_only_errors, vi_only_words),
+        en_groups={g: v for g, v in by_group.items() if v[0]},
         en_prompt=by_prompt if prompt_words else {},
-        prompt_insertions=ins,
+        prompt_insertions=prompt_insertions,
         n_prompt_retries=int(getattr(transcriber, "n_prompt_retries", 0)),
         counts={
-            "wer_err": w_err,
-            "wer_n": w_n,
-            "nonum_err": nn_err,
-            "nonum_n": nn_n,
-            "en_err": en_err,
-            "en_n": en_n,
-            "vi_err": vi_err,
-            "vi_n": vi_n,
-            "en_words": en_tot,
-            "en_hit": en_hit,
-            "en_hit_lenient": en_hit_lenient,
+            "wer_errors": wer_errors,
+            "wer_words": wer_words,
+            "wer_nonum_errors": nonum_errors,
+            "wer_nonum_words": nonum_words,
+            "en_mixed_errors": en_mixed_errors,
+            "en_mixed_words": en_mixed_words,
+            "vi_only_errors": vi_only_errors,
+            "vi_only_words": vi_only_words,
+            "en_words": en_words_total,
+            "en_hits": en_hits,
+            "en_hits_lenient": en_hits_lenient,
             "entity_missed": missed,
             "entity_total": total,
         },

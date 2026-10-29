@@ -166,5 +166,5 @@ def test_emit_config_writes_untuned_config_per_model(tmp_path: Path, repo_root: 
     args = ["--env", "local", "--models", "parakeet", "large-v3", "--emit-config", "--out", str(tmp_path)]
     assert asr_tune.main(args) == 0
     cfg = load_config(tmp_path / "parakeet.toml")
-    assert cfg.asr.engine == "nemo_ctc" and cfg.asr.generate_kwargs == asr_tune.BASE_GK
+    assert cfg.asr.engine == "nemo_ctc" and cfg.asr.generate_kwargs == asr_tune.BASE_GENERATE_KWARGS
     assert load_config(tmp_path / "large-v3.toml").asr.engine == "faster_whisper"

@@ -159,7 +159,7 @@ lifemate/                 # code, chia theo vai trò; mỗi gói 2–7 module
 │   ├── make_splits.py    # sinh configs/splits/ (mục 3)
 │   ├── audit.py          # rà từng lời gọi của một lần chạy so với nhãn (theo team lead)
 │   ├── eval_asr.py       # WER, CER, tỉ lệ nghe sai thực thể, chỉ số câu chêm tiếng Anh (6.4.2)
-│   ├── en_mixed.py       # tìm từ tiếng Anh chêm trong câu tiếng Việt, xếp nhóm
+│   ├── foreign_words.py  # tìm từ ngoại (tiếng Anh) chêm trong câu tiếng Việt, xếp nhóm
 │   ├── asr_tune.py       # chọn mô hình và cấu hình ASR (D36, D40)
 │   ├── rescore_asr.py    # chấm lại hyps.jsonl đã có trên một tập con, không chạy model
 │   ├── asr_compare.py    # bảng so sánh nhiều hệ thống ASR từ hyps.jsonl, khoảng tin cậy bootstrap
@@ -1086,7 +1086,7 @@ Chỉ đánh giá bằng agent thật trên 2 checkpoint, để hạn chế vi�
 | WER, CER | Trên chữ đã chuẩn hóa: chữ thường, NFC, bỏ token không biết (`⁇`, `<unk>`) và dấu câu. Câu chỉ có token không biết vì vậy là câu rỗng | Chỉ số chung |
 | **Tỉ lệ nghe sai thực thể** | Lấy các giá trị tham số chuỗi và số trong `label.tool_calls` mà **có xuất hiện** trong `audio_text`, ví dụ tên người, địa điểm, số tiền. Đếm tỉ lệ không xuất hiện trong chữ ASR, sau khi bỏ dấu và chữ hoa (dùng cùng cách chuẩn hóa `_fold` của `zaic_tools`) | Đây là lỗi làm sai tham số tool, ảnh hưởng điểm trực tiếp |
 | Điểm agent mất do ASR | Điểm khi dùng `GoldTranscriber` trừ điểm khi dùng ASR, cùng LLM và prompt | Quyết định có cần fine-tune hay không |
-| Câu chêm tiếng Anh | Từ ngoại trong `audio_text` tìm bằng quy tắc (`lifemate/eval/en_mixed.py`: không dấu và không ghép được âm tiết Việt, hoặc viết hoa toàn bộ; nhóm từ thường, viết tắt, tên, từ mượn). `en_mixed_wer`: WER trên các câu có từ ngoại. `en_word_recall`: tỉ lệ từ ngoại có trong chữ ASR sau khi gập, theo nhóm và theo có/không trong câu mồi. `prompt_insertions`: từ ngoại của câu mồi xuất hiện trong chữ ASR mà đáp án không có | Benchmark ASR lần 2 (D40) |
+| Câu chêm tiếng Anh | Từ ngoại trong `audio_text` tìm bằng quy tắc (`lifemate/eval/foreign_words.py`: không dấu và không ghép được âm tiết Việt, hoặc viết hoa toàn bộ; nhóm từ thường, viết tắt, tên, từ mượn). `en_mixed_wer`: WER trên các câu có từ ngoại. `en_word_recall`: tỉ lệ từ ngoại có trong chữ ASR sau khi gập, theo nhóm và theo có/không trong câu mồi. `prompt_insertions`: từ ngoại của câu mồi xuất hiện trong chữ ASR mà đáp án không có | Benchmark ASR lần 2 (D40) |
 | Thời gian | p50, p95, max thời gian ASR mỗi mẫu | Giới hạn 30 giây |
 
 #### 6.4.3. Script train (`lifemate/train/asr.py`)

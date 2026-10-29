@@ -36,26 +36,26 @@ from lifemate.eval.rescore_asr import ReplayTranscriber
 
 # Chỉ số -> (tử số, mẫu số) trong `AsrReport.counts`.
 METRICS: dict[str, tuple[str, str]] = {
-    "wer": ("wer_err", "wer_n"),
-    "wer_nonum": ("nonum_err", "nonum_n"),
-    "en_mixed_wer": ("en_err", "en_n"),
-    "vi_only_wer": ("vi_err", "vi_n"),
-    "en_word_recall": ("en_hit", "en_words"),
-    "en_word_recall_lenient": ("en_hit_lenient", "en_words"),
+    "wer": ("wer_errors", "wer_words"),
+    "wer_nonum": ("wer_nonum_errors", "wer_nonum_words"),
+    "en_mixed_wer": ("en_mixed_errors", "en_mixed_words"),
+    "vi_only_wer": ("vi_only_errors", "vi_only_words"),
+    "en_word_recall": ("en_hits", "en_words"),
+    "en_word_recall_lenient": ("en_hits_lenient", "en_words"),
     "entity_miss_rate": ("entity_missed", "entity_total"),
 }
 
 
-def _rate(counts: Mapping[str, int], metric: str) -> float:
+def _metric_value(counts: Mapping[str, int], metric: str) -> float:
     """Tính một chỉ số từ tử số và mẫu số đã cộng dồn; mẫu số 0 cho 0.0."""
-    num, den = METRICS[metric]
-    return counts[num] / counts[den] if counts[den] else 0.0
+    numerator, denominator = METRICS[metric]
+    return counts[numerator] / counts[denominator] if counts[denominator] else 0.0
 
 
-def _ci(values: list[float]) -> list[float]:
+def _percentile_interval(values: list[float]) -> list[float]:
     """Khoảng tin cậy 95% theo phân vị (2,5 và 97,5) của các giá trị bootstrap."""
-    xs = sorted(values)
-    return [xs[int(0.025 * (len(xs) - 1))], xs[int(0.975 * (len(xs) - 1))]]
+    ordered = sorted(values)
+    return [ordered[int(0.025 * (len(ordered) - 1))], ordered[int(0.975 * (len(ordered) - 1))]]
 
 
 def compare(
@@ -80,29 +80,37 @@ def compare(
         `diff_ci` là khoảng tin cậy của (hệ thống này - hệ thống mốc).
     """
     names = list(systems)
-    full = {n: evaluate(samples, ReplayTranscriber(systems[n][0]), prompt=systems[n][1]).to_dict() for n in names}
-    per = {
-        n: [evaluate([s], ReplayTranscriber(systems[n][0]), prompt=systems[n][1]).counts for s in samples]
-        for n in names
+    full_reports = {
+        name: evaluate(samples, ReplayTranscriber(rows), prompt=prompt).to_dict()
+        for name, (rows, prompt) in systems.items()
     }
-    keys = sorted({k for pair in METRICS.values() for k in pair})
+    # Hệ thống -> mỗi mẫu một dict tử số / mẫu số.
+    per_sample_counts = {
+        name: [evaluate([sample], ReplayTranscriber(rows), prompt=prompt).counts for sample in samples]
+        for name, (rows, prompt) in systems.items()
+    }
+    count_keys = sorted({key for pair in METRICS.values() for key in pair})
     rng = random.Random(seed)
-    boot: dict[str, dict[str, list[float]]] = {n: {m: [] for m in METRICS} for n in names}
+    # Hệ thống -> chỉ số -> giá trị ở từng vòng bootstrap.
+    bootstrap_values: dict[str, dict[str, list[float]]] = {name: {m: [] for m in METRICS} for name in names}
     for _ in range(rounds):
-        pick = [rng.randrange(len(samples)) for _ in samples]
-        for n in names:
-            tot = {k: sum(per[n][i][k] for i in pick) for k in keys}
-            for m in METRICS:
-                boot[n][m].append(_rate(tot, m))
-    out: dict[str, Any] = {}
-    for n in names:
-        base = boot[names[0]]
-        out[n] = {
-            "report": full[n],
-            "ci": {m: _ci(boot[n][m]) for m in METRICS},
-            "diff_ci": {m: _ci([a - b for a, b in zip(boot[n][m], base[m], strict=True)]) for m in METRICS},
+        resampled = [rng.randrange(len(samples)) for _ in samples]
+        for name in names:
+            totals = {key: sum(per_sample_counts[name][i][key] for i in resampled) for key in count_keys}
+            for metric in METRICS:
+                bootstrap_values[name][metric].append(_metric_value(totals, metric))
+    baseline = bootstrap_values[names[0]]
+    result: dict[str, Any] = {}
+    for name in names:
+        values = bootstrap_values[name]
+        result[name] = {
+            "report": full_reports[name],
+            "ci": {m: _percentile_interval(values[m]) for m in METRICS},
+            "diff_ci": {
+                m: _percentile_interval([a - b for a, b in zip(values[m], baseline[m], strict=True)]) for m in METRICS
+            },
         }
-    return out
+    return result
 
 
 def to_markdown(result: Mapping[str, Any]) -> str:

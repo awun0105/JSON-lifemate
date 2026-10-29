@@ -10,8 +10,8 @@ Nội dung chính:
 - `main`: CLI.
 
 Cách hoạt động:
-1. Xuất phát từ config chung `BASE_GK`: giải mã tham lam, temperature 0, không câu mồi, không chống lặp, không
-   VAD. Bộ lọc ảo giác bật như nhau cho mọi model; bộ lọc chạy sau ASR nên không phụ thuộc engine.
+1. Xuất phát từ config chung `BASE_GENERATE_KWARGS`: giải mã tham lam, temperature 0, không câu mồi, không chống
+   lặp, không VAD. Bộ lọc ảo giác bật như nhau cho mọi model; bộ lọc chạy sau ASR nên không phụ thuộc engine.
 2. Dò lần lượt từng bước trong `STAGES`. Ở mỗi bước, thử mọi lựa chọn trên config thắng của các bước trước và giữ
    lựa chọn có `objective` nhỏ nhất. Lựa chọn mà engine không hỗ trợ thì bỏ qua (xem `supported`). Config nào đã
    đo thì dùng lại kết quả, không đo lại.
@@ -107,7 +107,7 @@ MODELS: dict[str, dict[str, str]] = {
 
 # Config chung để xuất phát. Tên khoá theo faster-whisper; engine transformers tự dịch sang tên khoá của transformers
 # (`backends.asr.hf_generate_kwargs`).
-BASE_GK: dict[str, Any] = {
+BASE_GENERATE_KWARGS: dict[str, Any] = {
     "language": "vi",
     "task": "transcribe",
     "temperature": 0.0,
@@ -127,11 +127,11 @@ STAGES: list[tuple[str, dict[str, dict[str, Any]]]] = [
 STAGE_NAMES = [name for name, _ in STAGES]
 
 # Khoá của lựa chọn thuộc bảng `[asr]` chứ không thuộc `generate_kwargs`; `asr_section` chuyển chúng ra ngoài.
-_ASR_KEYS = frozenset({"prompt_guard_ngram", "initial_prompt_file"})
+_ASR_SECTION_KEYS = frozenset({"prompt_guard_ngram", "initial_prompt_file"})
 
 # Các khoá chỉ faster-whisper có. Temperature thử lại (list nhiều mức) cũng chỉ bật ở faster-whisper, vì
 # transformers cần thêm ngưỡng riêng.
-_FW_ONLY = frozenset({"hotwords", "vad_filter", "vad_parameters"})
+_FASTER_WHISPER_ONLY_KEYS = frozenset({"hotwords", "vad_filter", "vad_parameters"})
 
 
 def supported(engine: str, patch: Mapping[str, Any]) -> bool:
@@ -152,20 +152,20 @@ def supported(engine: str, patch: Mapping[str, Any]) -> bool:
         return all(k == "beam_size" and v == 1 for k, v in patch.items())
     if engine == "faster_whisper":
         return True
-    return not (_FW_ONLY & patch.keys()) and not isinstance(patch.get("temperature"), list)
+    return not (_FASTER_WHISPER_ONLY_KEYS & patch.keys()) and not isinstance(patch.get("temperature"), list)
 
 
 OBJECTIVES = ("entity", "en_mixed")
 
 
-def objective(rep: Mapping[str, Any] | None, max_p95: float, kind: str = "entity") -> tuple[float, float, float]:
+def objective(run_report: Mapping[str, Any] | None, max_p95: float, kind: str = "entity") -> tuple[float, float, float]:
     """Tính hàm mục tiêu của một lần đo; bộ ba nhỏ hơn là tốt hơn.
 
     Config có p95 vượt `max_p95` xếp sau mọi config đạt ngưỡng nhưng vẫn được so với nhau. Nhờ vậy model chậm trên T4
     (large-v3 có p95 khoảng 8 giây) vẫn chọn được config tốt nhất của model đó.
 
     Tham số:
-        rep: báo cáo của `eval_asr`; `None` khi lần đo lỗi.
+        run_report: báo cáo của `eval_asr`; `None` khi lần đo lỗi.
         max_p95: ngưỡng p95 thời gian, tính bằng giây.
         kind: `"entity"` (lần 1) hoặc `"en_mixed"` (lần 2: cộng thêm tỉ lệ từ tiếng Anh chép sai và số lần chèn từ
             của câu mồi chia cho số từ tiếng Anh).
@@ -173,22 +173,22 @@ def objective(rep: Mapping[str, Any] | None, max_p95: float, kind: str = "entity
     Trả về:
         Bộ ba (vượt ngưỡng thời gian 0/1, tổng tỉ lệ lỗi, `wer_nonum`). Lần đo lỗi cho `(inf, inf, inf)`.
     """
-    if not rep:
+    if not run_report:
         return (math.inf, math.inf, math.inf)
-    empty_rate = rep["n_empty"] / max(1, rep["n_utterances"])
-    over = float(rep.get("p95_s", math.inf) > max_p95)
-    err = rep["entity_miss_rate"] + empty_rate
+    empty_rate = run_report["n_empty"] / max(1, run_report["n_utterances"])
+    over = float(run_report.get("p95_s", math.inf) > max_p95)
+    err = run_report["entity_miss_rate"] + empty_rate
     if kind == "en_mixed":
-        n_en = rep.get("en_words", 0)
+        n_en = run_report.get("en_words", 0)
         if n_en:
-            err += 1.0 - rep["en_word_recall"] + rep.get("prompt_insertions", 0) / n_en
-    return (over, err, rep.get("wer_nonum", rep["wer"]))
+            err += 1.0 - run_report["en_word_recall"] + run_report.get("prompt_insertions", 0) / n_en
+    return (over, err, run_report.get("wer_nonum", run_report["wer"]))
 
 
-def asr_section(model: str, gk: Mapping[str, Any]) -> dict[str, Any]:
+def asr_section(model: str, generate_kwargs: Mapping[str, Any]) -> dict[str, Any]:
     """Tạo bảng `[asr]` đầy đủ cho một model và một bộ `generate_kwargs`; mọi khoá khác giống nhau giữa các model.
 
-    Khoá trong `_ASR_KEYS` (ví dụ `prompt_guard_ngram`) được chuyển từ `gk` ra bảng `[asr]`.
+    Khoá trong `_ASR_SECTION_KEYS` (ví dụ `prompt_guard_ngram`) được chuyển từ `generate_kwargs` ra bảng `[asr]`.
     """
     return {
         "backend": "asr",
@@ -196,18 +196,18 @@ def asr_section(model: str, gk: Mapping[str, Any]) -> dict[str, Any]:
         "device": "auto",
         "dtype": "auto",
         "batch_size": 8,
-        "generate_kwargs": {k: v for k, v in gk.items() if k not in _ASR_KEYS},
+        "generate_kwargs": {k: v for k, v in generate_kwargs.items() if k not in _ASR_SECTION_KEYS},
         "sample_rate": 16000,
         "sanitize": True,
-        **{k: v for k, v in gk.items() if k in _ASR_KEYS},
+        **{k: v for k, v in generate_kwargs.items() if k in _ASR_SECTION_KEYS},
     }
 
 
-def normalize_candidate(cand: Mapping[str, Any]) -> dict[str, Any]:
+def normalize_candidate(candidate: Mapping[str, Any]) -> dict[str, Any]:
     """Bỏ lớp bảo vệ câu mồi khi config không có câu mồi (lớp bảo vệ khi đó không làm gì), để không đo trùng."""
-    if cand.get("initial_prompt") or cand.get("initial_prompt_file"):
-        return dict(cand)
-    return {k: v for k, v in cand.items() if k != "prompt_guard_ngram"}
+    if candidate.get("initial_prompt") or candidate.get("initial_prompt_file"):
+        return dict(candidate)
+    return {k: v for k, v in candidate.items() if k != "prompt_guard_ngram"}
 
 
 def start_patch(engine: str, start_options: Sequence[str]) -> dict[str, Any]:
@@ -221,11 +221,11 @@ def start_patch(engine: str, start_options: Sequence[str]) -> dict[str, Any]:
     stages = dict(STAGES)
     out: dict[str, Any] = {}
     for item in start_options:
-        stage, _, opt = item.partition("=")
-        if stage not in stages or opt not in stages[stage]:
+        stage, _, option = item.partition("=")
+        if stage not in stages or option not in stages[stage]:
             raise ValueError(f"--start-option {item!r}: not a stage=option in STAGES")
-        if supported(engine, stages[stage][opt]):
-            out.update(stages[stage][opt])
+        if supported(engine, stages[stage][option]):
+            out.update(stages[stage][option])
     return out
 
 
@@ -255,13 +255,19 @@ def make_runner(env: str, split: str) -> Runner:
 
 
 def _measure(
-    model: str, gk: Mapping[str, Any], base: Mapping[str, Any], ids: str, name: str, out_dir: Path, runner: Runner
+    model: str,
+    generate_kwargs: Mapping[str, Any],
+    base: Mapping[str, Any],
+    ids: str,
+    name: str,
+    out_dir: Path,
+    runner: Runner,
 ) -> dict[str, Any] | None:
     """Ghi config `<name>.toml` (v0 với bảng `[asr]` thay hoàn toàn) rồi đo trên `ids`.
 
     Tham số:
         model: tên model trong `MODELS`.
-        gk: `generate_kwargs` cần đo.
+        generate_kwargs: `generate_kwargs` cần đo.
         base: config gốc đã đọc từ TOML.
         ids: đường dẫn file id.
         name: tên lần đo, dùng đặt tên file.
@@ -271,7 +277,7 @@ def _measure(
     Trả về:
         Báo cáo `eval_asr`, hoặc `None` khi lần đo lỗi.
     """
-    raw = {**base, "asr": asr_section(model, gk)}
+    raw = {**base, "asr": asr_section(model, generate_kwargs)}
     out_dir.mkdir(parents=True, exist_ok=True)
     cfg = out_dir / f"{name}.toml"
     cfg.write_text(dump_toml(raw), encoding="utf-8")
@@ -300,44 +306,52 @@ def tune(
         runner: hàm thực hiện lần đo.
         max_p95: ngưỡng p95 thời gian, tính bằng giây.
         stages: tên các bước cần dò, giữ thứ tự của `STAGES`; `None` là mọi bước.
-        start: khoá ghi đè lên `BASE_GK` trước khi dò (xem `start_patch`).
+        start: khoá ghi đè lên `BASE_GENERATE_KWARGS` trước khi dò (xem `start_patch`).
         objective_kind: một tên trong `OBJECTIVES`.
 
     Trả về:
         Dict gồm config thắng (`best_generate_kwargs`), lựa chọn ở từng bước (`path`) và mọi lần đo (`runs`).
     """
     engine = MODELS[model]["engine"]
-    gk: dict[str, Any] = {**BASE_GK, **(start or {})}
+    generate_kwargs: dict[str, Any] = {**BASE_GENERATE_KWARGS, **(start or {})}
     cache: dict[str, tuple[str, dict[str, Any] | None]] = {}
     runs: list[dict[str, Any]] = []
     path: list[dict[str, str]] = []
     for stage, options in STAGES:
         if stages is not None and stage not in stages:
             continue
-        cands: list[tuple[tuple[float, float, float], str, dict[str, Any]]] = []
-        for opt, patch in options.items():
+        candidates: list[tuple[tuple[float, float, float], str, dict[str, Any]]] = []
+        for option, patch in options.items():
             if not supported(engine, patch):
                 continue
-            cand = normalize_candidate({**gk, **patch})
+            candidate = normalize_candidate({**generate_kwargs, **patch})
             # Khoá cache là JSON của cả config: hai lựa chọn ra cùng config thì chỉ đo một lần.
-            key = json.dumps(cand, sort_keys=True, ensure_ascii=False)
+            key = json.dumps(candidate, sort_keys=True, ensure_ascii=False)
             if key not in cache:
-                name = f"{model}__{stage}_{opt}"
-                cache[key] = (name, _measure(model, cand, base, ids, name, out_dir, runner))
-            name, rep = cache[key]
-            score = objective(rep, max_p95, objective_kind)
-            runs.append({"stage": stage, "option": opt, "run": name, "objective": list(score), "report": rep})
-            cands.append((score, opt, cand))
-        best_score, best_opt, gk = min(cands, key=lambda c: c[0])
+                name = f"{model}__{stage}_{option}"
+                cache[key] = (name, _measure(model, candidate, base, ids, name, out_dir, runner))
+            name, run_report = cache[key]
+            score = objective(run_report, max_p95, objective_kind)
+            runs.append({"stage": stage, "option": option, "run": name, "objective": list(score), "report": run_report})
+            candidates.append((score, option, candidate))
+        best_score, best_opt, generate_kwargs = min(candidates, key=lambda c: c[0])
         path.append({"stage": stage, "chosen": best_opt, "objective": json.dumps(list(best_score))})
-    return {"model": model, "best_generate_kwargs": gk, "path": path, "runs": runs}
+    return {"model": model, "best_generate_kwargs": generate_kwargs, "path": path, "runs": runs}
 
 
 def report(
-    model: str, gk: Mapping[str, Any], base: Mapping[str, Any], ids_files: Sequence[str], out_dir: Path, runner: Runner
+    model: str,
+    generate_kwargs: Mapping[str, Any],
+    base: Mapping[str, Any],
+    ids_files: Sequence[str],
+    out_dir: Path,
+    runner: Runner,
 ) -> dict[str, Any]:
     """Đo config thắng đúng một lần trên mỗi tập báo cáo; các tập này không dùng để chọn."""
-    return {f: _measure(model, gk, base, f, f"{model}__report_{Path(f).stem}", out_dir, runner) for f in ids_files}
+    return {
+        f: _measure(model, generate_kwargs, base, f, f"{model}__report_{Path(f).stem}", out_dir, runner)
+        for f in ids_files
+    }
 
 
 def preflight(
@@ -351,7 +365,9 @@ def preflight(
     stages: Sequence[str] | None = None,
     start: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Chạy thử từng lựa chọn engine hỗ trợ (mỗi lần một lựa chọn, trên `BASE_GK` + `start`) với `n` mẫu đầu của `ids`.
+    """Chạy thử từng lựa chọn engine hỗ trợ trên `n` mẫu đầu của `ids`.
+
+    Mỗi lần thử bật một lựa chọn trên nền `BASE_GENERATE_KWARGS` + `start`.
 
     Dùng để bắt lỗi cài đặt, nạp model và tham số trước lần dò thật, ví dụ trên kernel CPU để khỏi tốn GPU.
 
@@ -377,16 +393,17 @@ def preflight(
     for stage, options in STAGES:
         if stages is not None and stage not in stages:
             continue
-        for opt, patch in options.items():
+        for option, patch in options.items():
             if not supported(engine, patch):
                 continue
-            cand = normalize_candidate({**BASE_GK, **(start or {}), **patch})
-            key = json.dumps(cand, sort_keys=True, ensure_ascii=False)
+            candidate = normalize_candidate({**BASE_GENERATE_KWARGS, **(start or {}), **patch})
+            key = json.dumps(candidate, sort_keys=True, ensure_ascii=False)
             if key not in seen:
                 seen[key] = (
-                    _measure(model, cand, base, str(sub), f"{model}__pre_{stage}_{opt}", out_dir, runner) is not None
+                    _measure(model, candidate, base, str(sub), f"{model}__pre_{stage}_{option}", out_dir, runner)
+                    is not None
                 )
-            rows.append({"model": model, "stage": stage, "option": opt, "ok": seen[key]})
+            rows.append({"model": model, "stage": stage, "option": option, "ok": seen[key]})
     return rows
 
 
@@ -423,7 +440,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.out.mkdir(parents=True, exist_ok=True)
         for m in args.models:
             path = args.out / f"{m}.toml"
-            path.write_text(dump_toml({**base, "asr": asr_section(m, BASE_GK)}), encoding="utf-8")
+            path.write_text(dump_toml({**base, "asr": asr_section(m, BASE_GENERATE_KWARGS)}), encoding="utf-8")
             print(path)
         return 0
     runner = make_runner(args.env, args.split)

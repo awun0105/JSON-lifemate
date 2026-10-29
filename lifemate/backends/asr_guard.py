@@ -26,10 +26,11 @@ import zlib
 
 from lifemate.backends.asr_sanitizer import normalize
 
+# Một từ là một dãy chữ cái hoặc chữ số liền nhau; dấu câu là ranh giới.
 _WORD = re.compile(r"[^\W_]+")
 
 
-def _words(text: str) -> list[str]:
+def _word_tokens(text: str) -> list[str]:
     """Tách văn bản thành từ: chữ thường, NFC, bỏ dấu câu."""
     return _WORD.findall(unicodedata.normalize("NFC", text.lower()))
 
@@ -42,9 +43,9 @@ def compression_ratio(text: str) -> float:
 
 def echoes_prompt(text: str, prompt: str, ngram: int) -> bool:
     """`True` khi `text` chứa một cụm `ngram` từ liên tiếp có trong `prompt` (so sau khi bỏ dấu câu, chữ thường)."""
-    p, t = _words(prompt), _words(text)
-    grams = {tuple(p[i : i + ngram]) for i in range(len(p) - ngram + 1)}
-    return any(tuple(t[i : i + ngram]) in grams for i in range(len(t) - ngram + 1))
+    prompt_words, text_words = _word_tokens(prompt), _word_tokens(text)
+    prompt_ngrams = {tuple(prompt_words[i : i + ngram]) for i in range(len(prompt_words) - ngram + 1)}
+    return any(tuple(text_words[i : i + ngram]) in prompt_ngrams for i in range(len(text_words) - ngram + 1))
 
 
 def needs_retry(raw: str, cleaned: str, prompt: str, ngram: int, max_compression: float) -> bool:

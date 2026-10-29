@@ -1,16 +1,16 @@
-"""Test `lifemate.eval.en_mixed` (tìm từ tiếng Anh chêm trong câu) và `make_splits.en_mixed_ids`.
+"""Test `lifemate.eval.foreign_words` (tìm từ tiếng Anh chêm trong câu) và `make_splits.en_mixed_ids`.
 
 Lưu ý:
 - Câu thử viết tay, không cần dữ liệu cuộc thi.
 """
 
-from lifemate.eval.en_mixed import english_words, has_english, letter_words
+from lifemate.eval.foreign_words import find_foreign_words, folded_word_set, has_foreign_word
 from lifemate.eval.make_splits import en_mixed_ids
 
 
 def _groups(text: str, seen: set[str] | None = None) -> list[tuple[str, str]]:
     """Trả về các cặp (từ, nhóm) tìm được trong `text`."""
-    return [(w.text, w.group) for w in english_words(text, seen or set())]
+    return [(w.text, w.group) for w in find_foreign_words(text, seen or set())]
 
 
 def test_groups_and_vietnamese_skipped() -> None:
@@ -29,7 +29,7 @@ def test_groups_and_vietnamese_skipped() -> None:
     ]
     # Chữ cái đơn ("S" trong "S+ Sport") bị bỏ; tên ghép viết hoa giữa từ là tên.
     assert _groups("Chuyển sang S+ Sport, điểm MinhMart.") == [("Sport", "name"), ("MinhMart", "name")]
-    assert not has_english("Đặt báo thức năm giờ sáng mai cho anh nha.")
+    assert not has_foreign_word("Đặt báo thức năm giờ sáng mai cho anh nha.")
 
 
 def test_sentence_initial_capital_uses_lowercase_seen() -> None:
@@ -38,9 +38,9 @@ def test_sentence_initial_capital_uses_lowercase_seen() -> None:
     assert _groups("Check ví giùm.") == [("Check", "name")]
 
 
-def test_letter_words_split_digits_and_fold() -> None:
-    """`letter_words` gập dấu và tách chữ số giống cách tìm từ ngoại, để "RON95" khớp được "RON"."""
-    assert letter_words("Xăng RON95, nhắn Zalo!") == {"xang", "ron", "nhan", "zalo"}
+def test_folded_word_set_splits_digits_and_folds() -> None:
+    """`folded_word_set` gập dấu và tách chữ số giống cách `find_foreign_words` tách, để "RON95" khớp được "RON"."""
+    assert folded_word_set("Xăng RON95, nhắn Zalo!") == {"xang", "ron", "nhan", "zalo"}
 
 
 def test_en_mixed_ids_checks_final_and_user_history() -> None:
@@ -55,13 +55,13 @@ def test_en_mixed_ids_checks_final_and_user_history() -> None:
 
 def test_hits_count_occurrences_and_lenient_spellings() -> None:
     """Từ lặp chỉ đúng bằng số lần có trong chữ ASR; chế độ nới lỏng chấp nhận "TV" cho "tivi" và tên ghép bị tách."""
-    from lifemate.eval.en_mixed import hits
+    from lifemate.eval.foreign_words import match_words_in_transcript
 
-    words = english_words("Check mail rồi check lịch, mở tivi, điểm MinhMart.")
+    words = find_foreign_words("Check mail rồi check lịch, mở tivi, điểm MinhMart.")
     assert [w.folded for w in words] == ["check", "mail", "check", "tivi", "minhmart"]
     hyp = "check mail rồi chắc lịch mở TV điểm Minh Mart"
-    assert hits(words, hyp) == [True, True, False, False, False]
-    assert hits(words, hyp, lenient=True) == [True, True, False, True, True]
+    assert match_words_in_transcript(words, hyp) == [True, True, False, False, False]
+    assert match_words_in_transcript(words, hyp, lenient=True) == [True, True, False, True, True]
 
 
 def test_sentence_start_on_decomposed_text() -> None:
@@ -73,13 +73,18 @@ def test_sentence_start_on_decomposed_text() -> None:
 
 
 def test_equivalents_both_ways_and_split_spelling() -> None:
-    """Cách viết tương đương tra theo hai chiều; `spelled_in` chấp nhận cả từ bị tách ("ti vi" cho "tivi")."""
-    from lifemate.eval.en_mixed import hits, letter_tokens, spelled_in
+    """Cách viết tương đương tra theo hai chiều; `contains_word` chấp nhận cả từ bị tách ("ti vi" cho "tivi")."""
+    from lifemate.eval.foreign_words import contains_word, folded_words, match_words_in_transcript
 
-    assert hits(english_words("Tối nay TV có gì?"), "tối nay tivi có gì", lenient=True) == [True]
-    assert hits(english_words("Tối nay TV có gì?"), "tối nay tivi có gì") == [False]
+    assert match_words_in_transcript(find_foreign_words("Tối nay TV có gì?"), "tối nay tivi có gì", lenient=True) == [
+        True
+    ]
+    assert match_words_in_transcript(find_foreign_words("Tối nay TV có gì?"), "tối nay tivi có gì") == [False]
     # Hai cách viết của cùng một từ trong một câu chỉ dùng được một lần xuất hiện trong chữ ASR.
-    assert hits(english_words("Mở TV, tắt tivi."), "mở tivi tắt đèn", lenient=True) == [True, False]
-    assert spelled_in("tivi", letter_tokens("Tắt cái ti vi đi con."))
-    assert spelled_in("tivi", letter_tokens("Ơi TV có gì hay?"))
-    assert not spelled_in("tivi", letter_tokens("Mở VTV1 cho cô."))
+    assert match_words_in_transcript(find_foreign_words("Mở TV, tắt tivi."), "mở tivi tắt đèn", lenient=True) == [
+        True,
+        False,
+    ]
+    assert contains_word("tivi", folded_words("Tắt cái ti vi đi con."))
+    assert contains_word("tivi", folded_words("Ơi TV có gì hay?"))
+    assert not contains_word("tivi", folded_words("Mở VTV1 cho cô."))
