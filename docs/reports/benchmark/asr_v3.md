@@ -220,14 +220,15 @@ Thứ tự bắt buộc theo phụ thuộc: E phải xong trước F, G, H, vì 
 
 | Bước    | Việc                                                                                                    | Ở đâu                                                            | Phụ thuộc | Trạng thái |
 | ------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | --------- | ---------- |
-| P1–P13  | Viết code chuẩn bị (Phụ lục B.1), test, chạy thử trên CPU 3 mẫu                                         | Máy dev, kernel preflight Kaggle                                 |           | Chưa làm   |
-| K1      | Phiên GPU 1: ba biến thể câu mồi (E0, E1, E2) trên `asr_tune`                                           | Kaggle T4, khoảng 1 giờ 10 phút                                  | P1–P13    | Chưa làm   |
+| P1–P8   | Code chuẩn bị chung và cho E (Phụ lục B.1), test                                                        | Máy dev, kernel preflight Kaggle                                 |           | Chưa làm   |
+| K1      | Phiên GPU 1: ba biến thể câu mồi (E0, E1, E2) trên `asr_tune`                                           | Kaggle T4, khoảng 1 giờ 10 phút                                  | P1–P8     | Chưa làm   |
+| P9–P15  | Code cho F, G, H, bảng chọn chung, I, J và bước kiểm tra cuối (Phụ lục B.1); viết trong lúc chờ K1, K2 | Máy dev, kernel preflight Kaggle | P1–P8 | Chưa làm |
 | E       | Chấm offline, chọn biến thể thắng                                                                       | Máy dev                                                          | K1        | Chưa làm   |
 | K2      | Phiên GPU 2: tập học (RNNT, large-v3 biến thể thắng); val (large-v3 biến thể thắng)                     | Kaggle T4, khoảng 2 giờ 30 phút                                  | E         | Chưa làm   |
-| K3      | Phiên GPU 3: chấm điểm âm thanh (large-v3 không câu mồi) trên tập học, `asr_tune`, val | Kaggle T4, khoảng 1 giờ | K2 | Chưa làm |
-| F, G, H | Đếm độ tin cậy và chọn θ, học H (chỉ trên tập học); bảng chọn chung trên `asr_tune`; đo ứng viên thắng một lần trên val (mục 7) | Máy dev | K2, K3 | Chưa làm |
-| I1      | Đếm trần của hai phương án                                                                      | Máy dev                                                          | F, G, H   | Chưa làm   |
-| K4      | Phiên GPU 4: agent trên chữ đã lưu, J0–J3 (và J4 nếu I1 đạt), trên val | Kaggle T4, chưa ước được (đo một nguồn trước) | I1 | Chưa làm |
+| K3      | Phiên GPU 3: chấm điểm âm thanh (large-v3 không câu mồi) trên tập học, `asr_tune`, val | Kaggle T4, khoảng 1 giờ | K2, P10 | Chưa làm |
+| F, G, H | Đếm độ tin cậy và chọn θ, học H (chỉ trên tập học); bảng chọn chung trên `asr_tune`; đo ứng viên thắng một lần trên val (mục 7) | Máy dev | K2, K3, P9, P11, P12 | Chưa làm |
+| I1      | Đếm trần của hai phương án                                                                      | Máy dev                                                          | F, G, H, P13 | Chưa làm   |
+| K4      | Phiên GPU 4: agent trên chữ đã lưu, J0–J3 (và J4 nếu I1 đạt), trên val | Kaggle T4, chưa ước được (đo một nguồn trước) | I1, P14 | Chưa làm |
 | J       | Chấm điểm, so các nguồn, xếp loại lỗi | Máy dev | K4 | Chưa làm |
 | Báo cáo | Điền kết quả, kết luận; cập nhật `docs/experiments.md`, `docs/decisions.md`, SPEC                       | Máy dev                                                          | Mọi bước  | Chưa làm   |
 
@@ -453,7 +454,7 @@ mồi); nên phiên K2 chép lại tập học bằng đúng cấu hình đó.
 `context` (`type`, `description`, `properties`, `content`, `name`…), nên các từ này có trong từ điển của mọi mẫu và
 large-v3 bịa ra đúng các từ này thì bộ lọc vẫn nhận. Khoá là tên trường do người viết schema đặt, không phải nội dung
 người dùng có thể nhắc tới. Đếm thử offline trên tập dò: bỏ khoá bớt 1 từ lấy nhầm ("group") và không mất từ đúng
-nào. Lần 3 dùng từ điển bỏ khoá cho mọi thử nghiệm (việc P10). Mốc so sánh `context_other` giữ số của lần 2, không chấm
+nào. Lần 3 dùng từ điển bỏ khoá cho mọi thử nghiệm (việc P3). Mốc so sánh `context_other` giữ số của lần 2, không chấm
 lại, vì chênh lệch chỉ một từ trên tập dò.
 
 
@@ -518,7 +519,7 @@ thật. Mỗi lựa chọn ở lần 3 (câu mồi dài hơn ở E, chấm đi�
 
 **Giải pháp.** Không có thử nghiệm riêng cho thời gian; mọi phiên GPU (K1, K2, K3) đo kèm.
 
-- **Đo trên engine thật.** Engine ghép (sẽ viết, Phụ lục B.1, P7) chạy RNNT, large-v3, lớp bảo vệ, phép ghép và chấm điểm
+- **Đo trên engine thật.** Engine ghép (sẽ viết, Phụ lục B.1, P8) chạy RNNT, large-v3, lớp bảo vệ, phép ghép và chấm điểm
 G trong cùng một tiến trình, đúng như lúc nộp. Mọi phiên GPU của lần 3 chạy qua engine này.
 - **Thời gian mỗi mẫu.** `lifemate/backends/asr.py` › `ASRTranscriber.transcribe` đã ghi `Transcript.seconds` (đồng hồ
 thực từ lúc bắt đầu tới khi có chữ của mọi câu). Engine ghép ghi thêm thời gian của từng bước và một dòng `timing.jsonl`
@@ -1458,21 +1459,23 @@ chung), nên số tập dò của bước chọn thứ hai lạc quan hơn (mụ
 ### B.1. Việc chuẩn bị (máy dev, không cần GPU)
 
 
-| Mã  | Việc                                                                                                                                 | Kiểm tra                                                                                                                                                       |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| P1  | `make_splits` ghi `asr_learn.txt` (793 mã = `train.txt` bỏ `asr_tune.txt`)                                                           | Test: không trùng mã nào với `asr_tune`, `val_seen`, `val_unseen`                                                                                              |
-| P2  | Đọc mã nguồn faster-whisper bản đang ghim: cách cắt câu mồi khi quá 223 token; xác nhận `align` chấm được chuỗi cho sẵn không kèm câu mồi | Ghi kết quả vào mục 3.3 và 7.3 |
-| P3  | `asr_prompt.py`: `build_sample_prompts`; đếm số token bằng tokenizer của large-v3                           | Test: đúng thứ tự file, không đọc lượt người dùng, câu không có lượt trợ lý liền trước nhận phần cố định; test quét mã nguồn không đọc file môi trường vẫn qua |
-| P4  | `FasterWhisperASR`, `ASRTranscriber`, `ASRConfig.prompt_mode`, `needs_retry` phần cố định; ghi `prompt` và `scores` vào `hyps.jsonl` | Test với backend giả: `prompt_mode = "fixed"` cho đúng chữ như cũ                                                                                              |
-| P5  | Chỉ số mới trong `eval_asr`                                                                                                          | Test trên câu tự viết; chấm lại chữ lần 2 cho đúng số cũ ở các chỉ số cũ                                                                                       |
-| P6  | `prompt_word_reliability.py`, `context_reliable`, `merge_classifier.py`, `asr_alternatives.py`                                       | Test trên dữ liệu tự viết; `merge_classifier` với trọng số tay tái tạo đúng quy tắc `context_other`                                                            |
-| P7  | Engine `MergedASR` (tuần tự: RNNT, large-v3, lớp bảo vệ, ghép, chấm điểm G); ghi `timing.jsonl` | Test với hai backend giả: chữ ghép giống `asr_merge` offline từng byte |
-| P8  | `GpuMemoryMonitor`, kernel `ops/kaggle/asr_v3/` | Chạy kernel preflight trên CPU với 3 mẫu |
-| P9  | `make check`, `make test`, cập nhật SPEC và README các thư mục                                                                       |                                                                                                                                                                |
-| P10 | `sample_context_words` bỏ khoá JSON, chỉ lấy giá trị                                                                                 | Test: khoá như `type`, `properties` không có trong từ điển, giá trị vẫn có |
-| P11 | `candidate_scoring.py`, `FasterWhisperASR.score_texts`; kernel K3 | Test: câu ứng viên chỉ khác nhau ở đúng một đoạn, cùng kiểu viết; `score_texts` với backend giả trả đúng thứ tự; kernel preflight trên Kaggle với 3 mẫu: điểm của chính câu large-v3 chép cao hơn câu bị đổi một từ (máy dev không chạy mô hình) |
-| P12 | `merge_decision_accuracy`; bảng chọn chung (mục 7) chạy mọi ứng viên trên cùng các đoạn và áp quy tắc chọn | Test: với nhãn và quyết định tự viết, độ chính xác và thứ tự ưu tiên đúng như mục 7 |
-| P13 | `--transcripts replay`, câu prompt cho J4, kernel K4 | Test: `ReplayTranscriber` qua CLI cho đúng chữ từng lượt; với LLM giả (`llm.backend = "fake"`) chạy hết 3 mẫu |
+| Mã  | Cho | Việc | Kiểm tra |
+| --- | --- | --- | --- |
+| P1 | Chung | `make_splits` ghi `asr_learn.txt` (793 mã = `train.txt` bỏ `asr_tune.txt`) | Test: không trùng mã nào với `asr_tune`, `val_seen`, `val_unseen` |
+| P2 | Chung | Đọc mã nguồn faster-whisper bản đang ghim: cách cắt câu mồi khi quá 223 token; xác nhận `align` chấm được chuỗi cho sẵn không kèm câu mồi | Ghi kết quả vào mục 3.3 và 7.3 |
+| P3 | Chung | `sample_context_words` bỏ khoá JSON, chỉ lấy giá trị | Test: khoá như `type`, `properties` không có trong từ điển, giá trị vẫn có |
+| P4 | Chung | Chỉ số mới trong `eval_asr` | Test trên câu tự viết; chấm lại chữ lần 2 cho đúng số cũ ở các chỉ số cũ |
+| P5 | Chung | `GpuMemoryMonitor`: đọc bộ nhớ GPU bằng `nvidia-smi` chạy nền | Test với lệnh `nvidia-smi` giả: đọc đúng giá trị lớn nhất |
+| P6 | E | `asr_prompt.py`: `build_sample_prompts`; đếm số token bằng tokenizer của large-v3 | Test: đúng thứ tự file, không đọc lượt người dùng, câu không có lượt trợ lý liền trước nhận phần cố định; test quét mã nguồn không đọc file môi trường vẫn qua |
+| P7 | E | `FasterWhisperASR`, `ASRTranscriber`, `ASRConfig.prompt_mode`, `needs_retry` phần cố định; ghi `prompt` và `scores` vào `hyps.jsonl` | Test với backend giả: `prompt_mode = "fixed"` cho đúng chữ như cũ |
+| P8 | E | Engine `MergedASR` (tuần tự: RNNT, large-v3, lớp bảo vệ, ghép); ghi `timing.jsonl`; kernel `ops/kaggle/asr_v3/` cho K1, K2 | Test với hai backend giả: chữ ghép giống `asr_merge` offline từng byte; chạy kernel preflight trên Kaggle với 3 mẫu |
+| P9 | F | `prompt_word_reliability.py` (đếm, độ tin cậy, kiểm định chéo chọn θ); cách lọc `context_reliable` | Test trên dữ liệu tự viết: đếm đúng, công thức làm mượt đúng, mỗi phần kiểm định chéo chỉ dùng số đếm của các phần khác |
+| P10 | G | `candidate_scoring.py`, `FasterWhisperASR.score_texts`; thêm bước chấm điểm vào `MergedASR`; kernel K3 | Test: câu ứng viên chỉ khác nhau ở đúng một đoạn, cùng kiểu viết; `score_texts` với backend giả trả đúng thứ tự; kernel preflight trên Kaggle với 3 mẫu: điểm của chính câu large-v3 chép cao hơn câu bị đổi một từ (máy dev không chạy mô hình) |
+| P11 | H | `merge_classifier.py` (đặc trưng, nhãn tự động, hồi quy logistic) | Test trên dữ liệu tự viết; với trọng số đặt tay tái tạo đúng quy tắc `context_other` |
+| P12 | Bảng chọn chung | `merge_decision_accuracy`; bảng chọn chung (mục 7) chạy mọi ứng viên trên cùng các đoạn và áp quy tắc chọn | Test: với nhãn và quyết định tự viết, độ chính xác và thứ tự ưu tiên đúng như mục 7 |
+| P13 | I | `asr_alternatives.py` (định dạng hai phương án, đếm trần, đếm token) | Test trên câu tự viết: xếp đúng bốn loại đoạn (cứu được, rủi ro, không cứu được, đã đúng) |
+| P14 | J | `--transcripts replay`, câu prompt cho J4, kernel K4 | Test: `ReplayTranscriber` qua CLI cho đúng chữ từng lượt; với LLM giả (`llm.backend = "fake"`) chạy hết 3 mẫu |
+| P15 | Kết thúc | `make check`, `make test`, cập nhật SPEC và README các thư mục |  |
 
 
 ### B.2. Các phiên GPU
