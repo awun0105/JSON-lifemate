@@ -760,6 +760,26 @@ Các từ của câu mồi không đáng tin như nhau. Có từ trông giống 
 xuất hiện khi người dùng nói thật. Đo riêng từng từ thì có thể nhận hết từ đáng tin và chỉ đòi thêm bằng chứng với từ
 hay sai.
 
+**Ví dụ.** Cả "SJC" và "Mail" đều có trong câu mồi, nên luật của lần 2 lấy cả hai:
+
+| Người dùng nói | RNNT | large-v3 | Bản ghép (C0) | Đúng? |
+|---|---|---|---|---|
+| giá vàng SJC | giá vàng ét giê xê | giá vàng SJC | giá vàng SJC | Đúng |
+| mai đi khám | mai đi khám | Mail đi khám | Mail đi khám | Sai |
+
+F đếm trên tập học xem mỗi khi large-v3 viết ra một từ của câu mồi (mà RNNT không có), người dùng có thật sự nói từ đó
+không. Bảng dưới là số minh hoạ, chưa phải số đo:
+
+| Từ | Số lần viết ra | Số lần đúng | Độ tin cậy | Cách xử lý (với θ = 0,5) |
+|---|---|---|---|---|
+| SJC | 20 | 19 | (19 + 1) / (20 + 2) = 0,91 | Lấy như cũ |
+| Zalo | 30 | 27 | (27 + 1) / (30 + 2) = 0,88 | Lấy như cũ |
+| Mail | 15 | 3 | (3 + 1) / (15 + 2) = 0,24 | Chỉ lấy khi có trong từ điển ngữ cảnh của mẫu |
+| list | 10 | 2 | (2 + 1) / (10 + 2) = 0,25 | Chỉ lấy khi có trong từ điển ngữ cảnh của mẫu |
+
+Với câu "mai đi khám" ở mẫu không có app email và trợ lý không nhắc tới mail, "Mail" không có trong từ điển ngữ cảnh, nên
+bản ghép giữ chữ RNNT "mai".
+
 ### 4.3. Giải pháp và thuật toán
 
 **Đếm.** Trên tập học, với mỗi từ ngoại `w` của câu mồi (đã chuẩn hoá), đếm:
@@ -769,8 +789,18 @@ hay sai.
 lấy từ large-v3.
 - `correct(w)`: trong số câu đó, số câu mà đáp án có `w` (so sau khi chuẩn hoá chữ, kể cả cách viết tương đương của lần 2).
 
-Độ tin cậy là `(correct(w) + 1) / (written(w) + 2)`. Cộng 1 và 2 (làm mượt Laplace) để từ ít gặp có độ tin cậy gần 0,5
-thay vì 0 hoặc 1: một từ chỉ gặp 1 lần và đúng 1 lần không nên được tin tuyệt đối. Từ chưa gặp lần nào có độ tin cậy 0,5.
+Độ tin cậy là `(correct(w) + 1) / (written(w) + 2)`.
+
+**Công thức này từ đâu ra.** Tỉ lệ thô `correct / written` không dùng được với từ ít gặp: từ gặp 1 lần và đúng 1 lần có
+tỉ lệ 1 (tin tuyệt đối), từ gặp 1 lần và sai có tỉ lệ 0, và từ chưa gặp thì chia cho 0. Cộng 1 vào số lần đúng và 2 vào số
+lần viết ra tương đương với việc giả sử trước khi đếm đã thấy mỗi từ **một lần đúng và một lần sai**. Đây là **quy tắc
+kế tiếp của Laplace** (rule of succession, Laplace đưa ra năm 1814), còn gọi là làm mượt Laplace hay làm mượt cộng một.
+Theo xác suất thống kê, công thức này là ước lượng trung bình của tỉ lệ đúng khi chưa biết gì về tỉ lệ đó (mọi tỉ lệ từ 0
+tới 1 coi như có khả năng như nhau, tức phân phối Beta(1, 1)) rồi cập nhật bằng số lần đúng và sai đã đếm.
+
+Tác dụng: từ đếm được nhiều lần thì độ tin cậy gần tỉ lệ thô (19/20 = 0,95, công thức cho 0,91); từ ít gặp bị kéo về 0,5
+(1/1 thành 0,67, 0/1 thành 0,33); từ chưa gặp có độ tin cậy 0,5, tức "chưa biết". Hai con số 1 và 2 là lựa chọn chuẩn của
+quy tắc này, không dò theo dữ liệu.
 
 **Lọc.** Cách lọc mới `context_reliable` cho bước 3b của phép ghép:
 
