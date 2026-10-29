@@ -343,7 +343,6 @@ mồi, lớp bảo vệ g4, tập dò, tập kiểm tra, seen, unseen, CI, boots
 | Câu mồi theo mẫu                 | Câu mồi dựng riêng cho từng câu, từ thông tin dạng chữ của mẫu (mục 3)                                                                                                                               |
 | Từ điển ngữ cảnh                 | Tập các từ (đã chuẩn hoá) có trong thông tin dạng chữ của mẫu: catalog của app đã cài, ngữ cảnh người dùng, lượt trợ lý trong lịch sử. Có từ lần 2 (mục 6.8 của báo cáo lần 2)                             |
 | `context_other`                  | Bộ lọc ngữ cảnh của lần 2: từ tiếng Anh ngoài câu mồi chỉ được lấy từ large-v3 khi có trong từ điển ngữ cảnh; từ của câu mồi nhận hết                                                           |
-| `hotwords`                       | Tham số của faster-whisper nhận một chuỗi từ khoá để ưu tiên khi giải mã. Lần 1 thử với một danh sách cố định và loại vì kém nhất; lần 3 không dùng |
 | Độ tin cậy của một từ câu mồi    | Trong các lần large-v3 (có câu mồi) viết ra từ đó, tỉ lệ lần người dùng thật sự nói từ đó. Đếm trên tập học (mục 4)                                                                                  |
 | Đoạn khác nhau                   | Một chỗ mà chữ RNNT và chữ large-v3 viết khác nhau, nằm giữa hai từ khớp, sau khi đặt hai bản cạnh nhau từ ứng với từ (mục 6.3 của báo cáo lần 2)                                                    |
 | Bảng chọn chung                  | Bước so mọi cách quyết định ghép (C0, F, G, H) trên cùng các đoạn, bằng một quy tắc chọn, dùng tập dò một lần (mục 7) |
@@ -949,11 +948,6 @@ số câu như vậy được đếm và ghi vào kết quả.
 - **Chấm, không chép lại.** Chép lại không câu mồi (đã bỏ khỏi kế hoạch lần 3) tốn một lượt giải mã đầy đủ và chỉ cho
   biết large-v3 không câu mồi chọn gì, không cho biết phương án của RNNT được bao nhiêu điểm. Chấm ép chuỗi cho điểm của
   **cả hai** phương án, và chỉ chạy trên câu có đoạn cần quyết định.
-- **Không dùng LLM để chấm.** Đã cân nhắc thêm điểm ngữ cảnh do Qwen3-4B chấm (xác suất của câu khi đứng sau tên app đã
-  cài và lời trợ lý), và bỏ. Lý do: LLM không nghe âm thanh nên nghiêng về câu "hợp lý" thay cho câu được nói; phần ASR
-  phải chờ LLM chạy trước bước agent, tức ASR và LLM không còn tách rời; vLLM có thể cho log xác suất lệch nhỏ khi số câu
-  trong lô khác nhau, đe doạ tính tất định; và xác suất của LLM đổi sau khi fine-tune, nên phải đo lại. Ngữ cảnh của mẫu vẫn
-  được dùng qua từ điển ngữ cảnh (C0, F) và đặc trưng của H.
 - **Không thêm tham số.** G dùng large-v3 có sẵn; tổng vẫn 5,68B.
 - **Không có con số tự đặt.** G chỉ so hai điểm.
 
