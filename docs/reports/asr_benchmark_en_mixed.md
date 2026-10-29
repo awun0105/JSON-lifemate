@@ -168,7 +168,8 @@ tốt). "Tỉ lệ lỗi từ" (WER) là số từ sai chia cho số từ của 
 | PhoWhisper | 36,1% / 36,5% | 32,5% / 33,1% |
 | whisper-large-v3, không câu mồi | 51,6% / 56,0% | 32,8% / 33,9% |
 | whisper-large-v3 + câu mồi tốt nhất (`en_full_v1` + g4) | 72,2% / 61,1% | 28,7% / 33,5% |
-| **Ghép RNNT + whisper-large-v3 có câu mồi** | **72,5% / 63,9%** | **22,8% / 22,8%** |
+| Ghép RNNT + whisper-large-v3 có câu mồi, quy tắc gốc | 72,5% / 63,9% | 22,8% / 22,8% |
+| **Ghép RNNT + whisper-large-v3 có câu mồi, quy tắc đã siết** (từ điển ngữ cảnh) | **72,2% / 63,1%** | **22,1% / 22,8%** |
 
 Đọc bảng:
 
@@ -180,13 +181,14 @@ tốt). "Tỉ lệ lỗi từ" (WER) là số từ sai chia cho số từ của 
    khoảng 52% lên 72% trên seen. Phần tăng gần như chỉ đến từ các từ **có trong câu mồi**. Vì vậy trên unseen, nơi chỉ
    một phần tư số từ tiếng Anh có trong câu mồi, mức tăng nhỏ hơn nhiều (56% lên 61%). Với PhoWhisper, câu mồi gần như
    không đổi kết quả trên tập kiểm tra.
-3. **Ghép RNNT + large-v3 là hướng tốt nhất hiện có.** So với RNNT đứng riêng, bản ghép chép đúng thêm 22,7 điểm (seen) và
-   12,3 điểm (unseen) từ tiếng Anh, và sai ít từ hơn trên câu chêm tiếng Anh (22,8% so với khoảng 24,5%). Các chênh lệch
-   này đã được kiểm tra thống kê (khoảng tin cậy 95% không chứa 0, mục 2.4), không phải do may rủi.
-4. **Cái giá của bản ghép: câu thuần Việt tệ đi một chút.** Tỉ lệ lỗi từ trên câu không có tiếng Anh tăng 1,1 điểm
-   (seen, 17,7% lên 18,8%) và 0,6 điểm (unseen). Nguyên nhân: câu mồi làm large-v3 đôi khi viết ra từ tiếng Anh mà người
-   dùng không nói ("mai" thành "Mail", "lịch" thành "list"), và quy tắc ghép lấy luôn các từ đó. Lỗi kiểu này có thể làm
-   LLM gọi sai tool, nên phải sửa trước khi dùng.
+3. **Ghép RNNT + large-v3 là hướng tốt nhất hiện có.** So với RNNT đứng riêng, bản ghép đã siết chép đúng thêm 22,3 điểm
+   (seen) và 11,5 điểm (unseen) từ tiếng Anh, sai ít từ hơn trên câu chêm tiếng Anh (22,1% so với 24,8% trên seen), và
+   tỉ lệ lỗi từ tính trên mọi câu cũng thấp hơn RNNT (19,4% so với 20,0% trên seen). Các chênh lệch này đã được kiểm tra
+   thống kê (khoảng tin cậy 95% không chứa 0, mục 2.4), không phải do may rủi.
+4. **Cái giá còn lại: câu thuần Việt tệ đi rất ít.** Với quy tắc gốc, tỉ lệ lỗi từ trên câu không có tiếng Anh tăng 1,1
+   điểm (seen, 17,7% lên 18,8%) và 0,6 điểm (unseen), vì phép ghép lấy cả những từ tiếng Anh mà large-v3 viết ra dù
+   người dùng không nói. Quy tắc đã siết giảm phần hại này còn 0,4 điểm (seen, 18,1%) và 0,3 điểm (unseen), mà gần như
+   không mất phần tiếng Anh (mục "Quy tắc ghép hai mô hình và cách siết" ở dưới).
 5. **Kết quả tin được.** Chạy lại RNNT (2 467 câu) và large-v3 (1 024 câu) trên một máy khác cho ra chữ giống hệt từng ký
    tự (mục 5). Vì vậy số chấm lại trên chữ cũ dùng được như số chạy thật, và cấu hình large-v3 đạt yêu cầu "kết quả lặp
    lại được" của thể lệ.
@@ -214,7 +216,7 @@ Anh tốt hơn nhiều nhưng phần tiếng Việt sai nhiều hơn. Cần mộ
 | nhắn Zalo cho mẹ | nhắn **giá lô** cho mẹ | nhắn **Zalo** cho mẹ | nhắn Zalo cho mẹ | Đúng: đây là lợi ích chính |
 | mai đi khám | **mai** đi khám | **Mail** đi khám | Mail đi khám | Sai: large-v3 bị câu mồi kéo, quy tắc lấy theo |
 
-**Vì sao cần siết.** Ca thứ hai là nguồn của toàn bộ phần hại ở câu thuần Việt (+1,1 điểm WER trên seen). Ở câu thuần
+**Vì sao cần siết.** Những ca như ca thứ hai là nguồn của phần hại ở câu thuần Việt (+1,1 điểm WER trên seen). Ở câu thuần
 Việt, gần như mọi câu bị phép ghép đổi đều tệ hơn (37/44 câu trên seen). "Mail" hay "list" chen vào câu nhắc lịch có thể
 làm LLM gọi sai tool.
 
@@ -231,15 +233,39 @@ câu mồi. Một điều kiện như "không lấy khi RNNT có chữ Việt h�
 
 **Cách chọn.** Mọi cách siết được thử và chọn trên tập dò. Sau đó cách thắng được đo đúng một lần trên hai tập kiểm tra.
 Không chỉnh quy tắc theo các ca hỏng đã thấy trên tập kiểm tra (mục 6.5), vì như vậy tập kiểm tra không còn là đề chưa
-gặp. Chưa cách nào ở trên được đo; chi tiết ở mục 6.8.
+gặp.
+
+**Kết quả: đã thử cách đầu tiên, từ điển ngữ cảnh** (chi tiết ở mục 6.8). Mỗi mẫu có một từ điển gồm các từ có sẵn dạng
+chữ trong đầu vào lúc thi: thông tin của các app đã cài trong catalog, ngữ cảnh người dùng, và lượt trợ lý trong lịch sử.
+Phép ghép chỉ nhận một từ tiếng Anh **không có trong câu mồi** khi từ đó có trong từ điển này. Từ có trong câu mồi vẫn
+nhận như cũ.
+
+| Hệ thống | Chép đúng từ tiếng Anh (seen / unseen) | Lỗi từ câu thuần Việt (seen / unseen) | Lỗi từ mọi câu (seen / unseen) |
+|---|---|---|---|
+| RNNT đứng riêng | 49,9% / 51,6% | 17,7% / 17,5% | 20,0% / 19,8% |
+| Ghép, quy tắc gốc | 72,5% / 63,9% | 18,8% / 18,2% | 20,1% / 19,8% |
+| **Ghép, quy tắc đã siết** | **72,2% / 63,1%** | **18,1% / 17,8%** | **19,4% / 19,5%** |
+
+- So với quy tắc gốc, quy tắc đã siết giảm lỗi ở câu thuần Việt 0,7 điểm (seen) và 0,4 điểm (unseen), có ý nghĩa thống
+  kê. Phần chép đúng từ tiếng Anh giảm 0,3 và 0,8 điểm, nhưng mức này nằm trong sai số (khoảng tin cậy chứa 0).
+- So với RNNT đứng riêng, câu thuần Việt vẫn sai nhiều hơn 0,4 và 0,3 điểm. Phần hại còn lại đến từ các từ của câu mồi,
+  vì quy tắc này chưa lọc nhóm từ đó.
+
+**Đính chính về nguyên nhân gây hại.** Trước khi đo, báo cáo cho rằng phần hại ở câu thuần Việt chủ yếu do từ của câu
+mồi bị chèn nhầm ("Mail", "list"). Số đếm trên tập dò cho thấy ngược lại: trong 148 từ sai mà phép ghép lấy vào, 124 từ
+**không** có trong câu mồi. Đó là những từ large-v3 tự viết theo kiểu tiếng Anh. Lọc riêng nhóm từ của câu mồi gần như
+không đổi kết quả.
+
+**Việc chưa làm:** lọc nhóm từ của câu mồi bằng độ tin cậy riêng của từng từ (cách thứ hai trong bảng trên, cần một phiên
+GPU).
 
 ### Việc tiếp theo
 
 Theo thứ tự:
 
-1. **Siết quy tắc ghép** để bản ghép không lấy những từ tiếng Anh mà large-v3 tự chèn vào câu thuần Việt (mục "Quy tắc
-   ghép hai mô hình và cách siết" ở trên, mục 6.8). Cách dùng từ điển ngữ cảnh làm offline được; các cách khác cần một
-   phiên GPU.
+1. **Siết quy tắc ghép: đã làm bước đầu** (từ điển ngữ cảnh, mục 6.8). Còn lại phần hại do từ của câu mồi (+0,3–0,4
+   điểm lỗi ở câu thuần Việt so với RNNT). Muốn giảm tiếp thì cần chữ large-v3 có câu mồi trên phần train chưa dùng
+   (một phiên GPU), để đo độ tin cậy riêng của từng từ.
 2. **Đo thời gian và bộ nhớ** khi chạy cả hai mô hình ASR cùng LLM trên GPU thi.
 3. **Viết phần ghép vào hệ thống thật** (`lifemate/backends/asr.py`). Hiện phép ghép mới chỉ chạy được khi chấm offline.
 
@@ -267,6 +293,7 @@ Cấu hình hệ thống đang dùng (`configs/v0.toml`) chưa đổi.
 | `artifacts/runs/kaggle/asr/10-29_tune_v5a_en_mixed/`  | Thử nghiệm B và C, phiên v5a (PhoWhisper, ChunkFormer RNNT), cùng cấu trúc file với lần 1; `compare/` là bảng so sánh có khoảng tin cậy                                     |
 | `artifacts/runs/kaggle/asr/10-29_tune_v5b_en_mixed/`  | Thử nghiệm B và C, phiên v5b (whisper-large-v3), cùng cấu trúc và có `compare/`                                                                                             |
 | `artifacts/runs/local/asr/10-29_en_mixed_merge_v3/`   | Thử nghiệm D với large-v3 cấu hình thắng (mục 6.5.2): chữ đã ghép, `cmp_*.json`, `merge_effect.json`                                                                        |
+| `artifacts/runs/local/asr/10-29_en_mixed_merge_v4/`   | Siết quy tắc ghép (mục 6.8): `merge_<cách lọc>__<tập>.hyps.jsonl`, `cmp_*.json` (so với RNNT), `cmp_vs_all_*.json` (so với quy tắc gốc)                                   |
 
 
 ## Mục lục
@@ -1323,7 +1350,9 @@ Bản ghép giữ gần trọn phần tiếng Anh của large-v3 (72,5% so với
 chỉ ra nguyên nhân: ở câu thuần Việt, mọi câu bị đổi gần như đều tệ hơn (37/44, 17/20, 48/58; mỗi tập chỉ 1 câu tốt
 hơn). Đây chính là các lần chèn từ câu mồi của large-v3 (mục 4.7.6: "Mai" thành "Mail", "lịch" thành "list"): từ chèn
 là "từ tiếng Anh mới" nên quy tắc ghép lấy vào. Câu mồi làm tăng loại lỗi này, nên hại câu thuần Việt tăng từ 0,3 lên
-0,6–1,1 điểm.
+0,6–1,1 điểm. **Đính chính** (sau khi đo ở mục 6.8): phần lớn từ sai mà phép ghép lấy vào không phải từ của câu mồi (124
+trên 148 từ ở tập dò), và lọc riêng từ của câu mồi gần như không giảm hại. Câu mồi có làm tăng số lần chèn từ của chính
+câu mồi (mục 4.7.6), nhưng nhóm từ ngoài câu mồi mới là nguồn hại chính của phép ghép.
 - **Thứ hạng giữ trên tập dò**: tập dò cho cùng hướng và cùng độ lớn (+23,4 chép đúng, +1,3 câu thuần Việt), nên mọi
 chỉnh sửa quy tắc chọn trên tập dò sẽ chuyển được sang val.
 
@@ -1333,54 +1362,129 @@ Ghép RNNT + large-v3 (en_full + g4) là cấu hình ASR tốt nhất cho câu c
 72,5% / 63,9% (seen / unseen) so với 49,9% / 51,6% của RNNT, WER câu chêm thấp hơn RNNT, WER tổng không đổi. Chưa sẵn
 sàng để nộp vì ba việc:
 
-1. **Giảm hại ở câu thuần Việt** (+0,6–1,1 điểm WER, do từ câu mồi chèn vào). Cách xử lý ở mục 6.8. Đây là việc kế
- tiếp, chưa làm.
+1. **Giảm hại ở câu thuần Việt** (+0,6–1,1 điểm WER). Đã giảm còn +0,3–0,4 điểm bằng từ điển ngữ cảnh (mục 6.8).
 2. **Đo thời gian và bộ nhớ** khi chạy cả hai mô hình cạnh vLLM trên GPU từ 24 GB. Trên T4, large-v3 có p95 8,6–8,8 s
  mỗi mẫu.
 3. **Viết engine ASR ghép** trong `lifemate/backends/asr.py`. Hiện phép ghép chỉ có ở dạng chấm offline (`asr_merge`).
 
 Tổng tham số: RNNT 0,11B + large-v3 1,55B + LLM 4,02B = 5,68B, dưới trần 6B.
 
-### 6.8. Cách siết quy tắc ghép (kế hoạch, chưa đo)
+### 6.8. Siết quy tắc ghép bằng từ điển ngữ cảnh
 
-**Vấn đề.** Quy tắc ở mục 6.3 lấy mọi đoạn của large-v3 có "từ tiếng Anh mới". Từ câu mồi bị chèn nhầm ("Mai" thành
-"Mail", "lịch" thành "list", "ok" chen đầu câu) cũng là từ tiếng Anh mới, nên bị lấy theo.
+**Vấn đề.** Quy tắc ở mục 6.3 lấy mọi đoạn của large-v3 có "từ tiếng Anh mới". Những từ large-v3 viết ra dù người dùng
+không nói ("Mai" thành "Mail", "tôi ra đê" thành "Toyota D-Diều") cũng là từ tiếng Anh mới, nên bị lấy theo. Kết quả là
+câu thuần Việt sai thêm 1,1 điểm (seen) và 0,6 điểm (unseen) so với RNNT.
 
 **Đính chính hướng xử lý cũ.** Bản trước của mục 6.7 đề xuất "không lấy vùng khi từ tiếng Anh mới là từ của câu mồi và
 phía RNNT là âm tiết Việt có dấu hợp lệ". Điều kiện này chặn cả ca có lợi: khi người dùng nói "Zalo", RNNT chép "giá lô"
 (âm tiết Việt có dấu hợp lệ) và "Zalo" là từ của câu mồi. Phần lợi chính của phép ghép rơi đúng vào loại ca này, nên
 không dùng điều kiện đó.
 
-**Ý tưởng.** Chữ của hai bản không đủ để phân biệt "sửa đúng" với "chèn nhầm". Cần thêm tín hiệu cho biết từ tiếng Anh
-có thật sự được nói hay không.
+**Ý tưởng.** Chỉ nhìn chữ của hai bản thì không phân biệt được "sửa đúng" với "chèn nhầm". Cần một tín hiệu cho biết từ
+tiếng Anh có thật sự được nói hay không. Tín hiệu rẻ nhất là **ngữ cảnh của mẫu**: người dùng nói "Zalo" thường vì máy có
+cài app nhắn tin, hoặc trợ lý vừa nhắc tới; còn "Mail" chen vào câu nhắc lịch thì thường không liên quan gì tới mẫu.
 
-**Các tín hiệu, theo thứ tự thử:**
+**Giải pháp.** Code: `lifemate/eval/asr_merge.py`.
 
-1. **Từ điển ngữ cảnh của mẫu** (offline). Gom các từ có sẵn dạng chữ trong đầu vào của mẫu: tên và mô tả các app trong
-   `installed_apps`, tên tool và giá trị liệt kê trong catalog, chữ của lượt trợ lý và kết quả tool trong lịch sử. Không
-   dùng `state.json` (thể lệ cấm). Quy tắc mới: từ của câu mồi chỉ được lấy khi có trong từ điển này, hoặc khi từ đó
-   thuộc nhóm ít bị chèn nhầm (tín hiệu 2). Từ tiếng Anh không có trong câu mồi vẫn theo quy tắc cũ. Loại này cũng có
-   lúc bị bịa ("Toyota D-Diều", mục 6.6), nhưng hại ít hơn: bản ghép không câu mồi chỉ làm WER câu thuần Việt tăng
-   0,3–0,4 điểm, còn câu mồi làm số lần chèn tăng từ 3 lên 26 trên 1 024 câu của tập dò (mục 4.7.6).
-2. **Độ tin cậy của từng từ câu mồi.** Với mỗi từ của câu mồi, đếm số lần large-v3 viết ra từ đó khi đáp án có từ đó,
-   và số lần viết ra khi đáp án không có. Đếm trên 793 mẫu train ngoài tập dò, nên cần chữ large-v3 có câu mồi trên các
-   mẫu này (một phiên GPU, khoảng 1 giờ trên T4).
-3. **So với lần chép không câu mồi.** Nếu large-v3 không câu mồi cũng nghe ra một từ tiếng Anh ở cùng chỗ thì nhiều khả
-   năng từ đó được nói thật. Tốn gấp đôi thời gian chạy large-v3, nên chỉ thử khi 1 và 2 chưa đủ.
-4. **Bộ phân loại.** Khi đã có nhiều tín hiệu, thay luật viết tay bằng hồi quy logistic quyết định từng vùng khác nhau.
-   Nhãn của mỗi vùng lấy tự động: vùng của bản nào khớp đáp án hơn. Học trên 793 mẫu train, chọn trên tập dò.
+- `sample_context_words(sample, catalog_apps)`: nhận một mẫu và catalog (từ điển mã app → mục catalog của app đó), trả về
+  **từ điển ngữ cảnh** của mẫu: một tập từ đã gập (`frozenset[str]`). Tập này gồm:
+  - mã app và toàn bộ chữ trong mục catalog (tên, mô tả, tên tool, mô tả và giá trị liệt kê của tham số) của mọi app
+    trong `installed_apps`;
+  - các trường khác của ngữ cảnh người dùng (giờ, vị trí, hồ sơ);
+  - lượt trợ lý trong lịch sử: câu trả lời, lời gọi tool và kết quả tool.
 
-**Thước đo khi chọn.** Hàm mục tiêu giữ hai mặt của phép ghép: chép đúng từ tiếng Anh trên câu chêm (không được giảm có ý
-nghĩa thống kê so với quy tắc hiện tại) và WER câu thuần Việt (phải về gần mức RNNT, 17,7% trên seen).
+  Không dùng `state.json` (thể lệ cấm), và không dùng lượt người dùng trong lịch sử (lúc thi lượt này chỉ có âm thanh).
+- `english_filter(policy, context_words, prompt_words)`: trả về hàm nhận một từ (đã gập) và cho biết có nhận từ đó không.
+  `prompt_words` là tập từ ngoại của câu mồi. `CONTEXT_POLICIES` là bộ bốn cách lọc:
 
-**Quy trình.** Thử trên tập dò (câu thuần Việt của tập dò có 48/58 câu bị hại, đủ để đo), chọn cách tốt nhất, rồi đo một
-lần trên `val_seen` và `val_unseen`. Không viết luật theo các ca hỏng đã liệt kê ở mục 6.5, vì các ca đó lấy từ val.
+  | Cách lọc | Từ của câu mồi | Từ ngoài câu mồi |
+  |---|---|---|
+  | `all` (quy tắc gốc) | nhận | nhận |
+  | `context` | chỉ nhận khi có trong ngữ cảnh | chỉ nhận khi có trong ngữ cảnh |
+  | `context_prompt` | chỉ nhận khi có trong ngữ cảnh | nhận |
+  | `context_other` | nhận | chỉ nhận khi có trong ngữ cảnh |
+
+- `merge_transcripts(primary, secondary, accept_english)`: như mục 6.3, nhưng ở bước 3 chỉ đếm những từ tiếng Anh mới mà
+  bộ lọc nhận. `merge_hyp_rows` nhận thêm từ điển mã mẫu → bộ lọc. Lệnh `python -m lifemate.eval.asr_merge` có thêm
+  `--policy` và `--prompt-file`.
+
+**Bằng chứng trước khi chọn** (tập dò, đếm từng từ tiếng Anh mới mà quy tắc gốc lấy từ large-v3; "đúng" là từ có trong
+đáp án):
+
+| Nhóm từ | Đúng: có / không có trong ngữ cảnh | Sai: có / không có trong ngữ cảnh |
+|---|---|---|
+| Từ của câu mồi | 54 / 12 | 8 / 16 |
+| Từ ngoài câu mồi | 27 / 23 | 6 / 118 |
+
+Từ ngoài câu mồi chiếm 124 trên 148 từ sai. Ngữ cảnh loại được 118 từ sai trong nhóm này, đổi lại mất 23 từ đúng.
+
+Ngữ cảnh ở đây gồm cả lượt trợ lý. Khi chỉ dùng catalog của app đã cài, số từ đúng có trong ngữ cảnh ít hơn hẳn: 34 thay
+cho 54 ở từ của câu mồi, 8 thay cho 27 ở từ ngoài câu mồi.
+
+**Kết quả trên tập dò** (1 024 câu; WER câu chêm và chép đúng từ tiếng Anh tính trên các câu chêm của tập dò):
+
+| Hệ thống | WER mọi câu | WER câu chêm | WER câu thuần Việt | Chép đúng từ tiếng Anh |
+|---|---|---|---|---|
+| RNNT | 20,3 | 25,8 | **17,5** | 49,0 |
+| `all` (quy tắc gốc) | 20,6 | **24,0** | 18,8 | **72,3** |
+| `context` | **19,9** | 24,5 | 17,6 | 66,2 |
+| `context_prompt` | 20,6 | 24,4 | 18,7 | 70,1 |
+| **`context_other`** | **19,9** | 24,2 | 17,8 | 69,0 |
+
+Chênh lệch so với quy tắc gốc (CI 95%): `context_other` giảm WER câu thuần Việt [−1,5; −0,6] và giảm chép đúng từ tiếng
+Anh [−6,4; −0,5]; `context` giảm WER câu thuần Việt nhiều hơn một chút [−1,7; −0,8] nhưng mất nhiều tiếng Anh hơn [−9,9;
+−2,3]; `context_prompt` gần như không đổi WER câu thuần Việt [−0,3; 0,0].
+
+**Chọn `context_other`.** Lý do: giảm gần hết phần hại ở câu thuần Việt (từ +1,3 xuống +0,3 điểm so với RNNT) mà mất ít
+tiếng Anh nhất trong hai cách làm được việc đó. Tiêu chí đặt trước khi đo là "chép đúng từ tiếng Anh không giảm có ý
+nghĩa thống kê". Trên tập dò, `context_other` không đạt tiêu chí này (−3,3 điểm, CI không chứa 0). Vẫn chọn, vì đây là
+đánh đổi theo đúng hướng: thiếu một từ tiếng Anh thì phép ghép chỉ quay về chữ RNNT như trước, còn lấy nhầm một từ thì
+có thể làm LLM gọi sai tool.
+
+Trước khi chọn, đã thử thêm một ngoại lệ: nhận từ ngoài câu mồi khi đoạn của RNNT tại đó cũng là chữ không ra tiếng Việt.
+Ngoại lệ này cứu được 11 từ đúng nhưng nhận lại 41 từ sai, nên bỏ.
+
+**Kết quả trên tập kiểm tra** (đo một lần, sau khi đã chọn):
+
+| Tập | Hệ thống | WER mọi câu | WER câu chêm | WER câu thuần Việt | Chép đúng từ tiếng Anh |
+|---|---|---|---|---|---|
+| val_seen | RNNT | 20,0 | 24,8 | **17,7** | 49,9 |
+| | `all` | 20,1 | 22,8 | 18,8 | **72,5** |
+| | **`context_other`** | **19,4** | **22,1** | 18,1 | 72,2 |
+| val_unseen | RNNT | 19,8 | 24,1 | **17,5** | 51,6 |
+| | `all` | 19,8 | **22,8** | 18,2 | **63,9** |
+| | **`context_other`** | **19,5** | **22,8** | 17,8 | 63,1 |
+
+Chênh lệch, CI 95%:
+
+| Tập | So với | WER mọi câu | WER câu chêm | WER câu thuần Việt | Chép đúng từ tiếng Anh |
+|---|---|---|---|---|---|
+| val_seen | `all` | [−1,0; −0,4] | [−1,3; −0,1] | [−1,1; −0,4] | [−3,1; +2,6] |
+| val_seen | RNNT | [−0,9; −0,2] | [−3,6; −1,8] | [+0,2; +0,6] | [+17,2; +27,2] |
+| val_unseen | `all` | [−0,5; 0,0] | [−0,8; +0,7] | [−0,7; −0,1] | [−4,4; +2,7] |
+| val_unseen | RNNT | [−0,5; 0,0] | [−1,9; −0,8] | [+0,1; +0,5] | [+7,9; +15,7] |
+
+**Phân tích.**
+
+- Trên tập kiểm tra, `context_other` mất ít tiếng Anh hơn trên tập dò: −0,3 và −0,8 điểm, CI chứa 0. Trên tập dò, mức mất
+  là −3,3 điểm.
+- Phần hại ở câu thuần Việt giảm có ý nghĩa thống kê ở cả hai tập, nhưng chưa hết: vẫn hơn RNNT 0,4 (seen) và 0,3
+  (unseen) điểm. Phần còn lại đến từ từ của câu mồi, vì `context_other` nhận mọi từ của câu mồi.
+- WER tính trên mọi câu lần đầu thấp hơn RNNT có ý nghĩa thống kê ở seen. Bản ghép nay tốt hơn RNNT ở mọi chỉ số, trừ
+  câu thuần Việt.
+- Ngữ cảnh mạnh nhất khi mẫu có lịch sử. Mẫu không có lịch sử chỉ còn catalog, nên với các mẫu đó phép ghép gần như chỉ
+  nhận từ của câu mồi.
+
+**Kết luận.** Dùng `context_other` làm quy tắc ghép của lần 2. Kết quả: `artifacts/runs/local/asr/10-29_en_mixed_merge_v4/`
+(`merge_<cách lọc>__<tập>.hyps.jsonl`, `cmp_*.json`). Bản `all` của lần này giống hệt từng byte bản ghép ở mục 6.5.2.
+
+**Việc còn lại.** Giảm phần hại do từ của câu mồi: đếm độ tin cậy riêng của từng từ câu mồi trên 793 mẫu train chưa dùng.
+Việc này cần chữ large-v3 có câu mồi trên các mẫu đó (một phiên GPU, khoảng 1 giờ trên T4).
 
 **Giới hạn.**
 
-- Tập dò chỉ có khoảng 26 lần chèn từ câu mồi, nên luật viết tay rất dễ khớp riêng với các ca này. Vì vậy ưu tiên tín
-  hiệu có lý do rõ ràng (ngữ cảnh, độ tin cậy đếm trên dữ liệu khác) hơn là luật dựa vào từng ví dụ.
-- Số "chèn nhầm" dựa vào quy tắc tìm từ ngoại (mục 2.1), mà độ chính xác của quy tắc này chưa được đo.
+- Tập dò chỉ có khoảng 150 từ sai bị lấy vào, nên số đếm theo nhóm còn ít.
+- Số "đúng" và "sai" dựa vào quy tắc tìm từ ngoại (mục 2.1), mà độ chính xác của quy tắc này chưa được đo.
 - Mục tiêu cuối là LLM gọi đúng tool. Một lỗi chèn nhầm có thể không đổi lời gọi tool nào, nên cách siết thắng cần được
   kiểm tra lại bằng điểm của agent khi agent chạy được trên chữ ASR.
 
@@ -1434,7 +1538,10 @@ Mọi đường dẫn tính từ thư mục gốc repo. "Từ điển" là kiể
 | `asr_compare.py` › `METRICS` | hằng, từ điển | tên chỉ số → (tên tử số, tên mẫu số) trong `counts`, ví dụ `en_word_recall` → (`en_hits`, `en_words`) |
 | `asr_merge.py` › `align_words` | hai danh sách từ → danh sách cặp vị trí | Gióng hàng theo khoảng cách Levenshtein (mục 6.3) |
 | `asr_merge.py` › `merge_transcripts` | chữ model chính, chữ model phụ → chữ đã ghép | Quy tắc ghép mục 6.3 |
-| `asr_merge.py` › `merge_hyp_rows` | hai danh sách dòng `hyps.jsonl` → danh sách dòng đã ghép | Ghép từng câu theo (mã mẫu, lượt); bỏ câu phụ rỗng hoặc bị lọc ảo giác |
+| `asr_merge.py` › `merge_hyp_rows` | hai danh sách dòng `hyps.jsonl`, từ điển mã mẫu → bộ lọc → danh sách dòng đã ghép | Ghép từng câu theo (mã mẫu, lượt); bỏ câu phụ rỗng hoặc bị lọc ảo giác |
+| `asr_merge.py` › `sample_context_words` | mẫu, catalog → tập từ đã gập | Từ điển ngữ cảnh của mẫu (mục 6.8) |
+| `asr_merge.py` › `english_filter` | cách lọc, từ điển ngữ cảnh, từ của câu mồi → hàm nhận/từ chối một từ | Bộ lọc bước 3 của phép ghép (mục 6.8) |
+| `asr_merge.py` › `CONTEXT_POLICIES` | hằng, bộ tên | Bốn cách lọc: `all`, `context`, `context_prompt`, `context_other` |
 
 ### A.3. Câu mồi và lớp bảo vệ
 

@@ -4,7 +4,15 @@ Lưu ý:
 - Câu thử dựa theo lỗi thật của benchmark lần 1 (RNNT nghe "check" thành "chắc", Whisper bịa câu phụ đề).
 """
 
-from lifemate.eval.asr_merge import align_words, merge_hyp_rows, merge_transcripts
+from lifemate.core.types import Sample, Turn
+from lifemate.eval.asr_merge import (
+    CONTEXT_POLICIES,
+    align_words,
+    english_filter,
+    merge_hyp_rows,
+    merge_transcripts,
+    sample_context_words,
+)
 
 
 def test_align_pairs() -> None:
@@ -34,3 +42,45 @@ def test_merge_hyp_rows_skips_filtered_secondary() -> None:
     good = [{"id": "s", "turn": "final", "hyp": "Check ví", "raw": "Check ví"}]
     assert merge_hyp_rows(primary, bad)[0]["hyp"] == "chắc ví"
     assert merge_hyp_rows(primary, good)[0]["hyp"] == "Check ví"
+
+
+def test_english_filter_policies() -> None:
+    """Bốn cách lọc bước 3b: "all" không lọc; các cách còn lại đòi từ có trong ngữ cảnh ở đúng nhóm từ."""
+    context, prompt = frozenset({"zalo"}), frozenset({"mail", "zalo"})
+    assert english_filter("all", context, prompt) is None
+    words = ("zalo", "mail", "toyota")
+    # "zalo": có trong ngữ cảnh. "mail": của câu mồi, không có trong ngữ cảnh. "toyota": ngoài câu mồi, ngoài ngữ cảnh.
+    expected = {
+        "context": [True, False, False],
+        "context_prompt": [True, False, True],
+        "context_other": [True, True, False],
+    }
+    for policy in CONTEXT_POLICIES[1:]:
+        accept = english_filter(policy, context, prompt)
+        assert accept is not None and [accept(w) for w in words] == expected[policy]
+
+
+def test_merge_with_filter_keeps_primary_for_rejected_word() -> None:
+    """Từ tiếng Anh mới bị bộ lọc từ chối thì vùng đó giữ model chính; từ được nhận thì vẫn lấy model phụ."""
+    only_zalo = english_filter("context", frozenset({"zalo"}), frozenset())
+    assert merge_transcripts("mai đi khám", "Mail đi khám", only_zalo) == "mai đi khám"
+    assert merge_transcripts("nhắn giá lô cho mẹ", "Nhắn Zalo cho mẹ", only_zalo) == "nhắn Zalo cho mẹ"
+
+
+def test_sample_context_words_uses_text_inputs_only() -> None:
+    """Từ điển ngữ cảnh lấy catalog của app đã cài, ngữ cảnh người dùng và lượt trợ lý; không lấy lượt người dùng."""
+    sample = Sample(
+        id="s",
+        split="train",
+        audio="a.wav",
+        audio_text=None,
+        context={"installed_apps": {"chat_app": {}}, "user_profile": {"home": "Riverside"}},
+        history=(
+            Turn(role="user", audio="u1.wav", audio_text="nhắn Spotify", text=None, tool_calls=(), tool_results=()),
+            Turn(role="assistant", audio=None, audio_text=None, text="Gửi cho Sarah?", tool_calls=(), tool_results=()),
+        ),
+        label=None,
+    )
+    words = sample_context_words(sample, {"chat_app": {"name_vi": "Zalo"}, "other_app": {"name_vi": "Grab"}})
+    assert {"zalo", "chat", "riverside", "sarah"} <= words
+    assert "grab" not in words and "spotify" not in words

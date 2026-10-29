@@ -13,7 +13,7 @@
 | `foreign_words.py` | Tìm từ ngoại (chủ yếu tiếng Anh) chêm trong câu tiếng Việt và xếp nhóm (từ thường, viết tắt, tên, từ mượn) bằng quy tắc, để chạy được cả trên đáp án lẫn chữ ASR. |
 | `rescore_asr.py` | Chấm lại chữ ASR đã có (`hyps.jsonl`) bằng các chỉ số hiện tại trên một tập con, không chạy lại model. |
 | `asr_compare.py` | Bảng so sánh nhiều hệ thống ASR trên cùng một tập từ các `hyps.jsonl`, kèm khoảng tin cậy 95% bằng bootstrap có ghép cặp theo mẫu, và khoảng tin cậy của chênh lệch so với hệ thống đầu tiên. |
-| `asr_merge.py` | Ghép chữ của hai ASR: giữ model chính (ChunkFormer RNNT), chỉ lấy từ model phụ (Whisper) những đoạn có từ tiếng Anh mới. Thử offline từ `hyps.jsonl`. |
+| `asr_merge.py` | Ghép chữ của hai ASR: giữ model chính (ChunkFormer RNNT), chỉ lấy từ model phụ (Whisper) những đoạn có từ tiếng Anh mới; tuỳ chọn lọc từ tiếng Anh bằng từ điển ngữ cảnh của mẫu (`--policy`). Thử offline từ `hyps.jsonl`. |
 
 ## Quy ước riêng
 
