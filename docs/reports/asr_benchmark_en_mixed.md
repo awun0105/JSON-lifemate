@@ -1,7 +1,7 @@
 # Báo cáo benchmark ASR lần 2: câu tiếng Việt chêm tiếng Anh, thử nghiệm các câu mồi (initial_prompt)
 
 Ngày: 29/10/2026. Trạng thái: **xong**. Cả bốn thử nghiệm đã có kết quả: A và D chấm offline; B và C chạy GPU trên
-Kaggle T4 ở hai phiên v5a (PhoWhisper, ChunkFormer RNNT) và v5b (whisper-large-v3). Tổng hợp ở mục 7.
+Kaggle T4 ở hai phiên v5a (PhoWhisper, ChunkFormer RNNT) và v5b (whisper-large-v3). Tóm tắt cho cả team ở ngay dưới.
 
 Báo cáo trả lời ba câu hỏi:
 
@@ -14,13 +14,99 @@ Báo cáo trả lời ba câu hỏi:
 
 Phạm vi: chỉ đo ASR (chữ chép từ âm thanh). Không chạy LLM, không chấm điểm thi.
 
+## Tóm tắt cho cả team
+
+Phần này đọc riêng được, không cần đọc các mục sau. Thuật ngữ được giải thích ngay tại chỗ; định nghĩa đầy đủ ở mục 0.3.
+
+### Vì sao có benchmark này
+
+Hệ thống LifeMate làm hai bước: **ASR** (mô hình nhận dạng giọng nói) chép lời người dùng thành chữ, rồi **LLM** đọc chữ
+đó để gọi tool. Người dùng hay chêm từ tiếng Anh vào câu tiếng Việt: hơn một nửa số mẫu train của BTC có ít nhất một từ
+như "Zalo", "SJC", "check", "voucher" hay tên người nước ngoài. Những từ này thường quyết định tool nào được gọi ("nhắn
+Zalo", "giá vàng SJC"). ASR chép "Zalo" thành "giá lô" thì LLM gọi sai tool, dù phần tiếng Việt đúng hết.
+
+Lần 1 (`docs/reports/asr_benchmark.md`) đã chọn mô hình ASR theo chất lượng chung trên mọi câu. Lần 2 đo riêng việc chép
+**từ tiếng Anh**, và thử hai cách cải thiện:
+
+- **Câu mồi** (`initial_prompt`): một đoạn chữ đưa cho mô hình Whisper trước khi nghe, đóng vai "câu nói trước đó".
+  Whisper bắt chước cách viết trong câu mồi, nên câu mồi chứa sẵn "Zalo", "SJC"… có thể giúp mô hình viết đúng các từ đó.
+  Câu mồi đi kèm một **lớp bảo vệ**: câu nào có dấu hiệu bị câu mồi làm hỏng (in lại nguyên câu mồi thay vì nghe, lặp
+  vô hạn, bịa câu) thì được chép lại một lần không có câu mồi.
+- **Ghép hai mô hình**: lấy chữ của ChunkFormer RNNT (giỏi tiếng Việt), chỉ thay những đoạn mà whisper-large-v3 (giỏi
+  tiếng Anh hơn) nghe ra một từ tiếng Anh mà RNNT không có.
+
+### Kết quả chính
+
+Bốn mô hình ASR được so là bốn mô hình tốt nhất của lần 1: **ChunkFormer RNNT** và **ChunkFormer CTC** (hai mô hình tiếng
+Việt cùng một dòng mô hình, khác cách sinh chữ), **PhoWhisper** (Whisper được VinAI huấn luyện thêm trên tiếng Việt) và
+**whisper-large-v3** (Whisper nhiều ngôn ngữ của OpenAI). Chỉ hai mô hình Whisper nhận được câu mồi.
+
+Đo trên các câu có chêm tiếng Anh của hai tập kiểm tra: **seen** (app đã có trong dữ liệu học) và **unseen** (app chưa gặp,
+giống phần app lạ của bộ thi thật). "Chép đúng từ tiếng Anh" là tỉ lệ từ tiếng Anh của đáp án mà ASR viết đúng (cao là
+tốt). "Tỉ lệ lỗi từ" (WER) là số từ sai chia cho số từ của câu (thấp là tốt).
+
+| Hệ thống | Chép đúng từ tiếng Anh (seen / unseen) | Tỉ lệ lỗi từ trên câu chêm tiếng Anh (seen / unseen) |
+|---|---|---|
+| ChunkFormer RNNT (mô hình ASR đang tốt nhất từ lần 1) | 49,9% / 51,6% | 24,8% / 24,1% |
+| ChunkFormer CTC | 34,6% / 39,7% | 27,5% / 26,9% |
+| PhoWhisper | 36,1% / 36,5% | 32,5% / 33,1% |
+| whisper-large-v3, không câu mồi | 51,6% / 56,0% | 32,8% / 33,9% |
+| whisper-large-v3 + câu mồi tốt nhất | 72,2% / 61,1% | 28,7% / 33,5% |
+| **Ghép RNNT + whisper-large-v3 có câu mồi** | **72,5% / 63,9%** | **22,8% / 22,8%** |
+
+Đọc bảng:
+
+1. **RNNT vẫn là mô hình đơn tốt nhất.** RNNT chép đúng khoảng một nửa số từ tiếng Anh, và phần tiếng Việt tốt hơn hẳn
+   các mô hình khác. Không mô hình Whisper nào thay được RNNT: phần tiếng Việt của Whisper sai nhiều hơn khoảng 8–12
+   điểm phần trăm.
+2. **Câu mồi giúp whisper-large-v3 rõ rệt, không giúp PhoWhisper.** Với large-v3, tỉ lệ chép đúng từ tiếng Anh tăng từ
+   khoảng 52% lên 72% trên seen. Phần tăng gần như chỉ đến từ các từ **có trong câu mồi**. Vì vậy trên unseen, nơi chỉ
+   một phần tư số từ tiếng Anh có trong câu mồi, mức tăng nhỏ hơn nhiều (56% lên 61%). Với PhoWhisper, câu mồi gần như
+   không đổi kết quả trên tập kiểm tra.
+3. **Ghép RNNT + large-v3 là hướng tốt nhất hiện có.** So với RNNT đứng riêng, bản ghép chép đúng thêm 22,7 điểm (seen) và
+   12,3 điểm (unseen) từ tiếng Anh, và sai ít từ hơn trên câu chêm tiếng Anh (22,8% so với khoảng 24,5%). Các chênh lệch
+   này đã được kiểm tra thống kê (khoảng tin cậy 95% không chứa 0, mục 2.4), không phải do may rủi.
+4. **Cái giá của bản ghép: câu thuần Việt tệ đi một chút.** Tỉ lệ lỗi từ trên câu không có tiếng Anh tăng 1,1 điểm
+   (seen, 17,7% lên 18,8%) và 0,6 điểm (unseen). Nguyên nhân: câu mồi làm large-v3 đôi khi viết ra từ tiếng Anh mà người
+   dùng không nói ("mai" thành "Mail", "lịch" thành "list"), và quy tắc ghép lấy luôn các từ đó. Lỗi kiểu này có thể làm
+   LLM gọi sai tool, nên phải sửa trước khi dùng.
+5. **Kết quả tin được.** Chạy lại RNNT (2 467 câu) và large-v3 (1 024 câu) trên một máy khác cho ra chữ giống hệt từng ký
+   tự (mục 5). Vì vậy số chấm lại trên chữ cũ dùng được như số chạy thật, và cấu hình large-v3 đạt yêu cầu "kết quả lặp
+   lại được" của thể lệ.
+
+**Chi phí.** Ghép hai mô hình cộng thêm whisper-large-v3: tổng tham số RNNT 0,11B + large-v3 1,55B + LLM 4,02B = 5,68B,
+dưới trần 6B của thể lệ. Riêng large-v3 cần khoảng 8,7 giây cho 95% số câu trên GPU T4; chưa đo trên A30 và chưa đo khi
+chạy cùng LLM.
+
+### Việc tiếp theo
+
+Theo thứ tự:
+
+1. **Siết quy tắc ghép** để bản ghép không lấy những từ tiếng Anh mà large-v3 tự chèn vào câu thuần Việt (mục 6.7). Làm
+   offline, không cần GPU.
+2. **Đo thời gian và bộ nhớ** khi chạy cả hai mô hình ASR cùng LLM trên GPU thi.
+3. **Viết phần ghép vào hệ thống thật** (`lifemate/backends/asr.py`). Hiện phép ghép mới chỉ chạy được khi chấm offline.
+
+Cấu hình hệ thống đang dùng (`configs/v0.toml`) chưa đổi.
+
+### Đọc tiếp ở đâu
+
+| Muốn biết | Đọc |
+|---|---|
+| Thuật ngữ, dữ liệu được chia và dùng thế nào | Mục 0, 2 |
+| So sánh bốn mô hình | Mục 3 (thử nghiệm A) |
+| Câu mồi được viết và chọn thế nào | Mục 4 (thử nghiệm B) |
+| Vì sao tin được số chấm offline | Mục 5 (thử nghiệm C) |
+| Quy tắc ghép hai mô hình, lợi và hại | Mục 6 (thử nghiệm D) |
+| File, hàm, cấu hình nhắc tới trong báo cáo | Phụ lục A |
+
 **Kết quả thô.** Không có trên git.
 
 
 | Thư mục                                               | Nội dung                                                                                                                                                                    |
 | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `artifacts/runs/kaggle/asr/10-28_tune_v3/`            | Kết quả lần 1, dùng lại cho thử nghiệm A và D: `<mô hình>__<lần đo>.hyps.jsonl` (chữ từng câu), `.json` (chỉ số), `.toml` (config)                                          |
-| `artifacts/runs/local/asr/10-29_en_mixed_offline_v1/` | Lần chấm offline đầu tiên (chỉ số bản đầu, trước khi sửa cách đếm ở mục 8); chỉ để đối chiếu                                                                                |
+| `artifacts/runs/local/asr/10-29_en_mixed_offline_v1/` | Lần chấm offline đầu tiên (chỉ số bản đầu, trước khi sửa cách đếm "chèn từ câu mồi" và cách viết tương đương); chỉ để đối chiếu                                                                                |
 | `artifacts/runs/local/asr/10-29_en_mixed_offline_v2/` | Thử nghiệm A và D: `<mô hình>__<tập>.json` (chấm lại), `compare__<tập>.{md,json}` (bảng so sánh có khoảng tin cậy), `merge_*.hyps.jsonl` (chữ đã ghép), `merge_effect.json` |
 | `artifacts/runs/kaggle/asr/10-29_tune_v5a_en_mixed/`  | Thử nghiệm B và C, phiên v5a (PhoWhisper, ChunkFormer RNNT), cùng cấu trúc file với lần 1; `compare/` là bảng so sánh có khoảng tin cậy                                     |
 | `artifacts/runs/kaggle/asr/10-29_tune_v5b_en_mixed/`  | Thử nghiệm B và C, phiên v5b (whisper-large-v3), cùng cấu trúc và có `compare/`                                                                                             |
@@ -29,6 +115,7 @@ Phạm vi: chỉ đo ASR (chữ chép từ âm thanh). Không chạy LLM, không
 
 ## Mục lục
 
+- [Tóm tắt cho cả team](#tóm-tắt-cho-cả-team)
 - [0. Bối cảnh và thuật ngữ](#0-bối-cảnh-và-thuật-ngữ)
 - [1. Vấn đề chung và mục tiêu](#1-vấn-đề-chung-và-mục-tiêu)
 - [2. Dữ liệu, thước đo và công cụ dùng chung](#2-dữ-liệu-thước-đo-và-công-cụ-dùng-chung)
@@ -36,8 +123,6 @@ Phạm vi: chỉ đo ASR (chữ chép từ âm thanh). Không chạy LLM, không
 - [4. Thử nghiệm B: câu mồi tiếng Anh và lớp bảo vệ câu mồi](#4-thử-nghiệm-b-câu-mồi-tiếng-anh-và-lớp-bảo-vệ-câu-mồi)
 - [5. Thử nghiệm C: kiểm chứng chấm offline bằng một lần chạy thật](#5-thử-nghiệm-c-kiểm-chứng-chấm-offline-bằng-một-lần-chạy-thật)
 - [6. Thử nghiệm D: ghép ChunkFormer RNNT với Whisper](#6-thử-nghiệm-d-ghép-chunkformer-rnnt-với-whisper)
-- [7. Tổng hợp và kết luận](#7-tổng-hợp-và-kết-luận)
-- [8. Rà code trước khi chạy: lỗi đã vá](#8-rà-code-trước-khi-chạy-lỗi-đã-vá)
 - [Giới hạn đã biết](#giới-hạn-đã-biết)
 - [Phụ lục A. Bảng tra code](#phụ-lục-a-bảng-tra-code)
 
@@ -695,7 +780,7 @@ large-v3: `artifacts/runs/kaggle/asr/10-29_tune_v5b_en_mixed/` (phiên v5b), m�
 
 #### 4.7.1. PhoWhisper: 13 tổ hợp trên tập dò
 
-Tập dò đầy đủ (300 mẫu, 1 024 câu, 394 từ ngoại). Số `prompt_insertions` đã chấm lại sau khi sửa cách đếm (mục 8).
+Tập dò đầy đủ (300 mẫu, 1 024 câu, 394 từ ngoại). Số `prompt_insertions` (chèn từ câu mồi) đã chấm lại sau khi sửa cách đếm: bản đầu tính nhầm "ti vi" hay "TV" của đáp án là khác "tivi" của câu mồi.
 
 
 | Lựa chọn                 | Chép đúng từ ngoại | Bản nới lỏng | Chèn từ câu mồi | Chép lại | WER       | WER câu chêm | WER câu thuần Việt | p95 (s) |
@@ -759,7 +844,7 @@ câu mồi, không liệt kê, không bịa câu (`n_hallucinated = 0` ở mọi
 người dùng nói đúng cụm "nhắn Zalo cho". Chép lại không câu mồi còn làm hỏng câu: 2/3 câu "Zalo" thành "giao lưu".
 Đúng rủi ro đã nêu ở mục 4.3.1 (câu mồi giống lời nói thật thì lớp bảo vệ báo nhầm); g4 không báo nhầm.
 - `prompt_insertions` thật của en_top20 trên tập dò là 3 câu trên 1 024: "Lofi" thành "file", "lít" thành "list",
-"VTV1" thành "vê tivi một". Bản đếm cũ ra 6 vì tính "ti vi" và "TV" của đáp án là khác "tivi" (mục 8).
+"VTV1" thành "vê tivi một". Bản đếm cũ ra 6 vì tính "ti vi" và "TV" của đáp án là khác "tivi".
 
 #### 4.7.4. Phân tích PhoWhisper
 
@@ -1101,52 +1186,6 @@ sàng để nộp vì ba việc:
 3. **Viết engine ASR ghép** trong `lifemate/backends/asr.py`. Hiện phép ghép chỉ có ở dạng chấm offline (`asr_merge`).
 
 Tổng tham số: RNNT 0,11B + large-v3 1,55B + LLM 4,02B = 5,68B, dưới trần 6B.
-
-## 7. Tổng hợp và kết luận
-
-Đã đủ bốn thử nghiệm A, B, C, D.
-
-1. **Mô hình đơn tốt nhất trên câu chêm tiếng Anh vẫn là ChunkFormer RNNT** (WER câu chêm khoảng 24%, chép đúng khoảng
- 50% từ ngoại). Không mô hình Whisper nào thay được RNNT vì phần tiếng Việt kém khoảng 8–12 điểm WER.
-2. **Câu mồi tiếng Anh có tác dụng với large-v3, không có tác dụng với PhoWhisper.** large-v3 với en\_full\_v1 + lớp bảo vệ
- 4 từ chép đúng 72,2% (seen) và 61,1% (unseen) từ ngoại, so với 51,6% và 56,0% không có câu mồi phù hợp. Lợi ích dồn
- vào các từ có trong câu mồi, nên trên app lạ thấp hơn nhiều. PhoWhisper tăng 6,6 điểm trên tập dò nhưng 0,0–0,9 điểm
- trên val (CI chứa 0).
-3. **Lớp bảo vệ câu mồi chỉ cần thiết với câu mồi ngắn giống lời nói thật.** Với câu mồi mới, lớp bảo vệ gần như không
- kích hoạt (0–3 câu). Mức cụm 3 từ báo nhầm câu đúng, nên dùng cụm 4 từ.
-4. **Chấm offline tin được**: ChunkFormer RNNT (2 467 câu) và large-v3 VAD (1 024 câu) chạy lại cho chữ giống hệt lần 1.
-5. **Ghép RNNT + large-v3 (en\_full + g4) là hướng tốt nhất**: chép đúng từ ngoại +22,7 điểm (seen) và +12,3 điểm (unseen)
- so với RNNT, WER câu chêm giảm 1,3–2,0 điểm, WER tổng không đổi, CI không chứa 0. Cái giá là WER câu thuần Việt tăng
- 0,6–1,1 điểm do từ câu mồi chèn vào; cần siết quy tắc ghép trên tập dò trước khi dùng.
-6. **Việc kế tiếp**, theo thứ tự: siết quy tắc ghép (6.7, mục 1); đo thời gian và bộ nhớ cạnh vLLM; viết engine ghép.
- Chưa đổi `configs/v0.toml`.
-
-## 8. Rà code trước khi chạy: lỗi đã vá
-
-Trước khi chạy GPU, code được rà lại theo câu hỏi "đo như vậy đã đúng chưa". Các lỗi tìm thấy và cách sửa:
-
-
-| Lỗi                                                                                   | Hậu quả                                                                | Sửa                                                                                                                       |
-| ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Dò câu mồi rồi mới dò lớp bảo vệ (lần lượt)                                           | Câu mồi chỉ tốt khi có bảo vệ bị loại oan                              | Gộp thành một bước 13 tổ hợp (mục 4.3.3)                                                                                  |
-| Câu mồi nháp dựa theo mẫu câu thật ("nhắn SMS cho")                                   | Lớp bảo vệ báo nhầm 2,1–2,6% câu đúng                                  | Viết lại câu mồi, thêm test trên 5 036 câu chuẩn                                                                          |
-| Câu mồi gán cứng trong code                                                           | Không có phiên bản, khó so và khó đổi                                  | File `configs/asr_prompts/*_v1.txt` và khoá `asr.initial_prompt_file`                                                     |
-| "Chép đúng" đếm có/không                                                              | Đáp án có "check" hai lần mà ASR chỉ viết một lần vẫn tính đúng cả hai | Đếm theo số lần xuất hiện (`foreign_words.match_words_in_transcript`)                                                                               |
-| Vị trí "đầu câu" tính trên chuỗi gốc trong khi tìm từ trên chuỗi đã chuẩn hoá NFC     | Lệch vị trí với chuỗi dạng NFD, xếp nhóm sai                           | Tính cả hai trên cùng chuỗi đã chuẩn hoá                                                                                  |
-| Không có WER câu thuần Việt                                                           | Không biết câu mồi hay phép ghép có hại câu thường                     | Thêm `vi_only_wer`                                                                                                        |
-| "TV" cho "tivi", "Minh Mart" cho "MinhMart" bị tính sai                               | Phạt lỗi cách viết mà LLM vẫn hiểu                                     | Thêm bản nới lỏng, báo cáo cả hai                                                                                         |
-| Bootstrap chấm lại cả tập mỗi vòng                                                    | Quá chậm (hàng chục phút)                                              | Chấm từng mẫu một lần lấy tử và mẫu (`AsrReport.counts`), bootstrap chỉ cộng; 1 000 vòng trong vài giây                   |
-| Nhiệt độ thử lại trong cấu hình large-v3                                              | Không tất định, trái thể lệ                                            | Bỏ khỏi `asr_tune`, dùng VAD                                                                                              |
-| (sau v5a) `prompt_insertions` coi "ti vi", "TV" của đáp án là khác "tivi" của câu mồi | Đếm 6 lần chèn cho en\_top20 thay vì 3; phạt oan câu mồi có từ mượn    | `foreign_words.contains_word`: tính cả cách viết tương đương và từ bị tách 2–3 phần. Chấm lại 13 tổ hợp: cấu hình thắng không đổi |
-| (sau v5a) Bảng cách viết tương đương (`EQUIVALENT_SPELLINGS`) chỉ tra một chiều                                             | Đáp án "TV", ASR "tivi" bị tính sai ở bản nới lỏng                     | Tra hai chiều (`foreign_words.equivalent_spellings`); bản nới lỏng ở mục 3.5 tăng 0,3–0,9 điểm ở ba ô, các số khác không đổi              |
-
-| (sau v5b) Tên trong code khó hiểu: module `en_mixed.py`, hàm `hits`, `spelled_in`, hằng `EN_LIKE_VI`, biến một hai chữ cái (`pk`, `sk`, `gk`) | Người đọc code không biết hàm làm gì, biến chứa gì | Đổi tên cho nói rõ việc: `foreign_words.py`, `match_words_in_transcript`, `contains_word`, `ENGLISH_SPELLED_LIKE_VIETNAMESE`, `primary_keys`, `generate_kwargs`… (bảng đầy đủ ở Phụ lục A). Khoá trong `counts` đổi theo (`wer_err` thành `wer_errors`…); file kết quả cũ giữ tên khoá cũ. Chạy lại phép ghép và bảng so sánh cho kết quả giống từng byte |
-
-**Về cache vLLM.** Không tìm thấy chỉ dẫn "phải xoá cache vLLM" trong repo, trong docs hay trong lịch sử các phiên
-trước. Có một điểm liên quan: `VLLMBackend` (`lifemate/backends/llm.py`) luôn bật `enable_prefix_caching = True`, kể cả
-khi bật `batch_invariant`. Hướng dẫn batch invariance của vLLM bản cho Ascend ghi rằng prefix caching không được hỗ trợ
-cùng batch invariance; tài liệu chính của vLLM không nói gì về điểm này. Việc này thuộc phần LLM, ngoài phạm vi benchmark
-ASR; cần đo trên A30 (hai lần chạy giống từng byte, SPEC mục 6) trước khi kết luận.
 
 ## Giới hạn đã biết
 
