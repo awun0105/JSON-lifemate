@@ -196,12 +196,50 @@ dưới trần 6B của thể lệ. Riêng large-v3 chép xong 95% số **mẫu*
 cuối và mọi lượt người dùng trong lịch sử, tới 13 file âm thanh, và thể lệ cho 30 giây mỗi mẫu cho cả ASR lẫn LLM. Chưa
 đo trên A30 và chưa đo khi chạy cùng LLM.
 
+### Quy tắc ghép hai mô hình và cách siết
+
+**Vấn đề.** RNNT chép tiếng Việt tốt nhất nhưng chỉ đúng khoảng một nửa số từ tiếng Anh. large-v3 có câu mồi chép tiếng
+Anh tốt hơn nhiều nhưng phần tiếng Việt sai nhiều hơn. Cần một bản chữ lấy được điểm mạnh của cả hai.
+
+**Quy tắc hiện tại** (`lifemate/eval/asr_merge.py` › `merge_transcripts`, chi tiết ở mục 6.3):
+
+1. Lấy chữ của RNNT làm bản chính.
+2. Đặt hai bản chữ cạnh nhau, từ ứng với từ, và tìm những đoạn hai bản viết khác nhau.
+3. Ở mỗi đoạn khác nhau, thay bằng chữ của large-v3 khi đủ hai điều kiện: đoạn của large-v3 có một từ tiếng Anh mà
+   đoạn của RNNT không có, và đoạn đó không dài quá gấp đôi đoạn của RNNT cộng 2 từ (để chặn câu bịa dài). Còn lại giữ
+   chữ RNNT.
+
+| Người dùng nói | RNNT | large-v3 | Bản ghép | Đúng? |
+|---|---|---|---|---|
+| nhắn Zalo cho mẹ | nhắn **giá lô** cho mẹ | nhắn **Zalo** cho mẹ | nhắn Zalo cho mẹ | Đúng: đây là lợi ích chính |
+| mai đi khám | **mai** đi khám | **Mail** đi khám | Mail đi khám | Sai: large-v3 bị câu mồi kéo, quy tắc lấy theo |
+
+**Vì sao cần siết.** Ca thứ hai là nguồn của toàn bộ phần hại ở câu thuần Việt (+1,1 điểm WER trên seen). Ở câu thuần
+Việt, gần như mọi câu bị phép ghép đổi đều tệ hơn (37/44 câu trên seen). "Mail" hay "list" chen vào câu nhắc lịch có thể
+làm LLM gọi sai tool.
+
+**Khó khăn chính.** Nếu chỉ nhìn chữ, hai ca trong bảng giống hệt nhau: RNNT ra chữ Việt gần âm, large-v3 ra một từ của
+câu mồi. Một điều kiện như "không lấy khi RNNT có chữ Việt hợp lệ" sẽ chặn luôn ca "Zalo" và mất phần lợi chính (+22,7
+điểm chép đúng từ tiếng Anh trên seen). Vì vậy siết quy tắc phải dựa vào **tín hiệu ngoài chữ**:
+
+| Cách siết | Ý tưởng | Cần gì | Rủi ro |
+|---|---|---|---|
+| Từ điển ngữ cảnh của mẫu | Chỉ nhận từ của câu mồi khi từ đó có trong ngữ cảnh của mẫu: tên app đã cài, catalog tool, lượt trợ lý trong lịch sử | Chạy offline được | Mẫu không có lịch sử có ít ngữ cảnh; chưa đo được bao nhiêu từ đúng nằm trong ngữ cảnh |
+| Độ tin cậy riêng của từng từ | Đếm trên phần train chưa dùng xem mỗi từ của câu mồi bị chèn nhầm thường không ("Mail", "list" hay bị; "SJC" ít khi). Từ hay bị chèn nhầm thì cần thêm bằng chứng | Chữ large-v3 có câu mồi trên phần train đó (một phiên GPU) | Ít mẫu thì ước lượng không chắc |
+| So với lần chép không câu mồi | Từ chỉ xuất hiện khi có câu mồi, còn không câu mồi thì large-v3 nghe ra chữ Việt, thì nhiều khả năng là chèn nhầm | Chạy large-v3 hai lần | Gấp đôi thời gian chạy large-v3 |
+| Bộ phân loại học từ dữ liệu | Thay luật viết tay bằng một mô hình nhỏ (hồi quy logistic) quyết định từng đoạn, dùng các tín hiệu trên làm đầu vào | Nhãn tự động từ đáp án train | Phải tách dữ liệu học khỏi tập dò và tập kiểm tra |
+
+**Cách chọn.** Mọi cách siết được thử và chọn trên tập dò. Sau đó cách thắng được đo đúng một lần trên hai tập kiểm tra.
+Không chỉnh quy tắc theo các ca hỏng đã thấy trên tập kiểm tra (mục 6.5), vì như vậy tập kiểm tra không còn là đề chưa
+gặp. Chưa cách nào ở trên được đo; chi tiết ở mục 6.8.
+
 ### Việc tiếp theo
 
 Theo thứ tự:
 
-1. **Siết quy tắc ghép** để bản ghép không lấy những từ tiếng Anh mà large-v3 tự chèn vào câu thuần Việt (mục 6.7). Làm
-   offline, không cần GPU.
+1. **Siết quy tắc ghép** để bản ghép không lấy những từ tiếng Anh mà large-v3 tự chèn vào câu thuần Việt (mục "Quy tắc
+   ghép hai mô hình và cách siết" ở trên, mục 6.8). Cách dùng từ điển ngữ cảnh làm offline được; các cách khác cần một
+   phiên GPU.
 2. **Đo thời gian và bộ nhớ** khi chạy cả hai mô hình ASR cùng LLM trên GPU thi.
 3. **Viết phần ghép vào hệ thống thật** (`lifemate/backends/asr.py`). Hiện phép ghép mới chỉ chạy được khi chấm offline.
 
@@ -1295,15 +1333,56 @@ Ghép RNNT + large-v3 (en_full + g4) là cấu hình ASR tốt nhất cho câu c
 72,5% / 63,9% (seen / unseen) so với 49,9% / 51,6% của RNNT, WER câu chêm thấp hơn RNNT, WER tổng không đổi. Chưa sẵn
 sàng để nộp vì ba việc:
 
-1. **Giảm hại ở câu thuần Việt** (+0,6–1,1 điểm WER, do từ câu mồi chèn vào). Hướng xử lý: không lấy vùng khi từ tiếng
- Anh mới là từ của câu mồi và phía RNNT là âm tiết Việt có dấu hợp lệ, hoặc khi vùng chỉ có một từ ngoại đứng đầu câu
- ("Ok, …"). Quy tắc phải chọn trên **tập dò** (câu thuần Việt của tập dò có 48/58 câu bị hại, đủ để đo), sau đó đo
- một lần trên val. Đây là việc kế tiếp, chưa làm.
+1. **Giảm hại ở câu thuần Việt** (+0,6–1,1 điểm WER, do từ câu mồi chèn vào). Cách xử lý ở mục 6.8. Đây là việc kế
+ tiếp, chưa làm.
 2. **Đo thời gian và bộ nhớ** khi chạy cả hai mô hình cạnh vLLM trên GPU từ 24 GB. Trên T4, large-v3 có p95 8,6–8,8 s
- mỗi câu.
+ mỗi mẫu.
 3. **Viết engine ASR ghép** trong `lifemate/backends/asr.py`. Hiện phép ghép chỉ có ở dạng chấm offline (`asr_merge`).
 
 Tổng tham số: RNNT 0,11B + large-v3 1,55B + LLM 4,02B = 5,68B, dưới trần 6B.
+
+### 6.8. Cách siết quy tắc ghép (kế hoạch, chưa đo)
+
+**Vấn đề.** Quy tắc ở mục 6.3 lấy mọi đoạn của large-v3 có "từ tiếng Anh mới". Từ câu mồi bị chèn nhầm ("Mai" thành
+"Mail", "lịch" thành "list", "ok" chen đầu câu) cũng là từ tiếng Anh mới, nên bị lấy theo.
+
+**Đính chính hướng xử lý cũ.** Bản trước của mục 6.7 đề xuất "không lấy vùng khi từ tiếng Anh mới là từ của câu mồi và
+phía RNNT là âm tiết Việt có dấu hợp lệ". Điều kiện này chặn cả ca có lợi: khi người dùng nói "Zalo", RNNT chép "giá lô"
+(âm tiết Việt có dấu hợp lệ) và "Zalo" là từ của câu mồi. Phần lợi chính của phép ghép rơi đúng vào loại ca này, nên
+không dùng điều kiện đó.
+
+**Ý tưởng.** Chữ của hai bản không đủ để phân biệt "sửa đúng" với "chèn nhầm". Cần thêm tín hiệu cho biết từ tiếng Anh
+có thật sự được nói hay không.
+
+**Các tín hiệu, theo thứ tự thử:**
+
+1. **Từ điển ngữ cảnh của mẫu** (offline). Gom các từ có sẵn dạng chữ trong đầu vào của mẫu: tên và mô tả các app trong
+   `installed_apps`, tên tool và giá trị liệt kê trong catalog, chữ của lượt trợ lý và kết quả tool trong lịch sử. Không
+   dùng `state.json` (thể lệ cấm). Quy tắc mới: từ của câu mồi chỉ được lấy khi có trong từ điển này, hoặc khi từ đó
+   thuộc nhóm ít bị chèn nhầm (tín hiệu 2). Từ tiếng Anh không có trong câu mồi vẫn theo quy tắc cũ. Loại này cũng có
+   lúc bị bịa ("Toyota D-Diều", mục 6.6), nhưng hại ít hơn: bản ghép không câu mồi chỉ làm WER câu thuần Việt tăng
+   0,3–0,4 điểm, còn câu mồi làm số lần chèn tăng từ 3 lên 26 trên 1 024 câu của tập dò (mục 4.7.6).
+2. **Độ tin cậy của từng từ câu mồi.** Với mỗi từ của câu mồi, đếm số lần large-v3 viết ra từ đó khi đáp án có từ đó,
+   và số lần viết ra khi đáp án không có. Đếm trên 793 mẫu train ngoài tập dò, nên cần chữ large-v3 có câu mồi trên các
+   mẫu này (một phiên GPU, khoảng 1 giờ trên T4).
+3. **So với lần chép không câu mồi.** Nếu large-v3 không câu mồi cũng nghe ra một từ tiếng Anh ở cùng chỗ thì nhiều khả
+   năng từ đó được nói thật. Tốn gấp đôi thời gian chạy large-v3, nên chỉ thử khi 1 và 2 chưa đủ.
+4. **Bộ phân loại.** Khi đã có nhiều tín hiệu, thay luật viết tay bằng hồi quy logistic quyết định từng vùng khác nhau.
+   Nhãn của mỗi vùng lấy tự động: vùng của bản nào khớp đáp án hơn. Học trên 793 mẫu train, chọn trên tập dò.
+
+**Thước đo khi chọn.** Hàm mục tiêu giữ hai mặt của phép ghép: chép đúng từ tiếng Anh trên câu chêm (không được giảm có ý
+nghĩa thống kê so với quy tắc hiện tại) và WER câu thuần Việt (phải về gần mức RNNT, 17,7% trên seen).
+
+**Quy trình.** Thử trên tập dò (câu thuần Việt của tập dò có 48/58 câu bị hại, đủ để đo), chọn cách tốt nhất, rồi đo một
+lần trên `val_seen` và `val_unseen`. Không viết luật theo các ca hỏng đã liệt kê ở mục 6.5, vì các ca đó lấy từ val.
+
+**Giới hạn.**
+
+- Tập dò chỉ có khoảng 26 lần chèn từ câu mồi, nên luật viết tay rất dễ khớp riêng với các ca này. Vì vậy ưu tiên tín
+  hiệu có lý do rõ ràng (ngữ cảnh, độ tin cậy đếm trên dữ liệu khác) hơn là luật dựa vào từng ví dụ.
+- Số "chèn nhầm" dựa vào quy tắc tìm từ ngoại (mục 2.1), mà độ chính xác của quy tắc này chưa được đo.
+- Mục tiêu cuối là LLM gọi đúng tool. Một lỗi chèn nhầm có thể không đổi lời gọi tool nào, nên cách siết thắng cần được
+  kiểm tra lại bằng điểm của agent khi agent chạy được trên chữ ASR.
 
 ## Giới hạn đã biết
 
