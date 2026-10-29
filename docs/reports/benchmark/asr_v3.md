@@ -415,9 +415,9 @@ lưu chữ ASR của tập này ra file kết quả (chỉ lưu thời gian và 
 5. **Từ điển ngữ cảnh chỉ lấy giá trị, bỏ khoá JSON.** Ở lần 2, `sample_context_words` lấy cả khoá của catalog và của
 `context` (`type`, `description`, `properties`, `content`, `name`…), nên các từ này có trong từ điển của mọi mẫu và
 large-v3 bịa ra đúng các từ này thì bộ lọc vẫn nhận. Khoá là tên trường do người viết schema đặt, không phải nội dung
-người dùng có thể nhắc tới. Đếm offline trên tập dò: bỏ khoá bớt 1 từ lấy nhầm ("group") và không mất từ đúng nào. Lần 3
-dùng từ điển bỏ khoá cho mọi thử nghiệm, kể cả mốc so sánh `context_other`; mốc này được chấm lại offline trên `asr_tune`
-và val trước khi chạy E (việc P10).
+người dùng có thể nhắc tới. Đếm thử offline trên tập dò: bỏ khoá bớt 1 từ lấy nhầm ("group") và không mất từ đúng
+nào. Lần 3 dùng từ điển bỏ khoá cho mọi thử nghiệm (việc P10). Mốc so sánh `context_other` giữ số của lần 2, không chấm
+lại, vì chênh lệch chỉ một từ trên tập dò.
 
 
 | Việc                    | Dữ liệu                                             | Để làm gì                     | Lý do chọn                                                             |
@@ -1175,7 +1175,7 @@ dò, nên số tập dò của bước sau lạc quan hơn (mục 2.3).
 | P7  | Engine `MergedASR` và khoá config chọn I1–I4; ghi `timing.jsonl`                                                                     | Test với hai backend giả: chữ ghép giống `asr_merge` offline từng byte                                                                                         |
 | P8  | `GpuMemoryMonitor`, kernel `ops/kaggle/asr_v3/`, script R1                                                                           | Chạy kernel preflight trên CPU với 3 mẫu                                                                                                                       |
 | P9  | `make check`, `make test`, cập nhật SPEC và README các thư mục                                                                       |                                                                                                                                                                |
-| P10 | `sample_context_words` bỏ khoá; chấm lại offline `context_other` của lần 2 trên `asr_tune` và val                                | Test: khoá như `type`, `properties` không có trong từ điển, giá trị vẫn có; ghi số mốc mới vào mục 2.3 |
+| P10 | `sample_context_words` bỏ khoá JSON, chỉ lấy giá trị                                                                                 | Test: khoá như `type`, `properties` không có trong từ điển, giá trị vẫn có |
 
 
 ### B.2. Các phiên GPU
