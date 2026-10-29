@@ -141,7 +141,7 @@ Lịch các phiên GPU ở Phụ lục B.
 | F. Độ tin cậy từng từ  | Lọc từ hay bị viết nhầm của câu mồi có giảm lỗi ở câu thuần Việt không?                                          | Đếm trên tập học: mỗi lần large-v3 viết ra từ đó, có bao nhiêu lần người dùng thật sự nói. Từ hay sai thì chỉ nhận khi có trong ngữ cảnh | Đếm trên tập học, chọn ngưỡng trên `asr_tune`, đo trên val                                                   | Có (để có chữ trên tập học) |
 | G. Bộ phân loại ghép   | Mô hình nhỏ học từ dữ liệu có quyết định ghép tốt hơn luật viết tay không?                                       | Hồi quy logistic, mỗi đoạn khác nhau là một mẫu học, đầu vào là các tín hiệu của E, F và điểm tin cậy của large-v3                       | Học trên tập học, chọn ngưỡng trên `asr_tune`, đo trên val                                                   | Có (cùng phiên với F)       |
 | H. Giữ hai phương án   | Giữ cả hai phương án ở chỗ chưa chắc thì trần chép đúng là bao nhiêu, tốn bao nhiêu token?                       | Viết chỗ bất đồng thành `{RNNT | large-v3}`, đo tỉ lệ từ đúng có mặt trong ít nhất một phương án                                         | `asr_tune`, val                                                                                              | Không                       |
-| J. Chấm điểm hai phương án | Cho mô hình chấm xác suất của hai phương án có quyết định ghép tốt hơn luật không? | J0: large-v3 không câu mồi chấm cả hai câu ứng viên theo âm thanh, chọn câu điểm cao hơn. J1: cộng thêm điểm ngữ cảnh do Qwen3-4B chấm, trọng số học trên tập học | Học J1 trên tập học, chọn trên `asr_tune`, đo trên val | Có (phiên K3) |
+| J. Chấm điểm hai phương án | Cho mô hình chấm xác suất của hai phương án có quyết định ghép tốt hơn luật không? | J0: large-v3 không câu mồi chấm hai câu ứng viên theo âm thanh. J1: Qwen3-4B chấm theo ngữ cảnh. J2: kết hợp hai điểm, trọng số học trên tập học. J0, J1 chọn câu điểm cao hơn, không có tham số | Học J2 trên tập học, chọn trên `asr_tune`, đo trên val | Có (phiên K3) |
 | I. Thời gian và bộ nhớ | Toàn bộ phần ASR có vừa ngân sách thời gian và bộ nhớ trên A30 không? Cách chạy nào nhanh nhất mà không đổi chữ? | Đo từng mẫu: tuần tự, song song, chép theo lô; đo bộ nhớ đỉnh; chạy lại để kiểm tra tất định                                             | Thời gian trên `public_test` và val; T4 cho mọi thử nghiệm, A30 (hoặc GPU 24 GB gần nhất) cho bản chính thức | Có                          |
 
 
@@ -158,7 +158,7 @@ thử nghiệm được ghi ở đây **trước khi đo**, để không chỉnh
 | G          | Dùng bộ phân loại thay quy tắc chỉ khi không thua quy tắc thắng của F ở cả WER câu thuần Việt lẫn chép đúng từ tiếng Anh, và thắng có ý nghĩa thống kê ở ít nhất một trong hai                                                                                             |
 | H          | Không chọn gì; chỉ đo trần và chi phí token, để quyết định có đưa định dạng này vào lần chạy hệ thống với LLM không                                                                                                                                                        |
 | I          | Trên A30: thời gian ASR của mẫu chậm nhất trên `public_test` không quá 10 giây, và bộ nhớ GPU đỉnh của phần ASR không quá 6 GB. Trong các cách chạy đạt hai ngưỡng này và cho chữ giống hệt cách chạy tuần tự, chọn cách có thời gian trung bình thấp nhất                 |
-| J          | Dùng J0 hoặc J1 thay quy tắc thắng của F khi không thua ở cả WER câu thuần Việt lẫn chép đúng từ tiếng Anh, thắng có ý nghĩa thống kê ở ít nhất một trong hai, và thời gian chấm thêm không quá 1 giây ở p95 mỗi mẫu trên T4. Hai cách cùng đạt và không khác nhau có ý nghĩa thống kê thì chọn J0 |
+| J          | Dùng một cách trong J0, J1, J2 thay quy tắc thắng của F khi không thua ở cả WER câu thuần Việt lẫn chép đúng từ tiếng Anh, thắng có ý nghĩa thống kê ở ít nhất một trong hai, và thời gian chấm thêm không quá 1 giây ở p95 mỗi mẫu trên T4. Nhiều cách cùng đạt và không khác nhau có ý nghĩa thống kê thì ưu tiên J0, rồi J1, rồi J2 |
 
 
 Lý do của hai ngưỡng ở I nằm ở mục 7.2.
@@ -203,7 +203,7 @@ Thứ tự bắt buộc theo phụ thuộc: E phải xong trước F và G, vì 
 | E       | Chấm offline, chọn biến thể thắng                                                                       | Máy dev                                                          | K1        | Chưa làm   |
 | K2      | Phiên GPU 2: tập học (RNNT, large-v3 có và không câu mồi); val (large-v3 thắng, large-v3 không câu mồi) | Kaggle T4, khoảng 3 giờ 30 phút                                  | E         | Chưa làm   |
 | K3      | Phiên GPU 3: chấm điểm âm thanh (large-v3 không câu mồi) và điểm ngữ cảnh (Qwen3-4B) trên tập học, `asr_tune`, val | Kaggle T4, khoảng 1 giờ 30 phút | K2 | Chưa làm |
-| F, J, G | Đếm độ tin cậy; học J1; học bộ phân loại; chọn trên `asr_tune`, đo một lần trên val                     | Máy dev                                                          | K2, K3    | Chưa làm   |
+| F, J, G | Đếm độ tin cậy; học J2; học bộ phân loại; chọn trên `asr_tune`, đo một lần trên val                     | Máy dev                                                          | K2, K3    | Chưa làm   |
 | H       | Đo trần của hai phương án                                                                               | Máy dev                                                          | G         | Chưa làm   |
 | R1      | Phiên GPU 4: đo thời gian và bộ nhớ của engine ghép trên `public_test` và val                           | A30 thuê (RunPod), không có thì GPU 24 GB gần nhất; khoảng 2 giờ | F, J, G   | Chưa làm   |
 | Báo cáo | Điền kết quả, kết luận; cập nhật `docs/experiments.md`, `docs/decisions.md`, SPEC                       | Máy dev                                                          | Mọi bước  | Chưa làm   |
@@ -1138,10 +1138,15 @@ khác nhau ở đoạn đó, rồi cho mô hình tính xác suất của từng 
 
 - **J0, điểm âm thanh:** whisper-large-v3 **không câu mồi** tính xác suất "câu này là lời của đoạn âm thanh này". Chọn câu
   có xác suất cao hơn. Không có ngưỡng tự đặt, vì đây là so sánh hai xác suất do cùng một mô hình tính trên cùng âm thanh.
-- **J1, điểm âm thanh cộng điểm ngữ cảnh:** thêm xác suất mà Qwen3-4B (LLM sẵn có của hệ thống) gán cho từng câu khi đọc
-  ngữ cảnh của mẫu (tên app đã cài, lời trợ lý liền trước). Điểm này cho biết câu nào hợp ngữ cảnh hơn, độc lập với âm
-  thanh. Đây là cách các hệ ASR vẫn kết hợp mô hình âm thanh với mô hình ngôn ngữ, thay cho luật "có hay không có trong
-  từ điển".
+- **J1, điểm ngữ cảnh:** Qwen3-4B (LLM sẵn có của hệ thống) tính xác suất của từng câu khi đọc ngữ cảnh của mẫu (tên
+  app đã cài, lời trợ lý liền trước). Chọn câu có xác suất cao hơn. Điểm này cho biết câu nào hợp ngữ cảnh hơn, không
+  nhìn âm thanh. Cũng không có ngưỡng tự đặt.
+- **J2, kết hợp:** dùng cả điểm âm thanh của J0 lẫn điểm ngữ cảnh của J1, cộng theo hai trọng số học từ tập học. Đây là
+  cách các hệ ASR vẫn kết hợp mô hình âm thanh với mô hình ngôn ngữ, thay cho luật "có hay không có trong từ điển".
+
+Ba cách dùng chung một bộ điểm: điểm âm thanh và điểm ngữ cảnh của mỗi câu ứng viên chỉ tính một lần, rồi J0, J1, J2 là
+ba cách ra quyết định từ các điểm đó. So cả ba trên cùng các đoạn cho biết từng nguồn điểm đóng góp bao nhiêu: J0 so với
+J2 cho biết ngữ cảnh thêm được gì ngoài âm thanh, J1 so với J2 cho biết âm thanh thêm được gì ngoài ngữ cảnh.
 
 ### 8.3. Giải pháp và thuật toán
 
@@ -1172,6 +1177,21 @@ là tổng log xác suất các token, kể cả token kết thúc. Ví dụ v�
 các token có xác suất cao hơn, điểm gần 0 hơn. Câu bịa dài ("Mời các bạn thử chọn…") gồm nhiều token không khớp âm thanh
 nên điểm thấp, không cần ngưỡng độ dài. Số trong bảng là minh hoạ cách cộng, không phải số đo.
 
+**Vì sao dùng log, và vì sao điểm càng gần 0 thì câu càng khớp.**
+
+- Xác suất của cả câu bằng **tích** xác suất của từng token (xác suất token đầu, nhân xác suất token thứ hai khi đã có
+  token đầu, và cứ thế). Log biến tích thành **tổng**: log(a × b) = log a + log b. Vì vậy điểm của câu, tức tổng log xác
+  suất các token, chính là log của xác suất cả câu.
+- Xác suất nằm trong khoảng 0 tới 1, nên log của xác suất luôn nhỏ hơn hoặc bằng 0: log 1 = 0, log 0,9 ≈ −0,11, log 0,5
+  ≈ −0,69, log 0,1 ≈ −2,3, log 0,01 ≈ −4,6. Câu mà mọi token đều được mô hình chắc chắn (xác suất gần 1) có điểm gần 0;
+  chỉ một token không khớp (xác suất 0,01) đã trừ 4,6.
+- Ví dụ hai token: 0,9 × 0,9 = 0,81, điểm −0,11 + (−0,11) = −0,22; 0,9 × 0,1 = 0,09, điểm −0,11 + (−2,3) = −2,41.
+- Lý do kỹ thuật: nhân vài chục số nhỏ hơn 1 cho ra số quá bé (ví dụ 0,1 mũ 40), máy tính không lưu chính xác được, còn
+  tổng các log thì không gặp vấn đề này. Log giữ nguyên thứ tự: tích lớn hơn thì tổng log lớn hơn, nên so điểm cũng là so
+  xác suất.
+- Hiệu hai điểm cũng có nghĩa rõ: `điểm(B) − điểm(A) = log(P(B) / P(A))`. Hiệu bằng 2,3 nghĩa là mô hình cho câu B khả năng
+  cao gấp khoảng 10 lần câu A. Vì vậy J2 dùng hiệu điểm làm đặc trưng.
+
 CTranslate2 (lõi của faster-whisper) có sẵn hàm `align(encoder_output, start_sequence, text_tokens, num_frames)` trả về
 `text_token_probs`, tức xác suất từng token của một chuỗi chữ cho sẵn. faster-whisper 1.2.1 dùng chính hàm này để tính
 `word.probability` (`transcribe.py` › `find_alignment`, với `start_sequence` là các token mở đầu, không có câu mồi). Vậy
@@ -1186,16 +1206,20 @@ khác nhau được chấm lần lượt từng đoạn, từ trái sang phải,
 
 **J0.** Lấy chữ large-v3 khi `điểm_âm_thanh(B) > điểm_âm_thanh(A)`.
 
-**J1.** Điểm ngữ cảnh của một câu là tổng log xác suất mà Qwen3-4B gán cho các token của câu đó, khi câu đứng sau một đoạn
-mở đầu cố định: "Ứng dụng đã cài: <tên `name_vi` các app>. Trợ lý vừa nói: <câu trả lời của lượt trợ lý liền trước, nếu
-có>. Người dùng nói:". Chỉ cộng log xác suất của phần câu người dùng, không cộng phần mở đầu. Không sinh chữ, chỉ một lượt
-chạy đọc đầu vào (prefill). Quyết định: hồi quy logistic một đầu vào trên hai đặc trưng `Δâm_thanh = điểm_âm_thanh(B) −
-điểm_âm_thanh(A)` và `Δngữ_cảnh = điểm_ngữ_cảnh(B) − điểm_ngữ_cảnh(A)`, học trên tập học với nhãn tự động của G (mục
-5.3), không đặt trọng số bằng tay. Lấy chữ large-v3 khi xác suất từ 0,5 trở lên (ngưỡng tự nhiên của hồi quy logistic,
-không dò).
+**Điểm ngữ cảnh tính thế nào.** Điểm ngữ cảnh của một câu là tổng log xác suất mà Qwen3-4B gán cho các token của câu đó,
+khi câu đứng sau một đoạn mở đầu cố định: "Ứng dụng đã cài: <tên `name_vi` các app>. Trợ lý vừa nói: <câu trả lời của
+lượt trợ lý liền trước, nếu có>. Người dùng nói:". Chỉ cộng log xác suất của phần câu người dùng, không cộng phần mở đầu.
+Cũng là ép chuỗi như điểm âm thanh: không sinh chữ, chỉ một lượt chạy đọc đầu vào (prefill).
+
+**J1.** Lấy chữ large-v3 khi `điểm_ngữ_cảnh(B) > điểm_ngữ_cảnh(A)`.
+
+**J2.** Hồi quy logistic với hai đặc trưng `Δâm_thanh = điểm_âm_thanh(B) − điểm_âm_thanh(A)` và `Δngữ_cảnh =
+điểm_ngữ_cảnh(B) − điểm_ngữ_cảnh(A)`: xác suất lấy B = σ(w1 × Δâm_thanh + w2 × Δngữ_cảnh + b), với σ là hàm đổi một số
+bất kỳ thành số từ 0 tới 1. Ba hệ số học trên tập học với nhãn tự động của G (mục 5.3), không đặt bằng tay. Lấy chữ
+large-v3 khi xác suất từ 0,5 trở lên (ngưỡng tự nhiên của hồi quy logistic, không dò).
 
 **Dùng trong G và H.** `Δâm_thanh` và `Δngữ_cảnh` được thêm vào đặc trưng của G. Trong G, điều kiện độ dài cố định của
-lần 2 không dùng nữa, vì số từ hai phía đã là đặc trưng. H có thể lấy đoạn không chắc là đoạn mà xác suất của J1 nằm gần
+lần 2 không dùng nữa, vì số từ hai phía đã là đặc trưng. H có thể lấy đoạn không chắc là đoạn mà xác suất của J2 nằm gần
 0,5; khoảng cụ thể đặt cùng khoảng của G (mục 6.3).
 
 **Câu dài hơn 30 giây.** Encoder chỉ nhận một cửa sổ 30 giây. Câu nói dài hơn 30 giây giữ quyết định của bộ lọc F, không
@@ -1209,7 +1233,7 @@ chấm; số câu như vậy được đếm và ghi vào kết quả.
   ứng viên, trả về điểm âm thanh của từng câu (`model.encode` một lần, `model.align` không câu mồi cho từng câu).
 - **(sẽ viết)** `lifemate/eval/candidate_scoring.py` › `context_scores(prefix, texts, model)`: nhận đoạn mở đầu và các câu,
   trả về điểm ngữ cảnh. Offline chạy Qwen3-4B bằng `transformers`; trong hệ thống thật dùng vLLM với `prompt_logprobs`.
-- **(sẽ viết)** `lifemate/eval/candidate_scoring.py` › `decide_j0`, `fit_j1`, `decide_j1`.
+- **(sẽ viết)** `lifemate/eval/candidate_scoring.py` › `decide_j0`, `decide_j1`, `fit_j2`, `decide_j2`.
 
 ### 8.4. Lý do
 
@@ -1224,13 +1248,16 @@ chấm; số câu như vậy được đếm và ghi vào kết quả.
   nhãn "A"; kết quả phụ thuộc cách viết câu hỏi, tức lại thêm một thứ tự đặt; và LLM không nghe âm thanh nên dễ chọn câu
   "hợp lý" thay cho câu được nói. Xác suất của cả câu không có nhãn phương án, không cần câu hỏi, và được dùng như một
   thành phần cộng với điểm âm thanh, không tự quyết định.
-- **Không thêm tham số.** J0 dùng large-v3 có sẵn, J1 dùng Qwen3-4B có sẵn; tổng vẫn 5,68B.
-- **Ít con số tự đặt.** J0 không có tham số nào. J1 có hai trọng số học từ tập học và ngưỡng 0,5 của hồi quy logistic.
+- **Vẫn đo J1 dù LLM không nghe âm thanh.** J1 đứng một mình có rủi ro chọn câu "hợp lý" thay cho câu được nói (mục
+  8.10). J1 vẫn được đo vì hai lý do: điểm ngữ cảnh đã tính sẵn cho J2 nên J1 gần như không tốn thêm; và chỉ khi có J1
+  mới tách được phần đóng góp của âm thanh và của ngữ cảnh trong J2.
+- **Không thêm tham số.** J0 dùng large-v3 có sẵn, J1 và J2 dùng thêm Qwen3-4B có sẵn; tổng vẫn 5,68B.
+- **Ít con số tự đặt.** J0 và J1 không có tham số nào. J2 có hai trọng số và một hệ số chặn học từ tập học và ngưỡng 0,5 của hồi quy logistic.
 
 ### 8.5. Dữ liệu và số lần đo
 
-- Học J1: tập học (chữ RNNT và large-v3 câu mồi thắng của E từ phiên K2, âm thanh của tập học).
-- Chọn giữa J0, J1 và quy tắc của F: `asr_tune`. Đo cách thắng một lần trên `val_seen`, `val_unseen`.
+- Học J2: tập học (chữ RNNT và large-v3 câu mồi thắng của E từ phiên K2, âm thanh của tập học).
+- Chọn giữa J0, J1, J2 và quy tắc của F: `asr_tune`. Đo cách thắng một lần trên `val_seen`, `val_unseen`.
 - Chấm điểm âm thanh và điểm ngữ cảnh chạy ở phiên GPU K3 (Phụ lục B.2), sau K2.
 
 ### 8.6. Chỉ số và tiêu chí
@@ -1239,25 +1266,27 @@ Chỉ số như F và G: chép đúng từ tiếng Anh, WER câu thuần Việt,
 `merge_missed_english` (mục 2.2). Thêm thời gian chấm mỗi mẫu (encoder thêm và các lượt ép chuỗi; điểm ngữ cảnh tính
 riêng) và số câu bỏ qua vì dài hơn 30 giây.
 
-Tiêu chí (đặt trước): dùng J0 hoặc J1 thay cho quy tắc thắng của F khi không thua ở cả WER câu thuần Việt lẫn chép đúng
-từ tiếng Anh và thắng có ý nghĩa thống kê ở ít nhất một trong hai (như G), với điều kiện thời gian chấm thêm không quá 1
-giây ở p95 mỗi mẫu trên T4. Nếu cả J0 và J1 đạt, chọn J0 khi hai cách không khác nhau có ý nghĩa thống kê, vì J0 không cần
-chạy LLM trước bước agent.
+Tiêu chí (đặt trước): một cách trong J0, J1, J2 được dùng thay cho quy tắc thắng của F khi không thua ở cả WER câu
+thuần Việt lẫn chép đúng từ tiếng Anh, thắng có ý nghĩa thống kê ở ít nhất một trong hai (như G), và thời gian chấm thêm
+không quá 1 giây ở p95 mỗi mẫu trên T4. Nhiều cách cùng đạt thì chọn cách tốt nhất theo WER câu thuần Việt; nếu các cách
+không khác nhau có ý nghĩa thống kê thì ưu tiên theo thứ tự J0, J1, J2: J0 không cần chạy LLM trước bước agent, J1 không
+có tham số học.
 
 ### 8.7. Kết quả
 
 | Hệ thống (`asr_tune`) | Chép đúng từ tiếng Anh | WER câu thuần Việt | WER câu chêm | Từ lấy nhầm | Từ đúng bị bỏ | Thời gian chấm thêm p95 mỗi mẫu |
 |---|---|---|---|---|---|---|
 | Quy tắc thắng của F | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | 0 |
-| J0 | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
-| J1 | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
+| J0 (âm thanh) | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
+| J1 (ngữ cảnh) | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
+| J2 (kết hợp) | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo | chưa đo |
 
 | Hệ thống thắng | Chép đúng từ tiếng Anh (seen / unseen) | WER câu thuần Việt (seen / unseen) | WER mọi câu (seen / unseen) |
 |---|---|---|---|
 | Quy tắc thắng của F | chưa đo | chưa đo | chưa đo |
 | Cách thắng của J | chưa đo | chưa đo | chưa đo |
 
-Hệ số của J1 (trọng số của `Δâm_thanh`, `Δngữ_cảnh`): chưa đo. Số câu dài hơn 30 giây bị bỏ qua: chưa đo.
+Hệ số của J2 (trọng số của `Δâm_thanh`, `Δngữ_cảnh`): chưa đo. Số câu dài hơn 30 giây bị bỏ qua: chưa đo.
 
 ### 8.8. Phân tích
 
@@ -1272,19 +1301,21 @@ Hệ số của J1 (trọng số của `Δâm_thanh`, `Δngữ_cảnh`): chưa �
 - **Điểm âm thanh của large-v3 vẫn mang thói quen ngôn ngữ của large-v3.** Decoder của large-v3 cũng là một mô hình ngôn
   ngữ; với tên lạ, large-v3 có thể chấm cao một cách viết quen hơn cách viết đúng. J0 chỉ so hai phương án đã có, nên
   không cứu được trường hợp cả hai đều sai.
+- **J1 không nghe âm thanh.** Dùng riêng, J1 nghiêng về câu hợp ngữ cảnh: máy có Zalo thì "zalo" được lợi kể cả khi
+  người dùng nói chữ khác; tên ít gặp trong dữ liệu huấn luyện của Qwen3-4B bị thiệt.
 - **Kiểu viết.** Đưa cả hai câu về chữ thường không dấu câu là kiểu viết large-v3 ít gặp; điểm tuyệt đối thấp hơn bình
   thường nhưng hai câu chịu như nhau. Cách viết số khác nhau ("3" và "ba") không thuộc phạm vi vì đoạn không có từ tiếng
   Anh mới thì không chấm.
 - **Tách token khác nhau.** "Zalo" và "giá lô" có số token khác nhau. Tổng log xác suất của cả câu (kể cả token kết thúc)
   là xác suất của cả chuỗi nên so được, nhưng mô hình có thể hơi nghiêng về câu ít token; hiện tượng này sẽ thấy ở
   `merge_missed_english` và `merge_wrong_english`.
-- **Tất định.** CTranslate2 chấm ép chuỗi tất định trên cùng máy và cùng kiểu số. Với J1 trong hệ thống thật, vLLM có thể
+- **Tất định.** CTranslate2 chấm ép chuỗi tất định trên cùng máy và cùng kiểu số. Với J1 và J2 trong hệ thống thật, vLLM có thể
   cho log xác suất lệch rất nhỏ khi số câu trong lô khác nhau; đoạn có hai điểm gần bằng nhau có thể đổi quyết định. Thử
   nghiệm I kiểm tra bằng cách chạy lại 50 mẫu và so chữ từng ký tự.
-- **Thứ tự chạy trong hệ thống thật.** J1 cần LLM chạy trước bước agent, tức ASR và LLM không còn tách rời; vLLM có bộ
+- **Thứ tự chạy trong hệ thống thật.** J1 và J2 cần LLM chạy trước bước agent, tức ASR và LLM không còn tách rời; vLLM có bộ
   đệm tiền tố nên đoạn mở đầu giống nhau chỉ tính một lần. Thời gian này chưa đo ở lần 3 (lần 3 không chạy vLLM), chỉ đo
   bằng `transformers` trên T4.
-- **Sau khi fine-tune LLM,** xác suất Qwen3-4B gán cho câu thay đổi; J1 phải học lại trọng số trên mô hình đã fine-tune.
+- **Sau khi fine-tune LLM,** xác suất Qwen3-4B gán cho câu thay đổi; J1 phải đo lại, J2 phải học lại trọng số trên mô hình đã fine-tune.
 - **Câu dài hơn 30 giây** không được chấm (mục 8.3).
 
 ## Giới hạn đã biết
@@ -1335,7 +1366,7 @@ dò, nên số tập dò của bước sau lạc quan hơn (mục 2.3).
 | `lifemate/eval/asr_merge.py` › `context_reliable`                                                                  | sửa        | thêm bảng độ tin cậy và ngưỡng                                               | Cách lọc mới                         | F                       |
 | `lifemate/eval/merge_classifier.py` › `region_features`, `region_labels`, `fit_logistic`, `predict`                | module mới | đoạn khác nhau → đặc trưng, nhãn → trọng số → xác suất                       | Bộ phân loại ghép                    | G                       |
 | `lifemate/eval/asr_alternatives.py` › `format_alternatives`, `alternatives_ceiling`, `alternatives_tokens`         | module mới | chữ hai bản, đoạn không chắc → chữ hai phương án, trần, số token             | Thử nghiệm hai phương án             | H                       |
-| `lifemate/eval/candidate_scoring.py` › `candidate_pairs`, `context_scores`, `decide_j0`, `fit_j1`, `decide_j1` | module mới | chữ RNNT, chữ large-v3 → câu ứng viên → điểm → quyết định | Chấm điểm hai phương án | J, G |
+| `lifemate/eval/candidate_scoring.py` › `candidate_pairs`, `context_scores`, `decide_j0`, `fit_j2`, `decide_j2` | module mới | chữ RNNT, chữ large-v3 → câu ứng viên → điểm → quyết định | Chấm điểm hai phương án | J, G |
 | `lifemate/backends/asr.py` › `FasterWhisperASR.score_texts` | hàm (mới) | âm thanh, các câu → điểm âm thanh từng câu | Chấm ép chuỗi không câu mồi | J |
 | `lifemate/eval/gpu_memory.py` › `GpuMemoryMonitor`                                                                 | lớp mới    | chạy nền `nvidia-smi` → `gpu_memory.csv`, bộ nhớ đỉnh                        | Đo bộ nhớ                            | I                       |
 | `lifemate/eval/make_splits.py`                                                                                     | sửa        | ghi thêm `asr_learn.txt`                                                     | Danh sách tập học                    | F, G                    |
