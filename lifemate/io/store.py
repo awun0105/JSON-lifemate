@@ -23,6 +23,7 @@ Lưu ý:
 from __future__ import annotations
 
 import csv
+import dataclasses
 import json
 import math
 import os
@@ -32,6 +33,7 @@ from typing import Any
 
 import structlog
 
+from lifemate.core.config import AgentConfig, ASRConfig, LLMConfig
 from lifemate.core.jsonutil import canonical_json
 from lifemate.core.types import SampleResult, StopReason
 
@@ -48,6 +50,26 @@ RESUME_KEYS = ("config", "prompt_sha256", "split", "train_mode")
 _RESUME_INFO_KEYS = ("started_at", "warmup_s", "env_info", "dtype")
 SHRINK_LEVELS = 4
 INDEX_FIELDS = ("run", "date", "git_commit", "model", "prompt_hash", "split", "ids_file", "n", "score", "p95_seconds")
+
+
+def _drop_new_defaults(old: Mapping[str, Any], new: Mapping[str, Any]) -> dict[str, Any]:
+    """Bỏ khỏi config mới các khoá mà config cũ chưa có và đang mang giá trị mặc định của dataclass.
+
+    Nhờ vậy run tạo trước khi thêm một khoá tuỳ chọn (ví dụ `[agent].format`, mặc định `"json"`) vẫn chạy tiếp được,
+    miễn là lần chạy tiếp dùng đúng giá trị mặc định, tức hành vi không đổi.
+    """
+    defaults = {
+        section: {f.name: f.default for f in dataclasses.fields(cls) if f.default is not dataclasses.MISSING}
+        for section, cls in (("llm", LLMConfig), ("agent", AgentConfig), ("asr", ASRConfig))
+    }
+    out = {k: dict(v) if isinstance(v, dict) else v for k, v in new.items()}
+    for section, values in out.items():
+        if not isinstance(values, dict) or not isinstance(old.get(section), dict):
+            continue
+        for key in [k for k in values if k not in old[section]]:
+            if key in defaults.get(section, {}) and values[key] == defaults[section][key]:
+                del values[key]
+    return out
 
 
 def atomic_write_text(path: Path, text: str) -> None:
@@ -267,6 +289,8 @@ class RunStore:
             return
         # Đi qua JSON để tuple và list (hoặc kiểu số) được so như nhau, giống cách chúng nằm trong `config.json`.
         new = json.loads(json.dumps({k: record.get(k) for k in RESUME_KEYS}, ensure_ascii=False))
+        if isinstance(old.get("config"), dict) and isinstance(new.get("config"), dict):
+            new["config"] = _drop_new_defaults(old["config"], new["config"])
         diff = sorted(k for k in RESUME_KEYS if k in old and old[k] != new[k])
         if diff:
             raise ValueError(

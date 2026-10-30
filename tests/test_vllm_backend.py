@@ -286,3 +286,39 @@ def test_error_after_verified_step_api_raises(fake_vllm: None) -> None:
         b.generate([], SCHEMA, sample_id="x", time_left_s=5.0)
     assert b._abortable is True and eng.calls == []
     assert broken.aborted == [broken.added[0][0]]
+
+
+TAG = {"type": "structural_tag", "structures": [], "triggers": ["<tool_call>"]}
+
+
+def test_structural_tag_falls_back_when_engine_rejects_it(fake_vllm: None) -> None:
+    """vLLM không nhận structural tag ở lần đầu: ghi log, chạy lại không ép, và không thử lại luật ở các lần sau."""
+    b, eng = _backend()  # `_Structured` giả chỉ nhận `json=`, nên `structural_tag=` báo TypeError như vLLM cũ
+    msgs = [{"role": "system", "content": "s", "tools": [{"type": "function"}]}, {"role": "user", "content": "hi"}]
+    g = b.generate(msgs, TAG, sample_id="x")
+    assert g.text == '{"action":"done"}'
+    assert "structured_outputs" not in eng.calls[-1]["sampling_params"].kw
+    assert eng.calls[-1]["tools"] == [{"type": "function"}]  # danh sách tool tách khỏi tin system, đưa vào template
+    b.generate(msgs, TAG, sample_id="y")
+    assert b._structural_ok is False and "structured_outputs" not in eng.calls[-1]["sampling_params"].kw
+
+
+def test_structural_tag_is_sent_when_supported(fake_vllm: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    """vLLM nhận structural tag: luật đi qua `structured_outputs`; đã chạy được rồi thì lỗi sau đó không bị nuốt."""
+
+    class _Tagged:
+        def __init__(self, **kw: Any) -> None:
+            self.kw = kw
+
+    monkeypatch.setattr(sys.modules["vllm.sampling_params"], "StructuredOutputsParams", _Tagged)
+    b, eng = _backend()
+    b.generate([{"role": "user", "content": "hi"}], TAG, sample_id="x")
+    sent = eng.calls[-1]["sampling_params"].kw["structured_outputs"].kw
+    assert "structural_tag" in sent and '"triggers"' in sent["structural_tag"]
+
+    def boom(*a: Any, **k: Any) -> Any:
+        raise RuntimeError("engine died")
+
+    monkeypatch.setattr(eng, "chat", boom)
+    with pytest.raises(RuntimeError):
+        b.generate([{"role": "user", "content": "hi"}], TAG, sample_id="y")

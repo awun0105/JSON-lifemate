@@ -37,6 +37,7 @@ from typing import Any, Protocol
 
 import structlog
 
+from lifemate.core.chat import split_tools
 from lifemate.core.config import ConfigError, load_profile
 from lifemate.core.envinfo import detect
 from lifemate.core.paths import REPO_ROOT
@@ -280,8 +281,11 @@ def build_labels(
     """
     kwargs = dict(chat_template_kwargs or {})
     trained = [m.get("role") == "assistant" and m.get("loss", True) is not False for m in messages]
-    # Khoá `loss` không bao giờ được đưa vào template.
-    plain = [{"role": m["role"], "content": m["content"]} for m in messages]
+    # Khoá `loss` không bao giờ được đưa vào template. Định dạng ChatML: danh sách tool ở trường `tools` của tin
+    # `system` được tách ra và truyền qua tham số `tools` của chat template, như vLLM lúc chạy.
+    plain, tools = split_tools([{k: v for k, v in m.items() if k != "loss"} for m in messages])
+    if tools is not None:
+        kwargs["tools"] = tools
     full = _render(tokenizer, plain, False, kwargs)
     labels = [IGNORE_INDEX] * len(full)
     for k in range(len(plain)):

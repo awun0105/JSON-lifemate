@@ -158,3 +158,17 @@ def test_submission_has_placeholder_for_every_missing_id(tmp_path: Path) -> None
     assert rows[0]["tool_calls"] == [] and rows[1]["state_hash"] == "h-b"
     # Summary chỉ tính mẫu đã chạy thật.
     assert store.read_summary()["n"] == 1
+
+
+def test_resume_accepts_new_optional_keys_at_their_defaults(tmp_path: Path) -> None:
+    """Run tạo trước khi có `[agent].format` chạy tiếp được với `format = "json"` (mặc định), không với "chatml"."""
+    first = {"config": {"llm": {"model": "a"}, "agent": {"guards": ["g1"]}}, "prompt_sha256": "p", "split": "train"}
+    first |= {"train_mode": False}
+    store = RunStore(tmp_path, resume=False)
+    store.write_config(store.resumed_config(first))
+    store.append(result("a"))
+    store = RunStore(tmp_path, resume=True)
+    agent = {"guards": ["g1"], "format": "json", "compact_tools": False, "constrain_tools": True}
+    store.check_resume({**first, "config": {"llm": {"model": "a"}, "agent": agent}})
+    with pytest.raises(ValueError, match="config"):
+        store.check_resume({**first, "config": {"llm": {"model": "a"}, "agent": {**agent, "format": "chatml"}}})

@@ -40,6 +40,11 @@ from lifemate.agent.prompt import HeldOutLeak
 from lifemate.agent.tooldocs import ASK_TOOL, CatalogIndex
 from lifemate.core.types import Action, ParseError, Sample, TokenCounter, Transcript
 
+# Câu trả lời kết thúc của trợ lý trong dữ liệu huấn luyện, chép nguyên văn từ `builder.py` của lead.
+FINAL_DONE = "Tôi đã thực hiện xong toàn bộ các thao tác bạn yêu cầu."
+FINAL_ASK = "Vui lòng cung cấp thêm các thông tin còn thiếu để tôi có thể hoàn thành yêu cầu cho bạn."
+FINAL_NO_CALL = "Yêu cầu của bạn đã được tiếp nhận và không cần thực hiện thêm thao tác nào trên hệ thống."
+
 SHRINK_COMPACT = 1
 SHRINK_HISTORY = 2
 _MIN_HISTORY_TURNS = 2

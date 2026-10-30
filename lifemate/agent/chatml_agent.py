@@ -20,6 +20,9 @@ Lưu ý:
 - Tin nhắn giữ trường `tools` trong tin `system` như dữ liệu của lead; backend LLM và bộ đếm token tách trường này ra để
   đưa vào chat template (`lifemate.core.chat.split_tools`).
 - Mỗi lời gọi trong một lượt có id `call_curr_<k>`, `k` đếm tiếp qua các lượt, giống `build_messages` của lead.
+- Kết quả tool để nguyên như dữ liệu của lead (không cắt). Chỉ khi prompt sắp vượt `max_model_len`, các tin `tool` dài
+  nhất mới bị cắt dần còn `[agent].max_result_chars` ký tự (rồi một phần tư số đó) để mẫu chạy tiếp thay vì dừng
+  `CONTEXT_OVERFLOW` (`_fit_context`).
 - Agent không bắt `Exception`; `Runner.run_one` là ranh giới lỗi theo mẫu.
 """
 
@@ -36,6 +39,7 @@ from lifemate.agent.guards import GuardChain
 from lifemate.agent.observers import NullObserver
 from lifemate.agent.tooldocs import ASK_TOOL, CatalogIndex
 from lifemate.core.config import AgentConfig, LLMConfig
+from lifemate.core.jsonutil import truncate
 from lifemate.core.types import (
     Action,
     AgentObserver,
@@ -124,6 +128,29 @@ class ChatMLAgent:
         self.llm_cfg = llm_cfg
         self.observer: AgentObserver = observer if observer is not None else NullObserver()
         self._tool_kind = index.tool_kinds()
+
+    def _fits(self, prompt_tokens: int) -> bool:
+        """`True` khi prompt cộng `max_tokens` còn nằm trong `max_model_len`."""
+        return prompt_tokens + self.llm_cfg.max_tokens <= self.llm_cfg.max_model_len
+
+    def _fit_context(self, run: _Run, prompt_tokens: int) -> int:
+        """Cắt dần các tin `tool` dài nhất khi prompt sắp vượt context; trả số token prompt sau khi cắt.
+
+        Mỗi lượt cắt một tin `tool` dài nhất còn `max_result_chars` ký tự, rồi tới một phần tư số đó, đếm lại sau mỗi
+        lần cắt; dừng khi vừa context hoặc không còn tin nào cắt được nữa (khi đó `Budget` dừng mẫu với
+        `CONTEXT_OVERFLOW`).
+        """
+        for limit in (self.cfg.max_result_chars, max(1, self.cfg.max_result_chars // 4)):
+            while not self._fits(prompt_tokens):
+                tools = [m for m in run.messages if m.get("role") == "tool" and len(str(m.get("content", ""))) > limit]
+                if not tools:
+                    break
+                longest = max(tools, key=lambda m: len(str(m.get("content", ""))))
+                longest["content"] = truncate(str(longest["content"]), limit)
+                prompt_tokens = self.counter.count(run.messages)
+            if self._fits(prompt_tokens):
+                break
+        return prompt_tokens
 
     def _record(self, run: _Run, step: StepRecord) -> None:
         """Lưu một bản ghi bước và báo cho observer."""
@@ -226,6 +253,8 @@ class ChatMLAgent:
         stop: StopReason | None = None
         while stop is None:
             prompt_tokens = self.counter.count(run.messages)
+            if not self._fits(prompt_tokens):
+                prompt_tokens = self._fit_context(run, prompt_tokens)
             max_prompt = max(max_prompt, prompt_tokens)
             stop = budget.before_step(prompt_tokens)
             if stop is not None:

@@ -278,3 +278,30 @@ def test_constraint_compiles_and_matches_with_xgrammar() -> None:
     assert ok(_call("alarm.delete"))  # thiếu tham số bắt buộc vẫn qua: để guard chặn rồi mô hình hỏi lại
     assert not ok(_call("alarm.set", alarm_id="a1"))
     assert not ok(_call("alarm.delete", alarm_id="a1", bia=1))
+
+
+def test_long_tool_result_is_cut_instead_of_overflowing() -> None:
+    """Kết quả tool quá dài: tin `tool` bị cắt còn `max_result_chars` ký tự, mẫu chạy tiếp thay vì dừng vì tràn."""
+    huge = {"items": ["mục " + str(i) for i in range(3000)]}
+
+    class BigEnv:
+        """Môi trường giả trả một kết quả rất dài cho `alarm.list`."""
+
+        def __init__(self) -> None:
+            self.inner = make_env()
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self.inner, name)
+
+        def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+            self.inner.call(name, arguments)
+            return huge
+
+    llm_cfg = dataclasses.replace(LLM, max_model_len=3000, max_tokens=100)
+    cfg = dataclasses.replace(CFG, max_result_chars=400)
+    counter = WhitespaceTokenCounter()
+    llm = FakeLLM([], broken_outputs={"s1": [_call("alarm.list"), "Xong."]}, dialect="chatml")
+    prompts = ChatMLPrompt(INDEX, counter, max_model_len=llm_cfg.max_model_len, max_tokens=llm_cfg.max_tokens)
+    agent = ChatMLAgent(llm, GoldTranscriber(), prompts, build_guard_chain(cfg.guards), INDEX, counter, cfg, llm_cfg)
+    res = agent.run(_sample(), BigEnv(), clock=FakeClock())  # type: ignore[arg-type]
+    assert res.stop_reason is StopReason.DONE

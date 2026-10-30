@@ -43,6 +43,14 @@ import structlog
 
 # Tiền tố lấy thẳng từ agent: dữ liệu SFT phải giống từng byte với hội thoại lúc chạy thật.
 from lifemate.agent.agent import BLOCK_PREFIX, RESULT_PREFIX
+from lifemate.agent.chatml import (
+    FINAL_ASK,
+    FINAL_DONE,
+    FINAL_NO_CALL,
+    ChatMLPrompt,
+    assistant_call,
+    tool_message,
+)
 from lifemate.agent.prompt import HeldOutLeak, PromptBuilder, truncate_result
 from lifemate.agent.protocol import DONE_TEXT, call_text
 from lifemate.agent.tooldocs import ASK_TOOL, CatalogIndex
@@ -124,19 +132,19 @@ def make_counter(model: str, revision: str) -> TokenCounter:
 
 def make_builder(
     run_cfg: RunPromptConfig, repo_root: Path, index: CatalogIndex, counter: TokenCounter
-) -> PromptBuilder:
-    """Tạo `PromptBuilder` lắp ráp giống hệt `lifemate.run.factory.build`, để prompt train trùng prompt lúc chạy.
+) -> PromptBuilder | ChatMLPrompt:
+    """Tạo bộ dựng prompt lắp ráp giống hệt `lifemate.run.factory.build`, để prompt train trùng prompt lúc chạy.
 
-    Lỗi:
-        ConfigError: khi config chạy dùng `[agent].format = "chatml"`. Module này chỉ sinh dữ liệu theo định dạng JSON
-            cũ (`{"action": ...}`); dữ liệu ChatML lấy từ `src/preprocessing/dataset/builder.py` của repo lead, cùng
-            định dạng với `lifemate.agent.chatml`.
+    `[agent].format = "chatml"`: `ChatMLPrompt` (tin nhắn giống `build_messages` của lead). `"json"`: `PromptBuilder`.
     """
     if run_cfg.agent.format == "chatml":
-        raise ConfigError(
-            "sft_data builds the old JSON format only; for agent.format = 'chatml' build SFT data with the lead's "
-            "src/preprocessing/dataset/builder.py (same messages as lifemate.agent.chatml), "
-            "or set agent.format = 'json'"
+        return ChatMLPrompt(
+            index,
+            counter,
+            max_model_len=run_cfg.llm.max_model_len,
+            max_tokens=run_cfg.llm.max_tokens,
+            compact=run_cfg.agent.compact_tools,
+            held_out_apps=read_held_out(repo_root),
         )
     template = (repo_root / run_cfg.agent.system_prompt).read_text(encoding="utf-8")
     return PromptBuilder(
@@ -404,9 +412,90 @@ def build_sample(
     )
 
 
+def build_sample_chatml(
+    sample: Sample,
+    prompts: ChatMLPrompt,
+    loader: ZaicLoader,
+    counter: TokenCounter,
+    transcriber: Transcriber,
+    *,
+    max_model_len: int,
+    train_mode: bool,
+    source: str,
+    result: BuildResult,
+    inject_error: bool = False,
+) -> None:
+    """Dựng một dòng ở định dạng ChatML (giống `format_sample_chatml` trong `builder.py` của lead) và thêm vào `result`.
+
+    Cách làm: tin nhắn đầu bằng `ChatMLPrompt.start` (giống hệt lúc chạy); phát lại từng lời gọi đáp án qua env mới, mỗi
+    lời gọi là một tin `assistant` có `tool_calls` (id `call_curr_<k>` như agent lúc chạy) và một tin `tool` mang kết
+    quả phát lại; cuối cùng là câu kết của lead (`FINAL_DONE`, `FINAL_ASK` khi có hỏi lại, `FINAL_NO_CALL` khi đáp án
+    rỗng).
+
+    Khi `inject_error` bật: trước lời gọi đầu tiên có tham số bắt buộc, chèn bản thiếu một tham số và tin `tool`
+    `{"ok": false, "error": <lỗi thật của env.validate>}`, đúng thứ `ChatMLAgent` đưa cho mô hình khi guard chặn; lượt
+    gọi sai có `"loss": false`. Khác lead ở một điểm: câu lỗi lấy từ `env.validate` thay vì câu tự viết.
+    """
+    label = sample.label or {}
+    calls: list[dict[str, Any]] = list(label.get("tool_calls") or [])
+    gold_results: list[Any] = list(label.get("tool_results") or [])
+    try:
+        messages, level = prompts.start(sample, transcriber.transcribe(sample), train_mode=train_mode)
+    except HeldOutLeak as exc:
+        result.dropped.append((sample.id, f"held_out_leak:{exc.app}"))
+        return
+    ask_at = [i for i, c in enumerate(calls) if c.get("name") == ASK_TOOL]
+    if ask_at and ask_at[0] != len(calls) - 1:
+        result.dropped.append((sample.id, "ask_missing_info_not_last"))
+        return
+    env = loader.open_env(sample.id)  # env mới cho từng mẫu: trạng thái không bị rò từ mẫu trước
+    no_loss: list[int] = []
+    n = 0
+    for i, call in enumerate(calls):
+        name, arguments = str(call["name"]), dict(call.get("arguments") or {})
+        if inject_error and not no_loss and name != ASK_TOOL:
+            for key in arguments:
+                faulty = {k: v for k, v in arguments.items() if k != key}
+                verdict = env.validate(name, copy.deepcopy(faulty))
+                if not verdict.get("ok"):
+                    no_loss.append(len(messages))
+                    messages.append(assistant_call(f"call_curr_{n}", name, faulty))
+                    error = {"ok": False, "error": str(verdict.get("error"))}
+                    messages.append(tool_message(f"call_curr_{n}", name, error))
+                    n += 1
+                    break
+        messages.append(assistant_call(f"call_curr_{n}", name, arguments))
+        replayed = env.call(name, copy.deepcopy(arguments))
+        if i >= len(gold_results) or canonical_json(replayed) != canonical_json(gold_results[i]):
+            log.warning("sft_replay_mismatch", id=sample.id, call=i, name=name)
+            result.replay_warnings.append({"id": sample.id, "call": i, "name": name})
+        messages.append(tool_message(f"call_curr_{n}", name, replayed))
+        n += 1
+    final = FINAL_NO_CALL if not calls else (FINAL_ASK if ask_at else FINAL_DONE)
+    messages.append({"role": "assistant", "content": final})
+    for k in no_loss:
+        messages[k]["loss"] = False  # sft.build_labels và ms-swift không train token nào của lượt này
+    n_tokens = counter.count(messages)
+    if n_tokens > max_model_len:
+        result.dropped.append((sample.id, f"too_long:{n_tokens}>{max_model_len}"))
+        return
+    result.shrink_levels[level] += 1
+    result.rows.append(
+        {
+            "id": sample.id,
+            "source": source,
+            "category": category(sample),
+            "error_recovery": bool(no_loss),
+            "messages": messages,
+            "n_tokens": n_tokens,
+            "n_assistant_turns": sum(1 for m in messages if m["role"] == "assistant"),
+        }
+    )
+
+
 def build_rows(
     samples: Sequence[Sample],
-    builder: PromptBuilder,
+    builder: PromptBuilder | ChatMLPrompt,
     loader: ZaicLoader,
     counter: TokenCounter,
     *,
@@ -451,19 +540,34 @@ def build_rows(
         if aug.distractor_apps > 0 and index is not None:
             sample, _ = with_distractors(original, index, held_out, aug.distractor_apps, aug.seed)
         n_before = len(result.rows)
-        build_sample(
-            sample,
-            builder,
-            loader,
-            counter,
-            transcriber,
-            max_model_len=max_model_len,
-            max_result_chars=max_result_chars,
-            train_mode=train_mode,
-            source=source,
-            result=result,
-            inject_error=_frac(aug.seed, "error", sample.id) < aug.error_recovery_ratio,
-        )
+        inject = _frac(aug.seed, "error", sample.id) < aug.error_recovery_ratio
+        if isinstance(builder, ChatMLPrompt):
+            build_sample_chatml(
+                sample,
+                builder,
+                loader,
+                counter,
+                transcriber,
+                max_model_len=max_model_len,
+                train_mode=train_mode,
+                source=source,
+                result=result,
+                inject_error=inject,
+            )
+        else:
+            build_sample(
+                sample,
+                builder,
+                loader,
+                counter,
+                transcriber,
+                max_model_len=max_model_len,
+                max_result_chars=max_result_chars,
+                train_mode=train_mode,
+                source=source,
+                result=result,
+                inject_error=inject,
+            )
         if len(result.rows) > n_before:  # mẫu được giữ: nhân bản dòng vừa thêm nếu là mẫu khó
             row = result.rows[-1]
             result.rows.extend(

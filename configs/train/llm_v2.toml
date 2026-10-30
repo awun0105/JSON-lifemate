@@ -1,0 +1,42 @@
+# configs/train/llm_v2.toml: như llm_v1.toml nhưng dựng dữ liệu và chấm checkpoint ở định dạng ChatML (configs/v0.toml,
+# [agent].format = "chatml"), khớp hệ thống chạy thi từ D50. Dữ liệu xuất cho ms-swift 4.6 ở dạng agent: trường `tools`
+# cấp dòng, lời gọi `tool_calls`, kết quả vai `tool`, khuôn hermes mặc định của Qwen (lifemate/train/swift_sft.py › swift_row).
+# configs/train/llm_v1.toml — SPEC 6.2.3. Chiến lược fine-tune theo team lead (ThanhDanh1510/ZaloAI2026
+# docs/llm_finetuning.md@7033c9f): LoRA r=32, alpha=64 trên cả 7 lớp tuyến tính, loss chỉ trên phần trả lời,
+# lr 2e-4 cosine, warmup 5%, 3 epoch, batch hiệu dụng 16, độ dài tối đa 10.240 token.
+# Dữ liệu theo @c703bd9: 70% chữ ASR, 3% mẫu phục hồi lỗi. Nhân bản ca khó, app gây nhiễu và lọc cụm trùng là
+# bước 2-3 trong lộ trình của lead: để tắt cho lượt baseline, bật từng cái ở các lượt sau để đo riêng.
+[base]
+model = "Qwen/Qwen3-4B-Instruct-2507"   # cùng model với [llm] của configs/v0.toml
+revision = "cdbee75f17c01a7cc42f958dc650907174af0554"
+run_config = "configs/v0.toml"   # định dạng ChatML như hệ thống chạy thi (D50): tool calling gốc của Qwen, giống dữ liệu của lead
+eval_transcripts = "asr"         # chấm checkpoint trên chữ ASR thật như lúc thi (cần GPU >= 24 GB); "gold" = chữ chuẩn
+[data]
+train = "data/sft/v2.jsonl"
+eval_seen = "data/sft/v2_val_seen.jsonl"      # dựng bằng cùng script, chỉ để đo loss, không train
+eval_unseen = "data/sft/v2_val_unseen.jsonl"
+transcript_source = "mix"                     # 30% audio_text + 70% chữ ASR; mẫu ASR mất tên/số của đáp án thì dùng audio_text
+asr_ratio = 0.7
+asr_cache = "data/asr/train_asr.json"         # python -m lifemate.train.asr_cache --ids train.txt val_seen.txt val_unseen.txt (cần GPU)
+error_recovery_ratio = 0.03   # 3% mẫu train: gọi thiếu tham số bắt buộc, nhận lỗi guard thật, rồi gọi đúng (lượt sai không tính loss)
+oversample_hard = 1.0         # >1: nhân bản mẫu hỏi lại và mẫu nhãn rỗng (lead đề xuất 1.5-2.0)
+distractor_apps = 0           # >0: thêm app đã cài gây nhiễu (không thêm vào mẫu nhãn rỗng)
+dedup_max_k = 0               # >0: giữ tối đa k mẫu mỗi cụm câu gần trùng
+[lora]
+quant = "nf4"               # QLoRA 4-bit cho T4 16 GB; "none" = LoRA 16-bit trên GPU >= 24 GB (A30, A100)
+r = 32
+alpha = 64
+dropout = 0.0
+target_modules = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+[train]
+lr = 2e-4
+lr_scheduler = "cosine"
+tuner_backend = "peft"      # ms-swift --tuner_backend: peft (mặc định) hoặc unsloth (nhanh hơn trên T4, cần cài unsloth)
+warmup_ratio = 0.05
+epochs = 3
+batch_size = 1
+grad_accum = 16             # batch hiệu dụng 16
+max_len = 10240             # prompt dài nhất đo được 9.544 token (team lead); mẫu dài hơn bị bỏ, không cắt
+seed = 0
+eval_every_steps = 50
+save_every_steps = 50

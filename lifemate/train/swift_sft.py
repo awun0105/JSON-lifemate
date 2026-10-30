@@ -40,6 +40,7 @@ from typing import Any
 
 import structlog
 
+from lifemate.core.chat import split_tools
 from lifemate.core.config import ConfigError
 from lifemate.train.common import abs_path
 from lifemate.train.sft import LLMTrainConfig, build_labels, read_jsonl, template_kwargs
@@ -73,8 +74,22 @@ class SwiftCheckpoint:
     eval_loss: float | None
 
 
+def swift_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Một dòng `sft_data` ở dạng ms-swift đọc được.
+
+    Định dạng JSON cũ: chỉ giữ `role`, `content`, `loss`. Định dạng ChatML: danh sách tool chuyển từ trường `tools` của
+    tin `system` ra trường `tools` cấp dòng (ms-swift xoá mọi khoá lạ trong tin nhắn); tin `assistant` giữ `tool_calls`
+    dạng OpenAI (ms-swift tự đổi sang vai `tool_call`), tin `tool` giữ `tool_call_id` và `name`; mọi tin giữ `loss`.
+    """
+    msgs, tools = split_tools(row["messages"])
+    if tools is None:
+        return {"messages": [{k: m[k] for k in ("role", "content", "loss") if k in m} for m in msgs]}
+    keep = ("role", "content", "loss", "tool_calls", "tool_call_id", "name")
+    return {"tools": tools, "messages": [{k: m[k] for k in keep if k in m} for m in msgs]}
+
+
 def export_rows(src: Path, dst: Path) -> int:
-    """Chép các dòng của `sft_data`, chỉ giữ `messages` (kèm cờ `loss` của từng lượt).
+    """Chép các dòng của `sft_data` sang dạng ms-swift (`swift_row`).
 
     Các khoá khác (id, metadata) bị bỏ để ms-swift không hiểu nhầm thành cột dữ liệu.
 
@@ -89,8 +104,7 @@ def export_rows(src: Path, dst: Path) -> int:
     dst.parent.mkdir(parents=True, exist_ok=True)
     with open(dst, "w", encoding="utf-8") as f:
         for row in rows:
-            msgs = [{k: m[k] for k in ("role", "content", "loss") if k in m} for m in row["messages"]]
-            f.write(json.dumps({"messages": msgs}, ensure_ascii=False) + "\n")
+            f.write(json.dumps(swift_row(row), ensure_ascii=False) + "\n")
     return len(rows)
 
 
@@ -153,8 +167,7 @@ def check_template(cfg: LLMTrainConfig, rows: Sequence[Mapping[str, Any]]) -> in
     kwargs = template_kwargs(proc)
     checked = pick_check_rows(rows)
     for row in checked:
-        msgs = [{k: m[k] for k in ("role", "content", "loss") if k in m} for m in row["messages"]]
-        enc = tpl.encode({"messages": msgs})
+        enc = tpl.encode(swift_row(row))
         theirs = ([int(x) for x in enc["input_ids"]], [int(x) for x in enc["labels"]])
         compare_encodings(str(row.get("id")), build_labels(proc, row["messages"], kwargs), theirs, proc.decode)
     log.info("swift_template_checked", rows=len(checked))

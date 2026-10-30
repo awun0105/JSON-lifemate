@@ -287,9 +287,10 @@ class VLLMBackend:
     ) -> Generation:
         """Sinh văn bản một lần; ràng buộc theo `schema` (JSON schema hoặc structural tag) khi có.
 
-        Với structural tag: nếu engine từ chối luật (`ValueError`) ngay ở lần đầu dùng, ghi log lỗi, tắt hẳn việc ép cho
-        phần còn lại của run và sinh lại không ép, để một luật không được hỗ trợ không làm hỏng cả run. Luật đã chạy
-        được ít nhất một lần thì lỗi sau đó được ném ra.
+        Với structural tag: nếu lần đầu dùng luật gặp bất kỳ lỗi nào (engine không nhận tham số, xgrammar không biên
+        dịch được, lỗi khi chạy từng bước), ghi log lỗi, tắt hẳn việc ép cho phần còn lại của run và sinh lại không ép.
+        Lý do: lỗi ở đây xảy ra như nhau với mọi mẫu; không bắt thì `Runner` biến mọi mẫu thành `exception` (0 điểm).
+        Luật đã chạy được ít nhất một lần thì lỗi sau đó được ném ra như thường.
 
         Tham số và giá trị trả về: như `_generate`.
         """
@@ -297,12 +298,16 @@ class VLLMBackend:
             if not self._structural_ok:
                 schema = None
             else:
+                t0 = time.perf_counter()
                 try:
                     gen = self._generate(messages, schema, time_left_s=time_left_s)
-                except ValueError as exc:
+                except Exception as exc:  # chỉ ở lần đầu dùng luật: đổi sang không ép thay vì hỏng cả run
                     if self._structural_verified:
                         raise
-                    _log.error("vllm_structural_tag_unsupported", error=str(exc))
+                    _log.error("vllm_structural_tag_unsupported", error=repr(exc))
+                    # Thời gian của lần thử hỏng được trừ vào hạn giờ của lần sinh lại.
+                    if time_left_s is not None:
+                        time_left_s = max(0.0, time_left_s - (time.perf_counter() - t0))
                     self._structural_ok = False
                     schema = None
                 else:
