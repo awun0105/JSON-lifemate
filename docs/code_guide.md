@@ -715,7 +715,7 @@ CPU và phải được 100 điểm trên split có nhãn.
 
 **Muốn thử một prompt hệ thống khác thì sửa gì?**
 Tạo file mới trong `configs/prompts/`, chạy với `--set agent.system_prompt=configs/prompts/<file>.md`. Không sửa
-`system_v1.md` khi đang có dữ liệu huấn luyện dựng theo nó.
+`system_v1.md` khi đang có dữ liệu huấn luyện dựng theo file đó.
 
 **Muốn đổi mô hình ASR thì sửa gì?**
 Sửa `[asr]` trong config: `backend = "asr"`, `engine`, `model`, `generate_kwargs`. Mã không đổi. Riêng pipeline ghép hai
