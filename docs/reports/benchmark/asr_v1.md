@@ -252,7 +252,7 @@ tập chung của dự án, bước 4 tạo tập riêng cho benchmark:
 1. **Tách app lạ trước.** Mọi mẫu dùng một trong 6 app (medication, fitness, flights, bike_rental, library,
    subscriptions), cộng 5 mẫu "ngoài phạm vi" liên quan tới các app đó được gắn tay (đáp án không gọi tool nào nên không
    tự nhận ra app), vào `val_unseen`. Lý do: bộ thi riêng của BTC có app chưa từng thấy, nên cần một tập mô phỏng điều
-   đó. Sơ đồ đầy đủ các bước chia và tập nào dùng cho thử nghiệm nào ở `asr_v3.md`, phần "Dữ liệu cần chuẩn bị".
+   đó.
 2. **Gom cụm câu gần trùng.** Các mẫu có `audio_text` giống nhau từ 85% trở lên được gom thành một cụm và luôn nằm cùng
    một tập. Lý do: nếu hai câu gần giống nhau nằm ở hai tập, kết quả kiểm tra sẽ đẹp hơn thực tế.
 3. **Chia 5 fold phân tầng.** 1 367 mẫu còn lại chia thành 5 phần có cùng tỉ lệ số lời gọi tool và tỉ lệ câu phải hỏi
@@ -282,7 +282,7 @@ về chữ thường và bỏ dấu câu.
 | **WER bỏ số** (`wer_nonum`) | WER sau khi bỏ chữ số và từ đọc số ở cả hai phía | Đáp án viết "5 giờ", ChunkFormer viết "năm giờ": WER thường phạt cách viết chứ không phải lỗi nghe (ví dụ 5 ở mục 6.4) |
 | Câu bịa | Chữ trước bộ lọc khớp mẫu phụ đề bịa | Đo mức ảo giác |
 | Tên riêng cụ thể | Số câu viết đúng Zalo, VTV, HTV, voucher… trên số câu đáp án có tên đó | Tên app quyết định gọi tool của app nào |
-| p95 | Như mục 0 | Thể lệ cho 30 giây mỗi mẫu cho cả ASR lẫn LLM, phần lớn dành cho LLM |
+| p95 | Như mục 0 | Hệ thống tự ngắt mỗi mẫu ở 29 giây (`deadline_s` trong `configs/v0.toml`, tính từ đầu mẫu, gồm cả ASR), chừa 1 giây dưới giới hạn 30 giây của thể lệ. Phần lớn thời gian đó dành cho LLM |
 
 **Hàm mục tiêu** (để xếp hạng lựa chọn, nhỏ hơn là tốt hơn), giống nhau cho mọi mô hình:
 
