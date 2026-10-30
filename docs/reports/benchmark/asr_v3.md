@@ -1,7 +1,7 @@
 # Báo cáo benchmark ASR lần 3: câu mồi theo mẫu, chọn cách quyết định ghép, và đo điểm thi
 
 Ngày lập kế hoạch: 29/10/2026. Chạy: 30/10/2026 trên Colab T4. Trạng thái: **đã xong E, F, G, H, bảng chọn chung (mục 7)
-và I1; thử nghiệm J (gồm I2) đang chạy dở** (phiên K4 dừng vì Colab tạm không cấp GPU). Các ô của J còn ghi "chưa đo".
+và I1; thử nghiệm J (gồm I2) đang chạy**: đã có J1, J2, J3 trên `val_seen`. Các ô còn lại của J ghi "chưa đo".
 
 Báo cáo trả lời bốn câu hỏi:
 
@@ -279,10 +279,12 @@ Bước ghép tốn dưới 0,01 giây mỗi mẫu. Số đo trên T4 và không
 | Điểm thi khi chạy agent trên chữ đã lưu (thử nghiệm J) | val\_seen | val\_unseen |
 | ------------------------------------------------------- | --------- | ----------- |
 | J0 chữ chuẩn của BTC                                    | chưa đo   | chưa đo     |
-| J1 RNNT đứng riêng                                      | chưa đo   | chưa đo     |
-| J2 ghép lần 2                                           | chưa đo   | chưa đo     |
-| J3 ghép lần 3                                           | chưa đo   | chưa đo     |
-| J4 ghép lần 3, hai phương án (I2; I1 đạt nên chạy)      | chưa đo   | chưa đo     |
+| J1 RNNT đứng riêng                                      | 15,06     | chưa đo     |
+| J2 ghép lần 2                                           | 15,53 (+0,47 [−0,83; +1,86]) | chưa đo |
+| J3 ghép lần 3                                           | 15,43 (+0,37 [−0,90; +1,72]) | chưa đo |
+| J4 ghép lần 3, hai phương án (I2; I1 đạt nên chạy)      | đang chạy | chưa đo     |
+
+Agent là Qwen3-4B **chưa fine-tune**; chênh lệch so với J1 kèm CI 95%, chưa có ý nghĩa thống kê (mục 9.7).
 
 
 **Ví dụ thật** (tập dò; chi tiết và thêm ví dụ ở mục 3.7, 4.7, 5.7, 6.7, 8.7):
@@ -317,7 +319,9 @@ Phần ASR (E, F, G, H, bảng chọn chung, I1) đã có kết luận; phần �
 4. **Định dạng hai phương án có trần +4,8 điểm** trên tập dò (+2,4 / +4,0 trên val), vượt ngưỡng 3 điểm, nên được chạy
    thật với LLM trong J (nguồn J4). Số đoạn "rủi ro" gấp đôi số đoạn "cứu được", nên chưa biết LLM thật có được lợi không
    (mục 8).
-5. **Chưa kết luận được bản ghép có làm điểm thi tăng không**: cần kết quả của J (mục 9).
+5. **Trên `val_seen`, bản ghép chưa làm điểm thi tăng rõ** với agent chưa fine-tune: J3 15,43 và J2 15,53 so với
+   RNNT 15,06, chênh lệch chưa có ý nghĩa thống kê. Điểm thi đang bị LLM giới hạn là chính. Còn chờ `val_unseen`, J4 và
+   J0 (mục 9).
 
 ### Kế hoạch thực hiện và tiến độ
 
@@ -334,7 +338,7 @@ Thứ tự bắt buộc theo phụ thuộc: E phải xong trước F, G, H, vì 
 | K3      | Phiên GPU 3: chấm điểm âm thanh (large-v3 không câu mồi) trên tập học, `asr_tune`, val | Colab T4, khoảng 6 phút | K2, P10 | Xong |
 | F, G, H | Đếm độ tin cậy và chọn θ, học H (chỉ trên tập học); bảng chọn chung trên `asr_tune`; đo ứng viên thắng một lần trên val (mục 7) | Máy dev | K2, K3, P9, P11, P12 | Xong: C0 thắng |
 | I1      | Đếm trần của hai phương án                                                                      | Máy dev                                                          | F, G, H, P13 | Xong: trần +4,8, chạy I2 |
-| K4      | Phiên GPU 4: agent trên chữ đã lưu, J0–J4 trên val | Colab T4, ước khoảng 5 giờ GPU (13,3 giây mỗi mẫu, 1 323 lượt chạy mẫu) | I1, P14 | Đang chạy dở: J1 `val_seen` 11/274 mẫu; dừng vì Colab tạm không cấp GPU |
+| K4      | Phiên GPU 4: agent trên chữ đã lưu, J0–J4 trên val | Colab T4, khoảng 15–18 giây mỗi mẫu, 1 323 lượt chạy mẫu; máy bị thu hồi khoảng mỗi 20–60 phút | I1, P14 | Đang chạy: xong J1, J2, J3 trên `val_seen`; J4 `val_seen` 42/117 mẫu |
 | J       | Chấm điểm, so các nguồn, xếp loại lỗi | Máy dev | K4 | Chưa làm |
 | Báo cáo | Điền kết quả, kết luận; cập nhật `docs/experiments.md`, `docs/decisions.md`, SPEC                       | Máy dev                                                          | Mọi bước  | Đã điền E–I; còn J |
 
@@ -1726,25 +1730,54 @@ ghi trước khi đo:
 
 ### 9.7. Kết quả
 
-Phiên K4 đang chạy dở: J1 trên `val_seen` mới xong 11/274 mẫu (trung bình 13,3 giây mỗi mẫu trên T4, từ 7 tới 23
-giây) thì máy Colab bị thu hồi, và Colab tạm không cấp GPU mới. Bộ chạy có `--resume`, nên lần chạy sau tiếp tục từ mẫu
-thứ 12.
+Phiên K4 đang chạy. Đã xong J1, J2 và J3 trên `val_seen`; J4 `val_seen`, bốn nguồn trên `val_unseen` và J0 còn chạy.
+Máy Colab miễn phí bị thu hồi khoảng mỗi 20–60 phút; một vòng tự động xin máy mới, dựng lại và chạy tiếp bằng `--resume`.
 
-| Nguồn | Điểm thi (seen / unseen) | Chênh lệch so với J1, CI 95% | Mẫu được / mất điểm so với J1 | Dấu ngoặc lọt vào tham số |
+**`val_seen` (274 mẫu), agent Qwen3-4B chưa fine-tune** (điểm thi chấm `strict` như BTC; chênh lệch so với J1 kèm CI 95%,
+bootstrap ghép cặp theo mẫu, 1 000 vòng):
+
+| Nguồn | Mẫu chạy lại | Điểm thi (CI 95%) | Chênh lệch so với J1 (CI 95%) | Mẫu điểm tối đa | Mẫu tăng / giảm điểm so với J1 |
+|---|---|---|---|---|---|
+| J1 RNNT đứng riêng (mốc) | 274 (mọi mẫu) | **15,06** [11,5; 18,9] | 0 | 22 | |
+| J2 ghép lần 2 (`en_full_v1`, C0) | 85 | **15,53** [11,9; 19,6] | +0,47 [−0,83; +1,86] | 22 | 6 / 2 |
+| J3 ghép lần 3 (câu mồi E2, C0) | 77 | **15,43** [11,8; 19,5] | +0,37 [−0,90; +1,72] | 22 | 6 / 2 |
+| J4 hai phương án | 117 | đang chạy | | | |
+| J0 chữ chuẩn | 274 | chưa chạy | | | |
+
+J2 và J3 chỉ chạy lại các mẫu có chữ khác J1; mẫu còn lại lấy điểm J1 (mục 9.3). Riêng trên các mẫu chạy lại: J2 9,36 so
+với J1 7,85 (85 mẫu); J3 7,51 so với J1 6,19 (77 mẫu).
+
+**J1 theo loại câu** (`val_seen`): thực hiện 17,03 (213 mẫu), hỏi lại 5,13 (39 mẫu), ngoài phạm vi 13,64 (22 mẫu). Điểm
+`canon` 15,26.
+
+**Loại lỗi** (số mẫu có lỗi đó, trên 274 mẫu; một mẫu có thể có nhiều lỗi):
+
+| Nguồn | Sai trạng thái cuối (`hash_fail`) | Gọi thừa hoặc sai tool | Thiếu tool cần gọi | Đúng tool, sai tham số |
 |---|---|---|---|---|
-| J0 chữ chuẩn | chưa đo | chưa đo | chưa đo | |
-| J1 RNNT | chưa đo | 0 (mốc) | 0 / 0 | |
-| J2 ghép lần 2 | chưa đo | chưa đo | chưa đo | |
-| J3 ghép lần 3 | chưa đo | chưa đo | chưa đo | |
-| J4 hai phương án | chưa đo | chưa đo | chưa đo | chưa đo |
+| J1 | 176 | 176 | 146 | 139 |
+| J2 | 174 | 176 | 145 | 142 |
+| J3 | 176 | 171 | 145 | 141 |
+
+**Thời gian agent mỗi mẫu trên T4** (chữ đọc lại, không chạy ASR): J1 trung vị 15,2 giây, p95 29,0 giây. 14/274 mẫu
+(5%) dừng vì hết hạn 29 giây; 225 dừng vì xong, 33 vì đã hỏi lại, 2 vì đủ 10 bước.
 
 ### 9.8. Phân tích
 
-Chưa có: cần kết quả của phiên K4.
+- **Điểm thi đang bị LLM giới hạn, không phải ASR.** Với cả ba nguồn chữ, khoảng 64% mẫu sai trạng thái cuối và cùng
+  các loại lỗi (gọi thừa, thiếu tool, sai tham số) với số lượng gần như nhau. Chữ ASR tốt hơn chỉ đổi kết quả ở 8 mẫu
+  (6 tăng, 2 giảm) trên 274.
+- **Bản ghép có xu hướng tăng điểm nhưng chưa chắc chắn.** Cả J2 và J3 cao hơn J1 khoảng 0,4–0,5 điểm, số mẫu tăng gấp
+  ba số mẫu giảm, nhưng CI của chênh lệch còn chứa 0. Mức tăng chép đúng từ tiếng Anh của lần 3 so với lần 2 (+3,3 điểm
+  trên `val_seen`) chưa thấy ở điểm thi: J3 và J2 gần như bằng nhau.
+- **Thời gian là rủi ro thật.** Trên T4, riêng phần agent đã chạm hạn 29 giây ở 5% số mẫu, chưa tính ASR. Lúc thi, ASR
+  chạy trước trong cùng hạn giờ, nên trên GPU chậm như T4 số mẫu hết giờ sẽ tăng. Cần đo cả hệ thống trên GPU giống A30.
 
 ### 9.9. Kết luận
 
-Chưa có: cần kết quả của phiên K4.
+Tạm thời, trên `val_seen`: bản ghép lần 3 không thấp hơn RNNT có ý nghĩa thống kê (J3 − J1 = +0,37 [−0,90; +1,72]), tức
+đạt điều kiện đặt trước ở `val_seen` để đưa vào `configs/v0.toml`; còn phải chờ `val_unseen`. Với LLM chưa fine-tune,
+cải thiện ASR chỉ thêm vài phần mười điểm; phần lớn điểm còn mất nằm ở LLM. Kết luận về J4 (hai phương án) và mức trần
+(J0) chờ phiên K4 chạy xong.
 
 ### 9.10. Giới hạn
 
@@ -1854,6 +1887,6 @@ Máy Colab dùng CUDA 13; CTranslate2 cần thêm `nvidia-cublas-cu12` và cuDNN
 | K1 | Colab T4, 3 máy nối tiếp | RNNT và large-v3 E0, E1, E2 trên `asr_tune`; chép lại 50 mẫu | 300 mẫu, 1 024 câu | Khoảng 27 phút cho máy cuối (gồm chép lại); tổng hơn 1 giờ |
 | K2 | Colab T4, 2 máy | RNNT và large-v3 E2 trên `val_seen`, `val_unseen`, tập học | 1 245 mẫu, 4 012 câu | Khoảng 1 giờ 40 phút |
 | K3 | Colab T4 | Điểm âm thanh của mọi vùng cần quyết định | 968 vùng | Khoảng 6 phút |
-| K4 | Colab T4 | vLLM 0.32.0 với Qwen3-4B; agent trên val: J0, J1 đủ mẫu; J2, J3, J4 trên các mẫu có chữ khác J1 | 452 + 452 + 119 + 112 + 188 mẫu | Đang chạy dở: mới xong 11 mẫu J1 `val_seen`; ước khoảng 5 giờ GPU (13,3 giây mỗi mẫu) |
+| K4 | Colab T4, hai tài khoản, nhiều máy nối tiếp (vòng tự dựng lại máy và chạy tiếp bằng `--resume`) | vLLM 0.32.0 với Qwen3-4B; agent trên val: J0, J1 đủ mẫu; J2, J3, J4 trên các mẫu có chữ khác J1 | 452 + 452 + 119 + 112 + 188 mẫu | Đang chạy: xong J1, J2, J3 trên `val_seen` |
 
 Kết quả thô: `artifacts/runs/colab/asr/10-30_v3/` (`k1/`, `k2_*/`, `k3/`, `k4/`, `analysis/`, `j_sources/`).
