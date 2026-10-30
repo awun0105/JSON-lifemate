@@ -86,14 +86,73 @@ mỗi câu có file âm thanh và chữ chuẩn). Phần `public_test` không c�
 quả cuối. Giống luyện đề và thi thật: nếu đề thi là đề đã luyện thì điểm cao hơn thực lực. Vì vậy 1 545 mẫu được chia
 thành các phần không chồng nhau:
 
+Mọi bước chia do một script làm: `lifemate/eval/make_splits.py`, chạy bằng `make splits` (tương đương
+`python -m lifemate.eval.make_splits --smoke 30 --asr-tune 300 --en-mixed`). Script không sao chép dữ liệu: script chỉ
+ghi các file `configs/splits/*.txt`, mỗi dòng một mã mẫu. Lúc chạy thử nghiệm, `lifemate/io/data.py › read_ids` (file
+`.txt` → danh sách mã) và `load_split` (thư mục dữ liệu, tên split, danh sách mã → các mẫu) lấy đúng các mẫu đó từ
+`train/train.jsonl` của BTC. Các bước chạy tuần tự, bước sau dùng kết quả bước trước. Sơ đồ dưới ghi cả lần benchmark
+dùng từng tập:
+
 ```
-1 545 mẫu train của BTC
-├── val_unseen  178 mẫu  mẫu của 6 app được giấu đi, giả làm "app chưa gặp" của bộ thi thật
-├── val_seen    274 mẫu  mẫu của các app đã biết, để đo kết quả
-└── train     1 093 mẫu
-    ├── asr_tune  300 mẫu  tập dò: thử và chọn cấu hình ASR
-    └── còn lại   793 mẫu  tìm những từ tiếng Anh large-v3 hay chép sai, để viết câu mồi
+train.jsonl (1 545 mẫu, dữ liệu gốc của BTC)
+ │
+ ├─1. Tách app lạ ──────────────► val_unseen.txt (178)
+ │                                  · lần 1: đo cấu hình thắng của 5 mô hình, một lần
+ │                                  · lần 2: đo cách câu mồi thắng và cách ghép, một lần
+ │
+ └─ còn 1 367 mẫu
+     │
+     2. Gom câu gần trùng thành nhóm (không ghi file riêng; số liệu ghi trong meta.json)
+     │
+     3. Xếp nguyên nhóm vào 5 phần ──► fold_0..4.txt
+     │                               ├─ phần 0 ──► val_seen.txt (274)
+     │                               │              · lần 1, 2: như val_unseen
+     │                               └─ phần 1–4 ► train.txt (1 093)
+     │                                              · không dùng trực tiếp; được chia tiếp ở bước 5
+     │
+     4. Rút từ val_seen ─────────────► smoke.txt (30)
+     │                                  · chạy thử nhanh để bắt lỗi, không dùng để chấm
+     │
+     5. Rút từ train ───────────────► asr_tune.txt (300) = tập dò
+     │                               │  · lần 1: dò cấu hình từng mô hình
+     │                               │  · lần 2: thử 13 cách dùng câu mồi, chọn cách ghép
+     │                               └─ 793 mẫu train còn lại (không ghi file riêng)
+     │                                  · lần 2: đếm từ tiếng Anh large-v3 hay sai để viết
+     │                                          câu mồi en_full_v1 (dùng chữ large-v3 có sẵn
+     │                                          trong data/asr/train_asr.json)
+     │
+     6. Lọc mẫu có câu chêm tiếng Anh, làm riêng trên từng tập
+     │  (đọc chữ đáp án của BTC, ở câu cuối và các câu người dùng trong lịch sử):
+     │
+     │    asr_tune.txt   (300) ──lọc──► asr_tune_en_mixed.txt   (165)
+     │    val_seen.txt   (274) ──lọc──► val_seen_en_mixed.txt   (152)
+     │    val_unseen.txt (178) ──lọc──► val_unseen_en_mixed.txt  (95)
+     │
+     │                                  · lần 2: chấm riêng tỉ lệ chép đúng từ tiếng Anh
+     │                                    trên các mẫu này; mô hình vẫn chép toàn bộ tập gốc
+     │
+     7. Ghi số liệu tổng hợp ───────► meta.json
+                                        · kiểm tra không có mẫu trùng giữa các tập
 ```
+
+Giải thích từng bước:
+
+1. **Tách app lạ.** Mẫu nào có lời gọi tool đúng dùng một trong 6 app (medication, fitness, flights, bike_rental,
+   library, subscriptions), cộng vài mẫu "ngoài phạm vi" liên quan tới các app đó được gắn sẵn trong code
+   (`UNSEEN_OUT_OF_SCOPE`), vào `val_unseen`. Lý do: bộ thi riêng của BTC có app chưa gặp. Tách trước khi chia nên không
+   mẫu nào của `val_unseen` lọt vào `train`.
+2. **Gom câu gần trùng** (`cluster_near_duplicates`): các mẫu có chữ đáp án giống nhau từ 85% trở lên thành một nhóm
+   (64 nhóm, 174 mẫu; các mẫu khác đứng một mình). Đây là bước trung gian cho bước 3 nên không ghi file danh sách.
+3. **Chia 5 phần** (`stratified_group_folds`): xếp nguyên cả nhóm vào một phần, sao cho các phần có cùng tỉ lệ số lời
+   gọi tool và tỉ lệ câu hỏi lại. Nhờ vậy hai câu gần giống nhau không nằm ở hai tập khác nhau.
+4. **`smoke`** (`--smoke 30`): 30 mẫu của `val_seen`, phân tầng theo loại câu trả lời và có/không lịch sử.
+5. **`asr_tune`** (`--asr-tune 300`): 300 mẫu của `train`, cùng cách phân tầng. 793 mẫu `train` còn lại chưa có file
+   danh sách riêng ở lần 2; lần 2 chỉ đọc chữ large-v3 có sẵn của các mẫu này để chọn từ cho câu mồi.
+6. **`*_en_mixed`** (`--en-mixed`, hàm `en_mixed_ids`, thêm ở lần 2): giữ mẫu có ít nhất một câu người dùng chêm từ
+   tiếng Anh, theo `lifemate/eval/foreign_words.py › has_foreign_word` (câu → có từ ngoại hay không; luật ở mục 2.1).
+   Việc lọc do script làm; luật đã được rà tay (mục 2.1). Mỗi file `_en_mixed` nằm trọn trong tập gốc của nó.
+7. **`meta.json`**: số mẫu từng tập, tỉ lệ nhãn từng phần, số nhóm gần trùng, và số mẫu trùng giữa `train` với hai tập
+   kiểm tra (đều bằng 0).
 
 | Phần dữ liệu | Số mẫu (số câu) | Dùng để | Vì sao tách riêng |
 |---|---|---|---|
