@@ -381,9 +381,10 @@ Theo thứ tự:
 
 Cấu hình hệ thống đang dùng (`configs/v0.toml`) chưa đổi.
 
-Cả ba việc trên, cùng câu mồi theo mẫu và bộ phân loại ghép, được làm ở benchmark lần 3
-(`docs/reports/benchmark/asr_v3.md`): lọc từ của câu mồi là thử nghiệm F, đo thời gian và bộ nhớ là thử nghiệm I,
-engine ghép là bước chuẩn bị P7.
+Benchmark lần 3 (`docs/reports/benchmark/asr_v3.md`) tiếp tục hai việc đầu, cùng với câu mồi theo mẫu (thử nghiệm E),
+chấm điểm hai phương án bằng âm thanh (G) và bộ phân loại ghép (H): lọc từ của câu mồi theo độ tin cậy là thử nghiệm F;
+thời gian và bộ nhớ được đo kèm mọi phiên GPU (mục 2.4 của báo cáo lần 3). Việc thứ ba (engine ghép `MergedASR`, bước
+chuẩn bị P8) chưa làm ở lần 3, để sau khi có điểm thi của thử nghiệm J.
 
 ### Đọc tiếp ở đâu
 
@@ -1649,7 +1650,7 @@ trợ lý cũng không nhắc), nên bộ lọc ngữ cảnh chặn được ph�
 
 Điều kiện (b) chỉ chặn 1 trên 518 đoạn, và không chặn đoạn nào khi đã có bộ lọc ngữ cảnh. Điều kiện này cũng không chặn
 được ca "Lisbon" ở mục 6.5, vì phía RNNT tại đó cũng dài. Bộ lọc ngữ cảnh là phần làm việc thật; độ dài đoạn được đưa
-vào làm một đặc trưng của bộ phân loại ở lần 3 (`docs/reports/benchmark/asr_v3.md`, thử nghiệm G).
+vào làm một đặc trưng của bộ phân loại ở lần 3 (`docs/reports/benchmark/asr_v3.md`, thử nghiệm H).
 
 **Bằng chứng trước khi chọn** (tập dò, đếm từng từ tiếng Anh mới mà bản ghép không lọc lấy từ large-v3; "đúng" là từ có trong
 đáp án):
