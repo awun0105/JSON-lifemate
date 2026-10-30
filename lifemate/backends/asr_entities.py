@@ -15,11 +15,11 @@ Cách hoạt động:
   chuẩn hoá (bỏ dấu, viết thường, bỏ khoảng trắng), hoặc là chữ viết tắt 3 chữ in hoa ("SJC", "VTV"). Chuỗi dài hơn
   (mô tả tool, câu trả lời) và chuỗi dạng tên trường ("vouchers[]", "playlist_id") không là ứng viên; không có từ điển
   tay.
-- Với mỗi cửa sổ 1 tới `MAX_WORDS` từ của chữ ASR, ưu tiên cửa sổ dài, tính khoảng cách sửa (số ký tự phải đổi) giữa
-  dạng chuẩn hoá của cửa sổ và của từng ứng viên **có cùng số từ**. Thay khi: (1) cửa sổ có ít nhất một từ không phải âm tiết tiếng
-  Việt (không có dấu và không theo mẫu âm tiết, hoặc có chữ f, j, w, z), để không đụng câu tiếng Việt thường; (2)
-  khoảng cách nhỏ nhất ≤ ngưỡng theo độ dài ứng viên (`Thresholds`); (3) ứng viên gần nhì cách xa hơn ít nhất 1; (4)
-  cửa sổ chưa trùng ứng viên nào.
+- Với mỗi cửa sổ 1 tới `MAX_WORDS` từ của chữ ASR, ưu tiên cửa sổ dài, tính khoảng cách sửa (số ký tự phải đổi)
+  giữa dạng chuẩn hoá của cửa sổ và của từng ứng viên **có cùng số từ**. Thay khi: (1) cửa sổ có ít nhất một từ
+  không phải âm tiết tiếng Việt (không có dấu và không theo mẫu âm tiết, hoặc có chữ f, j, w, z), để không đụng câu
+  tiếng Việt thường; (2) khoảng cách nhỏ nhất ≤ ngưỡng theo độ dài ứng viên (`Thresholds`); (3) ứng viên gần nhì cách
+  xa hơn ít nhất 1; (4) cửa sổ chưa trùng ứng viên nào.
 - Cửa sổ đã thay không được xét lại; các cửa sổ xét từ trái sang phải.
 
 Lưu ý:
