@@ -267,7 +267,65 @@ lượt). Mức đã dùng được ghi vào trace (`prompt_shrink_level`).
 
 ### Bước 4. Vòng lặp agent
 
-Mỗi vòng (tối đa `max_steps = 10`):
+Config mặc định ([`configs/v0.toml`](../configs/v0.toml), `[agent].format = "chatml"`) dùng
+[`lifemate/agent/chatml_agent.py`](../lifemate/agent/chatml_agent.py) › `ChatMLAgent`: hội thoại theo định dạng tool
+calling có sẵn của Qwen, giống dữ liệu SFT của lead. Sơ đồ một mẫu, từ lúc nhận mẫu tới lúc có bài nộp (các số lấy từ
+`[agent]` của config: `max_steps = 10`, `max_retries = 2`, `deadline_s = 29.0`):
+
+```
+Runner.run_one(mẫu)                                         lifemate/run/runner.py
+  │  mở ToolEnv của mẫu (đúng một lần)                       lifemate/io/zaic.py › ZaicLoader.open_env
+  ▼
+ChatMLAgent.run(mẫu, env)                                   lifemate/agent/chatml_agent.py
+  1. Budget(...)              bắt đầu bấm giờ (hạn 29 s tính từ đây, gồm cả ASR)
+  2. transcriber.transcribe   chép câu cuối và mọi câu người dùng trong lịch sử
+  3. prompts.start            dựng tin nhắn: system (luật + danh sách tool của app đã cài),
+                              lịch sử hội thoại, câu cuối
+  4. tool_call_constraint     luật ép đầu ra: sau <tool_call> chỉ viết được tool đã cài,
+                              tham số đúng tên, kiểu, enum
+  │
+  ▼
+┌──────────────────── VÒNG LẶP: mỗi vòng là một lượt LLM ────────────────────┐
+│ a. Đếm token prompt. Sắp tràn context thì cắt dần kết quả tool dài nhất     │
+│    (_fit_context).                                                         │
+│ b. Budget.before_step                                                       │
+│      đã đủ 10 lượt?           → dừng MAX_STEPS                              │
+│      prompt + đầu ra > context? → dừng CONTEXT_OVERFLOW                     │
+│      hết giờ?                 → dừng TIMEOUT                                │
+│ c. LLM.generate (vLLM, ép theo luật ở bước 4; tự huỷ khi chạm hạn giờ)      │
+│      bị huỷ giữa chừng        → dừng TIMEOUT                                │
+│ d. parse_reply(văn bản LLM vừa sinh)                                        │
+│      ├─ khối <tool_call> hỏng → nối tin báo lỗi; còn lượt thử lại (tối đa 2)│
+│      │                          thì quay lại a, hết thì dừng PARSE_ERROR    │
+│      ├─ không có <tool_call>  → LLM trả lời bằng lời: dừng DONE             │
+│      └─ có 1 hay nhiều lời gọi → xử lý TỪNG lời gọi:                        │
+│           GuardChain: allowed_tool → schema (env.validate) → duplicate_write│
+│             ├─ BLOCK  → KHÔNG gửi tới env; nối tin tool                    │
+│             │           {"ok": false, "error": "<lý do>"}; tốn 1 lượt thử   │
+│             │           lại, hết lượt thì dừng RETRIES_EXHAUSTED            │
+│             ├─ STOP   → dừng DONE (lời gọi không được gửi)                  │
+│             └─ PASS / WARN → env.call(tên, tham số); nối tin tool = kết quả │
+│                   └─ nếu là sys.ask_missing_info → dừng ASKED               │
+│ e. Chưa dừng → quay lại a: LLM đọc kết quả tool rồi quyết định bước tiếp    │
+└─────────────────────────────────────────────────────────────────────────────┘
+  │
+  ▼
+  5. tool_calls = env.get_tool_calls()   mọi lời gọi đã tới env (bài nộp)
+     state_hash = env.get_state_hash()   trạng thái app cuối (bài nộp)
+     → SampleResult (lý do dừng, các bước, lỗi, thời gian, token)
+```
+
+Ví dụ hai lượt với câu "Gọi cho chị Lan": lượt 1, LLM viết `<tool_call>` gọi `contacts.search` với `query = "Lan"`;
+guard cho qua, `env.call` trả danh sách liên hệ, kết quả nối vào hội thoại. Lượt 2, LLM đọc kết quả, gọi
+`phone.call` với `contact_id` vừa tìm được; env báo gọi thành công. Lượt 3, LLM trả lời bằng lời ("Đã gọi chị Lan"), không có
+`<tool_call>` nên mẫu dừng `DONE`. Bài nộp gồm hai lời gọi `contacts.search` và `phone.call` cùng `state_hash`.
+
+Hai lời gọi trong cùng một lượt được xử lý lần lượt; nếu lời gọi đầu làm mẫu dừng (ví dụ `sys.ask_missing_info`) thì lời
+gọi sau không chạy. Lời gọi bị BLOCK không tới env nên không có trong bài nộp và không làm đổi trạng thái app.
+
+Định dạng cũ `format = "json"` dùng [`lifemate/agent/agent.py`](../lifemate/agent/agent.py) › `Agent`, cùng ngân sách,
+guard, hạn giờ và kết quả, chỉ khác cách LLM viết lời gọi: mỗi lượt đúng một JSON `{"action": …}`. Mỗi vòng (tối đa
+`max_steps = 10`):
 
 ```
 Budget.before_step   → dừng nếu đủ số bước, tràn context, hoặc hết giờ
