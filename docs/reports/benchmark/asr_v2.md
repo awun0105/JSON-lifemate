@@ -114,6 +114,7 @@ train.jsonl (1 545 mẫu, dữ liệu gốc của BTC)
      │
      4. Rút từ val_seen ─────────────► smoke.txt (30)
      │                                  · chạy thử nhanh để bắt lỗi, không dùng để chấm
+     │                                  · từ 31/10/2026 (D53) rút từ train thay vì val_seen
      │
      5. Rút từ train ───────────────► asr_tune.txt (300) = tập dò
      │                               │  · lần 1: dò cấu hình từng mô hình
@@ -147,7 +148,8 @@ Giải thích từng bước:
    (64 nhóm, 174 mẫu; các mẫu khác đứng một mình). Đây là bước trung gian cho bước 3 nên không ghi file danh sách.
 3. **Chia 5 phần** (`stratified_group_folds`): xếp nguyên cả nhóm vào một phần, sao cho các phần có cùng tỉ lệ số lời
    gọi tool và tỉ lệ câu hỏi lại. Nhờ vậy hai câu gần giống nhau không nằm ở hai tập khác nhau.
-4. **`smoke`** (`--smoke 30`): 30 mẫu của `val_seen`, phân tầng theo loại câu trả lời và có/không lịch sử.
+4. **`smoke`** (`--smoke 30`): 30 mẫu của `val_seen` ở thời điểm lần 2, phân tầng theo loại câu trả lời và có/không lịch sử;
+   từ 31/10/2026 (D53) lấy từ `train` để tập kiểm tra không tham gia vào việc chạy thử.
 5. **`asr_tune`** (`--asr-tune 300`): 300 mẫu của `train`, cùng cách phân tầng. 793 mẫu `train` còn lại chưa có file
    danh sách riêng ở lần 2; lần 2 chỉ đọc chữ large-v3 có sẵn của các mẫu này để chọn từ cho câu mồi.
 6. **`*_en_mixed`** (`--en-mixed`, hàm `en_mixed_ids`, thêm ở lần 2): giữ mẫu có ít nhất một câu người dùng chêm từ
@@ -1786,7 +1788,12 @@ mục 3.5 và 6.5 thay vì so số trần.
   Trên tập dò, bỏ khoá chỉ bớt 1 từ lấy nhầm ("group") và không mất từ đúng nào. Lần 3 bỏ khoá ([`docs/reports/benchmark/asr_v3.md`](asr_v3.md), mục 2.1).
 - Số của large-v3 ở thử nghiệm A và ở mục 6.5.1 đến từ cấu hình nhiệt độ thử lại (không tất định); mục 4.7.6–4.7.7 và 6.5.2
 dùng cấu hình tất định.
-- Cấu hình thắng được chọn trên tập dò 300 mẫu (394 từ ngoại); số trên tập dò lạc quan hơn thực tế, dùng số val.
+- Cấu hình thắng được chọn trên tập dò 300 mẫu (394 từ ngoại); số trên tập dò lạc quan hơn thực tế, dùng số val. Với cỡ
+  đó, chênh dưới khoảng 5 điểm chép đúng tiếng Anh thường không tách được khỏi 0; kết luận "không khác biệt" ở các mục 3.5,
+  6.5, 6.8 nên hiểu là "chưa đo được", không phải "bằng nhau".
+- Bộ lọc `context_other` (mục 6.8) được chọn **ngoài tiêu chí đặt trước** (trên tập dò mất 3,3 điểm tiếng Anh, CI không
+  chứa 0), vì lý do sản phẩm: lấy nhầm một từ tiếng Anh có thể làm gọi sai tool, còn thiếu một từ thì quay về chữ RNNT.
+  Lần 3 so lại cách quyết định ghép bằng kiểm định chéo trên cả train và chọn bộ phân loại H (`asr_v3.md` mục 7.2, D54).
 - Câu mồi chọn từ theo chữ large-v3 beam 5 trong [`data/asr/train_asr.json`](../../../data/asr/train_asr.json), không phải cấu hình tham lam + VAD đang dò.
 
 

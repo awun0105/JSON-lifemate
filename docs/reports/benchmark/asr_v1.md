@@ -759,6 +759,10 @@ p95 của v4 cao hơn v3, vì ở v3 các câu hỏng kết thúc sớm (chỉ r
 ## Giới hạn đã biết
 
 - Thời gian đo trên T4, chưa phải GPU A30 lúc chấm.
-- Tập dò có ít câu chứa từng tên riêng, nên chênh vài câu đã là khác biệt lớn.
+- Tập dò có ít câu chứa từng tên riêng, nên chênh vài câu đã là khác biệt lớn. Cùng 300 mẫu này còn được dùng để chọn ở
+  lần 2 và lần 3, nên số trên tập dò lạc quan dần; từ 31/10/2026 các bước chọn chấm offline được chuyển sang kiểm định chéo
+  trên cả 1 093 mẫu train (SPEC 6.1.1, D54).
+- Hai tập val đã được đo lại ở lần 2 và lần 3 với các cấu hình mới. Từ D53, `val_unseen` chỉ đo một lần cho cấu hình sắp
+  nộp; `smoke.txt` (30 mẫu chạy thử) lấy từ `train`, không còn lấy từ `val_seen`.
 - Bỏ sót tên riêng so không dấu và khớp nguyên từ: "zalo" và "Zalo" được tính là đúng, nhưng "dalo" bị tính là sai.
 - Nếu sau này fine-tune ASR trên train, phải loại [`configs/splits/asr_tune.txt`](../../../configs/splits/asr_tune.txt) khỏi dữ liệu train ASR.

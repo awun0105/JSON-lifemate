@@ -352,7 +352,8 @@ Thứ tự bắt buộc theo phụ thuộc: E phải xong trước F, G, H, vì 
 | E       | Chấm offline, chọn biến thể thắng                                                                       | Máy dev                                                          | K1        | Xong: E2   |
 | K2      | Phiên GPU 2: tập học (RNNT, large-v3 biến thể thắng); val (large-v3 biến thể thắng)                     | Colab T4, khoảng 1 giờ 40 phút (2 máy)                           | E         | Xong       |
 | K3      | Phiên GPU 3: chấm điểm âm thanh (large-v3 không câu mồi) trên tập học, `asr_tune`, val | Colab T4, khoảng 6 phút | K2, P10 | Xong |
-| F, G, H | Đếm độ tin cậy và chọn θ, học H (chỉ trên tập học); bảng chọn chung trên `asr_tune`; đo ứng viên thắng một lần trên val (mục 7) | Máy dev | K2, K3, P9, P11, P12 | Xong: C0 thắng |
+| F, G, H | Đếm độ tin cậy và chọn θ, học H (chỉ trên tập học); bảng chọn chung trên `asr_tune`; đo ứng viên thắng một lần trên val (mục 7) | Máy dev | K2, K3, P9, P11, P12 | Xong: C0 thắng trên tập dò |
+| 7.2 | Làm lại bảng chọn chung bằng kiểm định chéo 5 phần trên cả 1 093 mẫu train (`select-cv`); đo H một lần trên `val_seen` | Máy dev | K1–K3 | Xong 31/10: H thắng; `val_unseen` để dành (D53) |
 | I1      | Đếm trần của hai phương án                                                                      | Máy dev                                                          | F, G, H, P13 | Xong: trần +4,8, chạy I2 |
 | K4      | Phiên GPU 4: agent trên chữ đã lưu, J0–J4 trên val | Colab T4, khoảng 15–18 giây mỗi mẫu, 1 323 lượt chạy mẫu; máy bị thu hồi khoảng mỗi 20–60 phút | I1, P14 | Đang chạy: xong J1, J2, J3 trên `val_seen`; J4 `val_seen` 42/117 mẫu |
 | J       | Chấm điểm, so các nguồn, xếp loại lỗi | Máy dev | K4 | Chưa làm |
@@ -363,7 +364,10 @@ Thời gian thực của từng phiên ở Phụ lục B.2.
 
 ### Sau lần 3
 
-Độ chính xác của lời gọi tool với từng nguồn chữ đã đo ở thử nghiệm J. Bước sau lần 3 chạy **cả hệ thống** (ASR và LLM cùng
+1. Viết engine ghép `MergedASR` cho hệ thống thật với cách quyết định H: RNNT, large-v3 câu mồi E2, chấm điểm âm thanh, bộ
+   phân loại; trọng số H đưa vào `configs/` có phiên bản (hiện ở `artifacts/.../analysis/h_full_train.json`).
+2. Chạy lại thử nghiệm J ở định dạng ChatML (D50) với thêm nguồn ghép H; đo `val_unseen` một lần khi chốt cấu hình nộp.
+3. Chạy **cả hệ thống** (ASR và LLM cùng
 lúc, cùng một GPU) với cấu hình thắng, để đo **thời gian thật** từng mẫu (ASR, LLM, tool) và bộ nhớ khi hai phần chạy
 cạnh nhau. Lần chạy này cần GPU từ 24 GB, vì T4 không chứa nổi vLLM cùng whisper-large-v3 ([`ops/kaggle/README.md`](../../../ops/kaggle/README.md)).
 
@@ -1856,7 +1860,7 @@ bootstrap ghép cặp theo mẫu, 1 000 vòng):
 |---|---|---|---|---|---|
 | J1 RNNT đứng riêng (mốc) | 274 (mọi mẫu) | **15,06** [11,5; 18,9] | 0 | 22 | |
 | J2 ghép lần 2 (`en_full_v1`, C0) | 85 | **15,53** [11,9; 19,6] | +0,47 [−0,83; +1,86] | 22 | 6 / 2 |
-| J3 ghép lần 3 (câu mồi E2, C0) | 77 | **15,43** [11,8; 19,5] | +0,37 [−0,90; +1,72] | 22 | 6 / 2 |
+| J3 ghép lần 3 (câu mồi E2, luật C0; chưa phải H của mục 7.2) | 77 | **15,43** [11,8; 19,5] | +0,37 [−0,90; +1,72] | 22 | 6 / 2 |
 | J4 hai phương án | 117 | đang chạy | | | |
 | J0 chữ chuẩn | 274 | chưa chạy | | | |
 
@@ -1915,7 +1919,11 @@ cải thiện ASR chỉ thêm vài phần mười điểm; phần lớn điểm 
 ## Giới hạn đã biết
 
 - Tập dò chỉ có 300 mẫu (394 từ ngoại), nên chênh vài từ đã là vài điểm phần trăm; tập dò dùng hai lần (E và bảng chọn
-chung), nên số tập dò của bước chọn thứ hai lạc quan hơn (mục 2.3).
+chung), nên số tập dò của bước chọn thứ hai lạc quan hơn (mục 2.3). Bước chọn chung đã được làm lại bằng kiểm định chéo
+trên cả 1 093 mẫu train (mục 7.2); thử nghiệm E vẫn chọn trên tập dò vì cần chạy GPU cho từng biến thể.
+- Hai tập val đã được đo nhiều lần qua ba lần benchmark; từ D53, `val_unseen` chỉ đo một lần cho cấu hình sắp nộp, nên H
+  (mục 7.2) chưa có số `val_unseen`.
+- Chữ J3 của thử nghiệm J là bản ghép bằng luật C0, không phải H; điểm J3 vì vậy là điểm của cấu hình cũ.
 - Mọi chỉ số chất lượng dựa vào quy tắc tìm từ ngoại của lần 2 (rà tay: đúng 99,7% khi nhận, tìm được 94,3%; 90,6% trên
 `val_unseen`). Từ tiếng Anh trông như âm tiết Việt ("team", "gym") không được tính là từ tiếng Anh.
 - Mục tiêu cuối là gọi đúng tool. Các lựa chọn ASR làm theo chất lượng chữ; điểm thi chỉ đo cho các cấu hình đã chốt
