@@ -1,7 +1,8 @@
 # Báo cáo benchmark ASR lần 3: câu mồi theo mẫu, chọn cách quyết định ghép, và đo điểm thi
 
-Ngày lập kế hoạch: 29/10/2026. Chạy: 30/10/2026 trên Colab T4. Trạng thái: **đã xong E, F, G, H, bảng chọn chung (mục 7)
-và I1; thử nghiệm J (gồm I2) đang chạy**: đã có J1, J2, J3 trên `val_seen`. Các ô còn lại của J ghi "chưa đo".
+Ngày lập kế hoạch: 29/10/2026. Chạy: 30/10/2026 trên Colab T4. Trạng thái: **đã xong E, F, G, H, bảng chọn chung (mục 7,
+làm lại bằng kiểm định chéo ngày 31/10: H thắng) và I1; thử nghiệm J (gồm I2) đang dở**: đã có J1, J2, J3 trên `val_seen`
+(với cách ghép C0). Các ô còn lại của J ghi "chưa đo".
 
 Báo cáo trả lời bốn câu hỏi:
 
@@ -256,20 +257,25 @@ thử nghiệm được ghi ở đây **trước khi đo**, để không chỉnh
 ### Kết quả chính
 
 Cấu hình ASR thắng của lần 3: **RNNT + large-v3 với câu mồi E2** (câu mồi cố định, tên app đã cài, lời trợ lý liền trước)
-**+ luật ghép `context_other` của lần 2** (C0 thắng bảng chọn chung). Số đo một lần trên hai tập kiểm tra:
+**+ bộ phân loại H** cho quyết định ghép (thắng bảng chọn chung khi làm lại bằng kiểm định chéo trên cả 1 093 mẫu train, mục
+7.2). Bảng dưới là số đo một lần trên hai tập kiểm tra của bản ghép bằng luật C0 (cấu hình đã chốt trước khi làm lại);
+H mới đo trên `val_seen` (dòng cuối), `val_unseen` để dành đo khi nộp bài (D53):
 
 | Hệ thống | Chép đúng từ tiếng Anh (recall) (seen / unseen) | WER câu chêm (seen / unseen) | WER câu thuần Việt (seen / unseen) | WER mọi câu (seen / unseen) |
 |---|---|---|---|---|
 | RNNT đứng riêng | 49,9% / 51,6% | 24,8% / 24,1% | 17,7% / 17,5% | 20,0% / 19,8% |
 | Ghép, `en_full_v1`, `context_other` (lần 2) | 72,2% / 63,1% | 22,1% / 22,8% | 18,1% / 17,8% | 19,4% / 19,5% |
-| **Ghép, câu mồi E2, `context_other` (lần 3)** | **75,5% / 68,7%** | **21,7% / 22,0%** | **17,9% / 17,6%** | **19,1% / 19,2%** |
+| Ghép, câu mồi E2, `context_other` (lần 3, C0) | 75,5% / 68,7% | 21,7% / 22,0% | 17,9% / 17,6% | 19,1% / 19,2% |
+| **Ghép, câu mồi E2, bộ phân loại H (lần 3)** | **76,7%** / chưa đo | chưa tách / chưa đo | **17,8%** / chưa đo | **19,0%** / chưa đo |
 
 *Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; dùng recall vì từ bị bỏ sót thì LLM không thể gọi đúng tool, còn từ thừa đã đo riêng bằng WER câu thuần Việt.*
 
 So với lần 2: chép đúng từ tiếng Anh +3,3 điểm (`val_seen`, CI [0,0; +6,6]) và +5,6 điểm (`val_unseen`, CI [+2,2;
-+9,8], có ý nghĩa thống kê); WER mọi câu giảm 0,3 điểm ở cả hai tập (có ý nghĩa thống kê). Bảng chọn chung (mục 7): bộ
-phân loại H tốt nhất trên tập dò (độ chính xác quyết định đoạn 76,4% so với 70,7% của C0) nhưng chưa hơn C0 có ý nghĩa
-thống kê, nên giữ C0.
++9,8], có ý nghĩa thống kê); WER mọi câu giảm 0,3 điểm ở cả hai tập (có ý nghĩa thống kê). Bảng chọn chung (mục 7): trên tập dò 300
+mẫu, H tốt nhất (76,4% so với 70,7% của C0) nhưng CI chạm 0 nên lúc đầu giữ C0; làm lại bằng kiểm định chéo 5 phần trên cả
+1 093 mẫu train (580 đoạn có nhãn thay vì 174), H hơn C0 có ý nghĩa thống kê (81,9% so với 76,4%, CI chênh [+1,8; +8,9]) và
+được chọn; đo một lần trên `val_seen`: 86,2% so với 80,3% (CI [+1,6; +10,7]), WER câu thuần Việt 17,75% so với 17,92% (CI
+[−0,38; −0,02]).
 
 | Thời gian và bộ nhớ trên Colab T4 (mỗi mẫu, seen / unseen) | p50 (s) | p95 (s) | Tối đa (s) | Bộ nhớ GPU đỉnh |
 |---|---|---|---|---|
@@ -320,8 +326,10 @@ Phần ASR (E, F, G, H, bảng chọn chung, I1) đã có kết luận; phần �
 1. **Dùng câu mồi E2 cho large-v3** (`en_full_v1`, rồi tên tiếng Việt của các app đã cài, rồi lời trợ lý liền trước; lớp
    bảo vệ chỉ so phần cố định). Bản ghép chép đúng thêm 3,3 điểm (`val_seen`, CI chạm 0) và 5,6 điểm (`val_unseen`, có ý
    nghĩa thống kê) so với lần 2, WER mọi câu giảm 0,3 điểm, và chỉ tốn thêm khoảng 0,2 giây ở p95 (mục 3).
-2. **Giữ luật ghép C0 (`context_other`) của lần 2.** F, G và H đều không hơn C0 có ý nghĩa thống kê trên tập dò. H tốt
-   nhất (76,4% so với 70,7%, CI [0,0; +11,7]) và là hướng nên thử lại khi có thêm dữ liệu có nhãn (mục 7).
+2. **Dùng bộ phân loại H cho quyết định ghép** (mục 7.2). Trên tập dò 300 mẫu, H chưa hơn C0 có ý nghĩa (CI chạm 0); làm
+   lại đúng chuẩn bằng kiểm định chéo trên cả 1 093 mẫu train, H hơn C0 5,5 điểm độ chính xác quyết định đoạn (CI [+1,8;
+   +8,9]), giảm WER câu thuần Việt và WER mọi câu có ý nghĩa; trên `val_seen` giữ nguyên thứ hạng. F và G bị loại vì làm
+   giảm chép đúng tiếng Anh có ý nghĩa. H cần điểm âm thanh của G lúc chạy (thêm dưới 1 giây p95).
 3. **Toàn bộ phần ASR mất p95 khoảng 11,3 giây mỗi mẫu trên T4**, tối đa 14,5 giây, bộ nhớ GPU đỉnh 3,6 GB. Còn khoảng
    15 giây cho LLM trong ngân sách 30 giây; thời gian thật trên A30 khi chạy cạnh vLLM chưa đo.
 4. **Định dạng hai phương án có trần +4,8 điểm** trên tập dò (+2,4 / +4,0 trên val), vượt ngưỡng 3 điểm, nên được chạy
@@ -1508,9 +1516,10 @@ chênh lệch so với C0 kèm CI 95%):
 3. So H với ứng viên đơn giản nhất là C0: CI của chênh lệch [0,0; +11,7] có cận dưới bằng 0, tức H không hơn C0 có ý nghĩa
    thống kê. Theo quy tắc, chọn ứng viên đơn giản hơn.
 
-**Ứng viên thắng: C0** (luật `context_other` của lần 2, trên chữ large-v3 với câu mồi E2).
+**Ứng viên thắng theo tập dò: C0** (luật `context_other` của lần 2, trên chữ large-v3 với câu mồi E2). Kết quả này bị
+xem lại ở mục 7.2, vì 174 đoạn có nhãn là quá ít để tách H khỏi C0.
 
-**Kết quả trên tập kiểm tra** (đo một lần; vì C0 thắng, bảng chỉ có C0 và RNNT):
+**Kết quả trên tập kiểm tra** (đo một lần với C0, trước khi làm lại ở mục 7.2):
 
 | Tập | Hệ thống | Độ chính xác quyết định đoạn | Chép đúng từ tiếng Anh (recall) | WER câu thuần Việt | WER câu chêm | WER mọi câu | Bỏ sót giá trị tham số |
 |---|---|---|---|---|---|---|---|
@@ -1521,7 +1530,7 @@ chênh lệch so với C0 kèm CI 95%):
 
 *Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; dùng recall vì từ bị bỏ sót thì LLM không thể gọi đúng tool, còn từ thừa đã đo riêng bằng WER câu thuần Việt; bỏ sót giá trị tham số: 1 − recall các giá trị tham số của đáp án (tên, số, giờ) trong chữ ASR; dùng vì điểm thi chấm đúng các giá trị này; độ chính xác quyết định đoạn: accuracy, số đoạn chọn đúng phía ít lỗi hơn chia số đoạn có nhãn; dùng vì các cách ghép chỉ khác nhau ở vài trăm đoạn, WER cả tập pha loãng khác biệt.*
 
-**Phân tích.**
+**Phân tích của bước chọn trên tập dò.**
 
 - **Ba cách mới cùng không vượt được C0 một cách chắc chắn**, nhưng vì ba lý do khác nhau. F sửa đúng loại lỗi nhưng loại
   lỗi đó quá hiếm (mục 4.8). G sửa từ câu mồi nhưng lấy nhầm nhiều từ large-v3 tự bịa (mục 5.8). H kết hợp được cả hai và
@@ -1531,14 +1540,85 @@ chênh lệch so với C0 kèm CI 95%):
 - **Thứ hạng giữ trên val.** Độ chính xác quyết định đoạn của C0 trên val (77–80%) còn cao hơn trên tập dò (70,7%), nên
   không có dấu hiệu tập dò khó bất thường.
 
-**Kết luận.** Giữ luật C0 cho bước ghép. Cấu hình ASR tốt nhất của lần 3 là: RNNT + large-v3 với câu mồi E2 + luật
-`context_other` của lần 2 (từ điển ngữ cảnh bỏ khoá JSON). H là hướng nên thử lại khi có thêm dữ liệu có nhãn.
+**Kết luận của bước chọn trên tập dò.** Giữ luật C0; H là hướng thử lại khi có thêm dữ liệu có nhãn. Việc thử lại đó
+được làm ngay ở mục 7.2 và đổi kết luận.
 
-**Giới hạn.** Bốn ứng viên được so trên 300 mẫu, nên ứng viên thắng trên tập dò vẫn có thể thắng một phần nhờ may; số val
-đo một lần là số để tin. Độ chính xác quyết định đoạn coi lấy nhầm và bỏ sót nặng như nhau, trong khi lấy nhầm một từ
+**Giới hạn của bước chọn trên tập dò.** Bốn ứng viên được so trên 300 mẫu (174 đoạn có nhãn), nên phép đo không đủ nhạy
+để tách các ứng viên gần nhau; đây là lý do làm lại ở mục 7.2. Độ chính xác quyết định đoạn coi lấy nhầm và bỏ sót nặng như nhau, trong khi lấy nhầm một từ
 tiếng Anh có thể làm LLM gọi sai tool; hai loại sai được báo riêng (`merge_wrong_english`, `merge_missed_english`) để
 thấy ứng viên thắng nghiêng về phía nào. Nhãn tự động dựa vào đáp án và cách gióng từ, nên có thể sai ở đoạn mà hai phía
 cùng gần đúng.
+
+### 7.2. Làm lại bước chọn bằng kiểm định chéo trên cả tập train (31/10/2026)
+
+**Vấn đề.** Bảng chọn chung ở trên dùng tập dò 300 mẫu, chỉ có 174 đoạn có nhãn. Với cỡ đó, chênh 5,7 điểm độ chính xác
+quyết định đoạn vẫn cho CI chạm 0, và kết luận "giữ C0" chỉ có nghĩa là "chưa đo được", không phải "H không hơn". Cùng
+300 mẫu này cũng đã được dùng để chọn ở lần 1, lần 2 và thử nghiệm E, nên số trên đó lạc quan dần.
+
+**Cách làm** (`lifemate/eval/asr_v3_report.py › stage_select_cv`, lệnh `select-cv`; không cần GPU vì chữ RNNT, chữ
+large-v3 E2 và điểm âm thanh của cả 1 093 mẫu train đã có từ các phiên K1–K3):
+
+1. Gộp `asr_tune` (300) và `asr_learn` (793) thành một tập 1 093 mẫu; chia 5 phần theo mẫu bằng `fold_of` (CRC32 của mã
+   mẫu), kích thước 208 / 198 / 212 / 253 / 222.
+2. Với mỗi phần: học mọi tham số trên 4 phần còn lại (θ của F và hệ số phạt của H chọn bằng kiểm định chéo bên trong 4
+   phần đó, bảng độ tin cậy đếm trên 4 phần đó, bộ phân loại học trên 4 phần đó), rồi quyết định các đoạn của phần còn lại.
+   Mỗi mẫu vì vậy được quyết định bởi mô hình chưa từng thấy mẫu đó.
+3. Gộp quyết định ngoài phần của cả 5 phần (580 đoạn có nhãn, 107 đoạn hoà) và so năm ứng viên: ALL (lấy large-v3 ở mọi
+   đoạn, tức ghép không lọc của lần 2), C0, F, G, H. Thống kê và quy tắc chọn **giữ nguyên** như mục 7 (bootstrap ghép cặp
+   theo mẫu, điều kiện chặn, hoà thì chọn ứng viên đơn giản hơn theo thứ tự ALL, C0, F, G, H).
+
+**Kết quả** (quyết định ngoài phần trên 1 093 mẫu; chênh lệch so với C0 kèm CI 95%):
+
+| Ứng viên | Độ chính xác quyết định đoạn (CI) | Chênh so với C0 | Chép đúng từ tiếng Anh (chênh) | WER câu thuần Việt (chênh) | WER mọi câu (chênh) | Từ lấy nhầm (câu mồi / ngoài) | Từ đúng bị bỏ (câu mồi / ngoài) | Độ chính xác từng phần |
+|---|---|---|---|---|---|---|---|---|
+| ALL (không lọc) | 55,5% [51,5; 59,9] | [−26,5; −15,1] | 76,1% [−1,0; +1,8] | 19,69% [+0,41; +0,69] | 20,65% [+0,31; +0,62] | 65 / 330 | 0 / 0 | 60,6 60,6 53,5 51,0 54,4 |
+| C0 | 76,4% [72,9; 80,0] | mốc | 75,7% | 19,15% | 20,19% | 65 / 49 | 0 / 44 | 69,7 80,9 75,4 77,9 78,1 |
+| F | 76,6% [72,9; 79,9] | [−1,7; +2,0] | 74,6% [−1,7; −0,6] | 19,11% [−0,07; −0,01] | 20,18% [−0,05; +0,03] | 49 / 47 | 15 / 44 | 67,0 79,8 79,8 79,2 76,3 |
+| G | 66,2% [62,3; 70,0] | [−15,4; −5,0] | 72,2% [−5,2; −1,7] | 19,22% [−0,02; +0,18] | 20,37% [+0,06; +0,30] | 21 / 203 | 54 / 24 | 71,6 67,0 71,9 65,1 56,1 |
+| **H** | **81,9%** [78,7; 84,8] | **[+1,8; +8,9]** | 75,2% [−1,8; +0,8] | **19,03%** [−0,19; −0,05] | **20,04%** [−0,24; −0,07] | 27 / 72 | 19 / 30 | 74,3 84,0 84,2 84,6 81,6 |
+
+Tham số chọn ở từng phần: θ = 0,6 / 0,6 / 0,6 / 0,5 / 0,7; hệ số phạt L2 = 10 / 10 / 0,1 / 10 / 10. Thời gian chấm điểm âm
+thanh thêm cho G và H dưới 1 giây ở p95.
+
+**Áp quy tắc chọn:**
+
+1. Loại ALL (WER câu thuần Việt tệ hơn C0 có ý nghĩa), F và G (chép đúng tiếng Anh tệ hơn C0 có ý nghĩa). Còn C0 và H.
+2. H có độ chính xác cao nhất. So với ứng viên đơn giản hơn là C0: CI của chênh lệch [+1,8; +8,9] không chứa 0.
+
+**Ứng viên thắng: H.**
+
+**Đo một lần trên `val_seen`** (H học trên cả 1 093 mẫu: θ = 0,6, L2 = 10; `val_unseen` để dành theo D53):
+
+| Hệ thống | Độ chính xác quyết định đoạn (152 đoạn có nhãn) | Chép đúng từ tiếng Anh | WER câu thuần Việt | WER mọi câu | Bỏ sót giá trị tham số | Từ lấy nhầm (câu mồi / ngoài) | Từ đúng bị bỏ |
+|---|---|---|---|---|---|---|---|
+| C0 trên E2 | 80,3% | 75,5% | 17,92% | 19,14% | 30,3% | 12 / 17 | 0 / 13 |
+| **H trên E2** | **86,2%** [+1,6; +10,7] | 76,7% [−0,3; +2,8] | **17,75%** [−0,38; −0,02] | **18,97%** [−0,33; −0,04] | 30,3% | 4 / 17 | 2 / 7 |
+
+Trọng số của H học trên cả train (đặc trưng đã chuẩn hoá): từ thuộc câu mồi +0,97, từ trong ngữ cảnh +0,78, hiệu điểm
+âm thanh +0,77, `avg_logprob` +0,60, độ tin cậy từ câu mồi +0,42, lượt cuối +0,17, số từ phía RNNT −0,24, tỉ lệ chữ Việt
+phía RNNT −0,28, số từ phía large-v3 −0,30, hệ số chặn +0,40.
+
+**Phân tích.**
+
+- **Với đủ dữ liệu, H tách khỏi C0 rõ ràng** và thắng ở cả 5 phần (74–85% so với 70–81%). H sửa đúng hai loại lỗi mà C0
+  mắc: lấy nhầm từ của câu mồi (65 xuống 27) và bỏ sót từ đúng ngoài câu mồi (44 xuống 30), đổi lại lấy nhầm thêm một số từ
+  ngoài câu mồi (49 lên 72). Tổng lỗi giảm.
+- **F và G bị loại vì điều kiện chặn**, không phải vì độ chính xác: F lọc quá tay (mất 0,6–1,7 điểm tiếng Anh), G lấy
+  nhầm 203 từ large-v3 tự bịa. Điểm âm thanh vẫn có ích, nhưng chỉ khi được cân cùng các tín hiệu khác trong H.
+- **Kết luận cũ "giữ C0" là do thiếu độ nhạy**, không phải vì C0 tốt bằng H: trên 174 đoạn, chênh 5,7 điểm có CI rộng 12
+  điểm; trên 580 đoạn, chênh 5,5 điểm có CI rộng 7 điểm và tách khỏi 0.
+- **Trên `val_seen`, mức hơn còn lớn hơn** (+5,9 điểm độ chính xác), và WER câu thuần Việt của bản ghép H (17,75%) gần bằng
+  RNNT đứng riêng (17,7%), tức cái giá về tiếng Việt của việc ghép gần như không còn.
+
+**Kết luận.** Cấu hình ghép nộp bài đổi thành **H**: RNNT + large-v3 câu mồi E2 + điểm âm thanh của large-v3 không câu mồi
++ bộ phân loại hồi quy logistic học trên cả 1 093 mẫu train (θ = 0,6 cho đặc trưng độ tin cậy, L2 = 10). Trọng số lưu ở
+`artifacts/runs/colab/asr/10-30_v3/analysis/h_full_train.json`; khi viết engine ghép cho hệ thống thật phải đưa trọng số
+này vào `configs/` có phiên bản. Chữ J3 của thử nghiệm J vẫn là bản ghép C0; khi chạy lại J ở định dạng ChatML cần thêm
+nguồn ghép H.
+
+**Giới hạn.** `val_unseen` chưa đo với H (để dành cho lần đo khi nộp bài, D53). H cần bước chấm điểm âm thanh lúc chạy,
+tức thêm một lượt encoder và vài lượt decoder ép chuỗi của large-v3 ở mỗi câu có đoạn cần quyết định; thời gian thật trên
+A30 chưa đo. Nhãn tự động vẫn dựa vào đáp án và cách gióng từ.
 
 ## 8. Thử nghiệm I: giữ hai phương án cho LLM
 
