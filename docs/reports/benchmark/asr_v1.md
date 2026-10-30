@@ -77,7 +77,7 @@ Cấu hình thắng của mỗi mô hình, đo một lần trên hai tập kiể
 
 - Chọn **ChunkFormer RNNT large** (`khanhld/chunkformer-rnnt-large-vie`, giải mã tham lam, tham số mặc định) làm ASR
   chính. Giữ PhoWhisper kèm câu mồi ngắn làm dự phòng. Bỏ Parakeet.
-- Chưa đổi `configs/v0.toml`: chỉ số ASR chỉ dùng để rút gọn danh sách, lựa chọn cuối phải dựa trên điểm thi của cả hệ
+- Chưa đổi [`configs/v0.toml`](../../../configs/v0.toml): chỉ số ASR chỉ dùng để rút gọn danh sách, lựa chọn cuối phải dựa trên điểm thi của cả hệ
   thống.
 
 ### Sau lần 1
@@ -85,9 +85,9 @@ Cấu hình thắng của mỗi mô hình, đo một lần trên hai tập kiể
 Lần 1 để lại bốn điểm: chưa đo riêng từ tiếng Anh chêm trong câu (tên app, tên dịch vụ); mọi câu mồi đều làm large-v3
 kém đi; cấu hình thắng của large-v3 (nhiệt độ thử lại) không tất định; mới chọn một mô hình, chưa thử kết hợp.
 
-- **Lần 2** (`docs/reports/benchmark/asr_v2.md`) đo riêng các câu chêm tiếng Anh, viết câu mồi mới dạng câu nói tự
+- **Lần 2** ([`docs/reports/benchmark/asr_v2.md`](asr_v2.md)) đo riêng các câu chêm tiếng Anh, viết câu mồi mới dạng câu nói tự
   nhiên kèm lớp bảo vệ (large-v3 chép đúng từ tiếng Anh từ 52% lên 72%), và ghép chữ RNNT với chữ large-v3.
-- **Lần 3** (`docs/reports/benchmark/asr_v3.md`) dựng câu mồi riêng cho từng câu từ tên app đã cài và lời trợ lý liền
+- **Lần 3** ([`docs/reports/benchmark/asr_v3.md`](asr_v3.md)) dựng câu mồi riêng cho từng câu từ tên app đã cài và lời trợ lý liền
   trước, thử các cách quyết định khi ghép, và đo điểm thi bằng cách chạy agent trên chữ ASR.
 
 ### Đọc tiếp ở đâu
@@ -100,23 +100,23 @@ kém đi; cấu hình thắng của large-v3 (nhiệt độ thử lại) không 
 | Kết quả đầy đủ, ví dụ, lỗi Parakeet | Mục 6 |
 | Phân tích và kết luận | Mục 7, 8 |
 
-**Kết quả thô.** Nằm trong `artifacts/runs/kaggle/asr/10-28_tune_v3/` (không có trên git), mỗi mô hình một thư mục
-con: `large-v3/`, `phowhisper/`, `chunkformer/`, `chunkformer-rnnt/`, `parakeet/`. Kết quả Parakeet trong thư mục này
+**Kết quả thô.** Nằm trong [`artifacts/runs/kaggle/asr/10-28_tune_v3/`](../../../artifacts/runs/kaggle/asr/10-28_tune_v3/) (không có trên git), mỗi mô hình một thư mục
+con: [`artifacts/runs/kaggle/asr/10-28_tune_v3/large-v3/`](../../../artifacts/runs/kaggle/asr/10-28_tune_v3/large-v3/), [`artifacts/runs/kaggle/asr/10-28_tune_v3/phowhisper/`](../../../artifacts/runs/kaggle/asr/10-28_tune_v3/phowhisper/), [`artifacts/runs/kaggle/asr/10-28_tune_v3/chunkformer/`](../../../artifacts/runs/kaggle/asr/10-28_tune_v3/chunkformer/), [`artifacts/runs/kaggle/asr/10-28_tune_v3/chunkformer-rnnt/`](../../../artifacts/runs/kaggle/asr/10-28_tune_v3/chunkformer-rnnt/), [`artifacts/runs/kaggle/asr/10-28_tune_v3/parakeet/`](../../../artifacts/runs/kaggle/asr/10-28_tune_v3/parakeet/). Kết quả Parakeet trong thư mục này
 là lần chạy v3, **không hợp lệ** (mục 6.5). Kết quả Parakeet dùng trong báo cáo nằm ở
-`artifacts/runs/kaggle/asr/10-29_tune_v4_parakeet/parakeet/`, cùng cấu trúc file. Lần chẩn đoán lỗi nằm ở
-`artifacts/runs/kaggle/asr/10-29_parakeet_diag_v1/`.
+[`artifacts/runs/kaggle/asr/10-29_tune_v4_parakeet/parakeet/`](../../../artifacts/runs/kaggle/asr/10-29_tune_v4_parakeet/parakeet/), cùng cấu trúc file. Lần chẩn đoán lỗi nằm ở
+[`artifacts/runs/kaggle/asr/10-29_parakeet_diag_v1/`](../../../artifacts/runs/kaggle/asr/10-29_parakeet_diag_v1/).
 
 | File (trong `<mô hình>/`) | Chứa gì | Dùng ở mục |
 |---|---|---|
 | `summary.json` | Toàn bộ kết quả của mô hình: `path` (lựa chọn giữ lại ở từng bước), `best_generate_kwargs` (cấu hình thắng), `runs` (chỉ số mọi lần đo trên tập dò), `report` (chỉ số cấu hình thắng trên val_seen và val_unseen) | 6.1, 6.2, 6.3 |
-| `<mô hình>__<bước>_<lựa chọn>.toml` | Config đầy đủ của một lần đo trên tập dò, ví dụ `large-v3__prompt_lead.toml` | 4 |
+| `<mô hình>__<bước>_<lựa chọn>.toml` | Config đầy đủ của một lần đo trên tập dò, ví dụ [`artifacts/runs/kaggle/asr/10-28_tune_v3/large-v3/large-v3__prompt_lead.toml`](../../../artifacts/runs/kaggle/asr/10-28_tune_v3/large-v3/large-v3__prompt_lead.toml) | 4 |
 | `<mô hình>__<bước>_<lựa chọn>.json` | Chỉ số của lần đo đó: WER, WER bỏ số, CER, bỏ sót tên riêng (kèm danh sách tên bị sót từng mẫu), câu rỗng, câu bịa, số lần đúng từng tên app, thời gian p50/p95/max | 6.1 |
 | `<mô hình>__<bước>_<lựa chọn>.hyps.jsonl` | Chữ chép từng câu, mỗi dòng một câu: `id` (mẫu), `turn` (số lượt hoặc `final`), `ref` (đáp án của BTC), `hyp` (chữ sau bộ lọc), `raw` (chữ trước bộ lọc) | 6.4 |
 | `<mô hình>__report_val_seen.{toml,json,hyps.jsonl}`, `<mô hình>__report_val_unseen.{…}` | Ba loại file trên cho cấu hình thắng, đo trên hai tập kiểm tra | 6.3, 6.4 |
 
 Ngoài ra, `lifemate-asr-tune.log` ở thư mục gốc là log đầy đủ của kernel (cài đặt, từng lần đo, cảnh báo). Các ví dụ ở
 mục 6.4 được trích nguyên văn từ các file `hyps.jsonl`. Cách xếp thư mục của mọi lần chạy xem
-`artifacts/runs/README.md`.
+[`artifacts/runs/README.md`](../../../artifacts/runs/README.md).
 
 
 ## Mục lục
@@ -162,7 +162,7 @@ bước 1.
 
 | Thuật ngữ | Nghĩa |
 |---|---|
-| Whisper, large-v3 | Nhóm mô hình ASR đa ngôn ngữ của OpenAI. `large-v3` là bản lớn nhất, đang được dùng trong config hiện tại `configs/v0.toml` |
+| Whisper, large-v3 | Nhóm mô hình ASR đa ngôn ngữ của OpenAI. `large-v3` là bản lớn nhất, đang được dùng trong config hiện tại [`configs/v0.toml`](../../../configs/v0.toml) |
 | PhoWhisper | Whisper được VinAI huấn luyện thêm trên tiếng Việt |
 | ChunkFormer, Parakeet | Các mô hình ASR kiểu khác (không phải Whisper), xem mục 4 |
 | CTC, RNNT | Hai cách mô hình sinh chữ từ âm thanh. CTC đoán từng khung âm độc lập; RNNT đoán có nhìn lại chữ đã sinh. Cả hai không "viết tiếp câu" như Whisper nên gần như không bịa câu |
@@ -174,11 +174,11 @@ bước 1.
 | VAD | Voice Activity Detection: cắt bỏ đoạn im lặng trước khi nhận dạng |
 | Nhiệt độ thử lại (temperature fallback) | Nếu câu sinh ra có dấu hiệu hỏng (lặp, xác suất thấp), giải mã lại với độ ngẫu nhiên tăng dần 0,2; 0,4; … |
 | Ảo giác, câu bịa | Whisper được huấn luyện trên nhiều phụ đề video YouTube, nên đôi khi "nghe" ra câu kiểu "Hãy đăng ký kênh…" dù audio không có |
-| Bộ lọc (sanitizer) | Code của dự án (`lifemate/backends/asr_sanitizer.py`) cắt các cụm phụ đề bịa đã biết khỏi chữ ASR |
+| Bộ lọc (sanitizer) | Code của dự án ([`lifemate/backends/asr_sanitizer.py`](../../../lifemate/backends/asr_sanitizer.py)) cắt các cụm phụ đề bịa đã biết khỏi chữ ASR |
 | WER | Word Error Rate: số từ phải sửa (thêm, xóa, thay) để chữ ASR thành đáp án, chia cho số từ đáp án. 20% nghĩa là cứ 10 từ sai khoảng 2 |
 | p95 | 95% số mẫu chép xong trong thời gian này (giây). Đo trên GPU T4 |
 | Tập dò | Tập `asr_tune` (300 mẫu train) dùng để dò và chọn cấu hình; khác với hai tập kiểm tra chỉ dùng để đo một lần |
-| Sweep v1, sweep v2 | Hai lần thử ASR trước lần này, ghi trong `docs/experiments.md` |
+| Sweep v1, sweep v2 | Hai lần thử ASR trước lần này, ghi trong [`docs/experiments.md`](../../experiments.md) |
 | Cấu hình của lead | Cấu hình ban đầu do trưởng nhóm đề xuất: large-v3, beam 5, VAD, câu mồi dài, bật chống lặp |
 | BTC | Ban tổ chức cuộc thi |
 
@@ -207,8 +207,8 @@ Mục 2.1 mô tả dữ liệu gốc của BTC, chung cho cả dự án. Mục 2
 
 ### 2.1. Dữ liệu gốc của BTC (chung cho cả dự án)
 
-Tập train của BTC có 1 545 mẫu, nằm trong `data/train+public_test/train/` (không có trên git). Mỗi mẫu là một dòng
-trong `train.jsonl`, kèm thư mục audio:
+Tập train của BTC có 1 545 mẫu, nằm trong [`data/train+public_test/train/`](../../../data/train+public_test/train/) (không có trên git). Mỗi mẫu là một dòng
+trong [`data/train+public_test/train/train.jsonl`](../../../data/train+public_test/train/train.jsonl), kèm thư mục audio:
 
 ```json
 {"id": "train_0007",
@@ -232,9 +232,9 @@ của mọi lượt. Vì vậy số câu lớn hơn số mẫu: 300 mẫu của 
 
 | Tập | Thuộc | Số mẫu | Số câu | Số tên riêng | Có lịch sử | Thực hiện / hỏi lại / ngoài phạm vi | Dùng để |
 |---|---|---|---|---|---|---|---|
-| `asr_tune.txt` | **Tạo riêng** cho benchmark ASR, rút từ `train` | 300 | 1 024 | 123 | 194 | 231 / 46 / 23 | Dò cấu hình: chọn lựa chọn thắng ở từng bước |
-| `val_seen.txt` | Tập kiểm tra **chung** của dự án | 274 | 916 | 109 | 183 | 213 / 39 / 22 | Đo cấu hình thắng, với app đã có trong train |
-| `val_unseen.txt` | Tập kiểm tra **chung** của dự án | 178 | 527 | 54 | 129 | 162 / 11 / 5 | Đo cấu hình thắng, với 6 app không có trong train |
+| [`configs/splits/asr_tune.txt`](../../../configs/splits/asr_tune.txt) | **Tạo riêng** cho benchmark ASR, rút từ `train` | 300 | 1 024 | 123 | 194 | 231 / 46 / 23 | Dò cấu hình: chọn lựa chọn thắng ở từng bước |
+| [`configs/splits/val_seen.txt`](../../../configs/splits/val_seen.txt) | Tập kiểm tra **chung** của dự án | 274 | 916 | 109 | 183 | 213 / 39 / 22 | Đo cấu hình thắng, với app đã có trong train |
+| [`configs/splits/val_unseen.txt`](../../../configs/splits/val_unseen.txt) | Tập kiểm tra **chung** của dự án | 178 | 527 | 54 | 129 | 162 / 11 / 5 | Đo cấu hình thắng, với 6 app không có trong train |
 
 Giải thích các cột:
 - **Số tên riêng:** số giá trị tham số trong đáp án được nói ra ở câu cuối (tên người, giờ, số tiền, tên kênh…), dùng
@@ -246,7 +246,7 @@ Giải thích các cột:
 `val_seen` và `val_unseen` là hai tập chung mà mọi phần của dự án (LLM, fine-tune, ASR) đều đo trên đó. Benchmark chỉ
 dùng lại, không sửa. `asr_tune` là tập duy nhất tạo thêm, và không trùng mẫu nào với hai tập val.
 
-**Cách chia** (`lifemate/eval/make_splits.py`, seed cố định 42, chạy ở máy nào cũng ra giống nhau). Bước 1–3 tạo các
+**Cách chia** ([`lifemate/eval/make_splits.py`](../../../lifemate/eval/make_splits.py), seed cố định 42, chạy ở máy nào cũng ra giống nhau). Bước 1–3 tạo các
 tập chung của dự án, bước 4 tạo tập riêng cho benchmark:
 
 1. **Tách app lạ trước.** Mọi mẫu dùng một trong 6 app (medication, fitness, flights, bike_rental, library,
@@ -257,7 +257,7 @@ tập chung của dự án, bước 4 tạo tập riêng cho benchmark:
    một tập. Lý do: nếu hai câu gần giống nhau nằm ở hai tập, kết quả kiểm tra sẽ đẹp hơn thực tế.
 3. **Chia 5 fold phân tầng.** 1 367 mẫu còn lại chia thành 5 phần có cùng tỉ lệ số lời gọi tool và tỉ lệ câu phải hỏi
    lại. Fold 0 là `val_seen` (274 mẫu), fold 1–4 là `train` (1 093 mẫu).
-4. **Rút `asr_tune.txt` từ `train`** (`make_splits --asr-tune 300`): lấy 300 trong 1 093 mẫu train, phân tầng theo loại
+4. **Rút [`configs/splits/asr_tune.txt`](../../../configs/splits/asr_tune.txt) từ `train`** (`make_splits --asr-tune 300`): lấy 300 trong 1 093 mẫu train, phân tầng theo loại
    đáp án và có/không lịch sử, để tỉ lệ các loại câu giống tập train.
 
 **Vì sao dò cấu hình trên một tập riêng lấy từ train:**
@@ -282,7 +282,7 @@ về chữ thường và bỏ dấu câu.
 | **WER bỏ số** (`wer_nonum`) | WER sau khi bỏ chữ số và từ đọc số ở cả hai phía | Đáp án viết "5 giờ", ChunkFormer viết "năm giờ": WER thường phạt cách viết chứ không phải lỗi nghe (ví dụ 5 ở mục 6.4) |
 | Câu bịa | Chữ trước bộ lọc khớp mẫu phụ đề bịa | Đo mức ảo giác |
 | Tên riêng cụ thể | Số câu viết đúng Zalo, VTV, HTV, voucher… trên số câu đáp án có tên đó | Tên app quyết định gọi tool của app nào |
-| p95 | Như mục 0 | Hệ thống tự ngắt mỗi mẫu ở 29 giây (`deadline_s` trong `configs/v0.toml`, tính từ đầu mẫu, gồm cả ASR), chừa 1 giây dưới giới hạn 30 giây của thể lệ. Phần lớn thời gian đó dành cho LLM |
+| p95 | Như mục 0 | Hệ thống tự ngắt mỗi mẫu ở 29 giây (`deadline_s` trong [`configs/v0.toml`](../../../configs/v0.toml), tính từ đầu mẫu, gồm cả ASR), chừa 1 giây dưới giới hạn 30 giây của thể lệ. Phần lớn thời gian đó dành cho LLM |
 
 **Hàm mục tiêu** (để xếp hạng lựa chọn, nhỏ hơn là tốt hơn), giống nhau cho mọi mô hình:
 
@@ -307,7 +307,7 @@ Phần giữ giống hệt cho mọi mô hình:
 | Giải mã | Tất định: `temperature = 0` (trừ lựa chọn nhiệt độ thử lại) | Chạy lại cho cùng kết quả |
 | Bộ lọc ảo giác | Bật | Chạy sau ASR, không phụ thuộc engine, nên áp giống hệt cho mọi mô hình |
 | `condition_on_previous_text` | `false` | Mỗi câu nghe độc lập, câu bịa không lây sang câu sau |
-| Code đo | `lifemate/eval/eval_asr.py` | Cùng cách chuẩn hóa chữ và tính chỉ số |
+| Code đo | [`lifemate/eval/eval_asr.py`](../../../lifemate/eval/eval_asr.py) | Cùng cách chuẩn hóa chữ và tính chỉ số |
 
 Giải thích thêm từng dòng:
 
@@ -435,7 +435,7 @@ Các điều chỉnh dưới đây không đổi cách mô hình nghe, chỉ đ�
 
 - **PhoWhisper không chuyển sang CTranslate2** (định dạng của faster-whisper), vì chuyển định dạng có thể làm kết quả
   lệch so với bản gốc. Thay vào đó, engine transformers nhận cùng tên tham số với faster-whisper và tự dịch
-  (`hf_generate_kwargs` trong `lifemate/backends/asr.py`): `beam_size` thành `num_beams`, `initial_prompt` thành
+  (`hf_generate_kwargs` trong [`lifemate/backends/asr.py`](../../../lifemate/backends/asr.py)): `beam_size` thành `num_beams`, `initial_prompt` thành
   `prompt_ids`, `condition_on_previous_text` thành `condition_on_prev_tokens`. `best_of` bị bỏ vì chỉ có tác dụng khi
   giải mã ngẫu nhiên.
 - **ChunkFormer:** gói tự tải mô hình nhưng bỏ qua revision, nên engine tải đúng revision trước khi nạp. Tham số chia
@@ -461,7 +461,7 @@ gắn dữ liệu thi (dataset riêng tư trên Kaggle), cài thư viện, chạ
    chọn của từng mô hình trên 3 mẫu, để bắt lỗi cài đặt và nạp mô hình trước khi tốn giờ GPU. Lần 1 Parakeet lỗi mọi
    lựa chọn và flashlight-text không build được; sau khi sửa engine và bỏ lựa chọn KenLM, lần 2 mọi mô hình chạy được.
 2. **Dò cấu hình trên GPU** (kernel `quanlam/lifemate-asr-tune`): mỗi mô hình chạy `python -m lifemate.eval.asr_tune`
-   theo các bước ở mục 4 trên `asr_tune.txt`. Lựa chọn "giữ nguyên" dùng lại kết quả đã đo.
+   theo các bước ở mục 4 trên [`configs/splits/asr_tune.txt`](../../../configs/splits/asr_tune.txt). Lựa chọn "giữ nguyên" dùng lại kết quả đã đo.
 3. **Đo cấu hình thắng** của mỗi mô hình đúng một lần trên val_seen và val_unseen.
 
 Giải thích thêm từng giai đoạn:
@@ -470,8 +470,8 @@ Giải thích thêm từng giai đoạn:
    khoảng 4 giờ. Nếu một mô hình lỗi lúc cài đặt hay lúc nạp, lỗi đó chỉ lộ ra sau vài giờ chạy các mô hình trước, và
    phải chạy lại từ đầu. Chạy thử trên CPU (không tốn giờ GPU) với 3 mẫu cho mỗi lựa chọn bắt được các lỗi này trong vài
    phút. Kết quả chạy thử chỉ để biết "chạy được hay không", không dùng để so sánh.
-2. **Dò cấu hình.** Script `lifemate/eval/asr_tune.py` làm theo cách ở mục 4.2. Với mỗi lựa chọn, script ghi một file
-   config, gọi `lifemate/eval/eval_asr.py` để chép toàn bộ 300 mẫu và tính chỉ số, rồi dùng hàm mục tiêu để chọn. Một
+2. **Dò cấu hình.** Script [`lifemate/eval/asr_tune.py`](../../../lifemate/eval/asr_tune.py) làm theo cách ở mục 4.2. Với mỗi lựa chọn, script ghi một file
+   config, gọi [`lifemate/eval/eval_asr.py`](../../../lifemate/eval/eval_asr.py) để chép toàn bộ 300 mẫu và tính chỉ số, rồi dùng hàm mục tiêu để chọn. Một
    cấu hình đã đo thì không đo lại: lựa chọn "giữ nguyên" ở bước sau chính là cấu hình thắng ở bước trước. Tổng cộng có
    16 lần đo trên tập dò: large-v3 8 lần, PhoWhisper 5 lần, ba mô hình còn lại mỗi mô hình 1 lần.
 3. **Đo cấu hình thắng.** Cấu hình thắng của mỗi mô hình được chạy đúng một lần trên val_seen và một lần trên
@@ -482,7 +482,7 @@ RNNT, Parakeet. Thư viện riêng của ChunkFormer và Parakeet chỉ được
 này thay đổi phiên bản của thư viện dùng chung (Parakeet hạ phiên bản transformers). Cài sớm có thể làm hỏng các mô hình
 đo trước.
 
-Tái tạo: `make splits` (sinh `asr_tune.txt`), rồi `kaggle kernels push -p ops/kaggle/asr_tune --accelerator
+Tái tạo: `make splits` (sinh [`configs/splits/asr_tune.txt`](../../../configs/splits/asr_tune.txt)), rồi `kaggle kernels push -p ops/kaggle/asr_tune --accelerator
 NvidiaTeslaT4`, hoặc trên máy có GPU: `python -m lifemate.eval.asr_tune --env <profile> --out <thư mục>`.
 
 ## 6. Kết quả
@@ -598,7 +598,7 @@ Cách đọc bảng:
 ### 6.4. Ví dụ từ lần chạy
 
 Trích nguyên văn từ `*__report_val_seen.hyps.jsonl` (cấu hình thắng của mỗi mô hình) và
-`large-v3__prompt_lead.hyps.jsonl`. "Đáp án" là `audio_text` của BTC; "trước lọc" là chữ Whisper sinh ra trước khi bộ
+[`artifacts/runs/kaggle/asr/10-28_tune_v3/large-v3/large-v3__prompt_lead.hyps.jsonl`](../../../artifacts/runs/kaggle/asr/10-28_tune_v3/large-v3/large-v3__prompt_lead.hyps.jsonl). "Đáp án" là `audio_text` của BTC; "trước lọc" là chữ Whisper sinh ra trước khi bộ
 lọc cắt.
 
 **Ví dụ 1. Whisper bịa câu phụ đề YouTube.**
@@ -692,7 +692,7 @@ Kết luận: lỗi do **float16 tràn số**, không do đệm batch. Ở float
 16 bit, đầu ra thành NaN ("không phải số"), và bước chọn chữ rơi vào token số 0 là token không biết. Chạy float32 thì
 hết lỗi, và còn nhanh hơn float16 trên T4.
 
-**Cách sửa** (`lifemate/backends/asr.py`, lớp `NemoCTCASR`; áp cho mọi mô hình chạy bằng engine NeMo, không riêng
+**Cách sửa** ([`lifemate/backends/asr.py`](../../../lifemate/backends/asr.py), lớp `NemoCTCASR`; áp cho mọi mô hình chạy bằng engine NeMo, không riêng
 Parakeet):
 - `dtype = "auto"` chạy float32.
 - Nếu chọn float16 hoặc bfloat16 tường minh, câu nào có đầu ra NaN hoặc inf được tự chạy lại ở float32, kèm cảnh báo
@@ -739,8 +739,8 @@ p95 của v4 cao hơn v3, vì ở v3 các câu hỏng kết thúc sớm (chỉ r
    viên ASR chính. So với large-v3: WER giảm từ khoảng 30% xuống 20%, không còn câu bịa hay câu rỗng, p95 giảm từ 8 s
    xuống 2,5 s, giấy phép cho phép dùng.
 2. Giữ **PhoWhisper medium + câu mồi ngắn** làm ứng viên dự phòng: không bịa, p95 3 s, viết đúng tên app trên val_seen.
-3. Chưa đổi `configs/v0.toml`. Chỉ số ASR chỉ dùng để rút gọn danh sách; chọn cuối cùng phải dựa trên điểm thi của cả
-   hệ thống (ASR + LLM, chấm bằng `score.py`) trên GPU từ 24 GB, so ChunkFormer RNNT với large-v3 hiện tại, có thể thêm
+3. Chưa đổi [`configs/v0.toml`](../../../configs/v0.toml). Chỉ số ASR chỉ dùng để rút gọn danh sách; chọn cuối cùng phải dựa trên điểm thi của cả
+   hệ thống (ASR + LLM, chấm bằng [`lifemate/eval/score.py`](../../../lifemate/eval/score.py)) trên GPU từ 24 GB, so ChunkFormer RNNT với large-v3 hiện tại, có thể thêm
    PhoWhisper. Lần 2 và lần 3 tiếp tục từ kết luận này (phần "Sau lần 1" ở đầu báo cáo).
 4. Bỏ Parakeet: đã chạy lại sau khi sửa lỗi float16 (mục 6.5), vẫn kém hai ChunkFormer ở mọi chỉ số chính xác.
    ChunkFormer CTC chỉ xét lại nếu BTC cho dùng giấy phép phi thương mại
@@ -751,4 +751,4 @@ p95 của v4 cao hơn v3, vì ở v3 các câu hỏng kết thúc sớm (chỉ r
 - Thời gian đo trên T4, chưa phải GPU A30 lúc chấm.
 - Tập dò có ít câu chứa từng tên riêng, nên chênh vài câu đã là khác biệt lớn.
 - Bỏ sót tên riêng so không dấu và khớp nguyên từ: "zalo" và "Zalo" được tính là đúng, nhưng "dalo" bị tính là sai.
-- Nếu sau này fine-tune ASR trên train, phải loại `asr_tune.txt` khỏi dữ liệu train ASR.
+- Nếu sau này fine-tune ASR trên train, phải loại [`configs/splits/asr_tune.txt`](../../../configs/splits/asr_tune.txt) khỏi dữ liệu train ASR.

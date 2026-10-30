@@ -23,7 +23,7 @@ Phạm vi: chọn cấu hình ASR bằng chất lượng chữ (E, F, G, H, I), 
 trên chữ ASR đã lưu (J). Không đo thời gian của cả hệ thống; bước sau lần 3 mới chạy cả hệ thống (ASR và LLM cùng lúc)
 trên GPU giống máy chấm để đo thời gian thật (mục "Sau lần 3").
 
-Tên thử nghiệm nối tiếp lần 2: lần 2 dùng A, B, C, D (`docs/reports/benchmark/asr_v2.md`), lần 3 dùng E, F, G, H, I, J theo thứ tự
+Tên thử nghiệm nối tiếp lần 2: lần 2 dùng A, B, C, D ([`docs/reports/benchmark/asr_v2.md`](asr_v2.md)), lần 3 dùng E, F, G, H, I, J theo thứ tự
 các bước trong pipeline. Các phiên GPU tên K1–K4; theo kế hoạch chạy trên Kaggle, thực tế chạy trên Colab T4 vì hạn mức
 GPU tuần của Kaggle đã hết (Phụ lục B.2).
 
@@ -63,18 +63,18 @@ tổng tham số không quá 6B.
 mọi bước đều được đo thời gian, mọi phiên đều đo bộ nhớ GPU (mục 2.4)
 ```
 
-Phần ASR trên là cấu hình thắng của benchmark lần 2, chưa đưa vào `configs/v0.toml` (file này vẫn dùng large-v3 đứng
+Phần ASR trên là cấu hình thắng của benchmark lần 2, chưa đưa vào [`configs/v0.toml`](../../../configs/v0.toml) (file này vẫn dùng large-v3 đứng
 riêng). Điểm thi chấm lời gọi tool, không chấm chữ, nhưng chữ ASR sai từ khoá thì LLM không sửa được. Lần 3 chọn cấu hình ASR
 bằng chất lượng chữ, rồi đo điểm thi của các cấu hình đó ở thử nghiệm J.
 
 ### Lần 1 và lần 2 đã làm gì
 
-**Lần 1** (`asr_v1.md`) so năm mô hình ASR trên mọi câu, cùng công sức dò cấu hình. **ChunkFormer RNNT** thắng: WER khoảng
+**Lần 1** ([`docs/reports/benchmark/asr_v1.md`](asr_v1.md)) so năm mô hình ASR trên mọi câu, cùng công sức dò cấu hình. **ChunkFormer RNNT** thắng: WER khoảng
 20% trên cả hai tập kiểm tra, so với khoảng 30% của whisper-large-v3; không có câu bịa; p95 2,5 s trên T4. Lần 1 để lại
 bốn điểm: chưa đo riêng từ tiếng Anh; mọi câu mồi đều làm large-v3 kém đi (in lại câu mồi, đếm tiếp danh sách, bịa câu
 phụ đề); cấu hình large-v3 không tất định; mới chọn một mô hình, chưa thử kết hợp.
 
-**Lần 2** (`asr_v2.md`) giải quyết bốn điểm đó bằng bốn thử nghiệm:
+**Lần 2** ([`docs/reports/benchmark/asr_v2.md`](asr_v2.md)) giải quyết bốn điểm đó bằng bốn thử nghiệm:
 
 
 | Thử nghiệm lần 2                 | Kết quả                                                                                                                                                                                                                                                                   |
@@ -123,11 +123,11 @@ Lần 2 mới dùng thông tin này ở **sau** khi chép, để lọc khi ghép
 Lần 3 dùng **đúng cách chia của lần 1 và lần 2**, không chia lại. Khác biệt duy nhất: 793 mẫu train còn trống (lần 2
 chỉ dùng để chọn từ cho câu mồi) nay là **tập học** cho thử nghiệm F, G và H. `public_test` không dùng ở lần 3.
 
-**Cách chia.** Mọi bước chia do một script làm: `lifemate/eval/make_splits.py`, chạy bằng `make splits` (tương đương
+**Cách chia.** Mọi bước chia do một script làm: [`lifemate/eval/make_splits.py`](../../../lifemate/eval/make_splits.py), chạy bằng `make splits` (tương đương
 `python -m lifemate.eval.make_splits --smoke 30 --asr-tune 300 --en-mixed`), seed cố định 42 nên chạy ở máy nào cũng
 ra giống nhau. Script không sao chép dữ liệu: script chỉ ghi các file `configs/splits/*.txt`, mỗi dòng một mã mẫu. Lúc
-chạy thử nghiệm, `lifemate/io/data.py › read_ids` (file `.txt` → danh sách mã) và `load_split` (thư mục dữ liệu, tên
-split, danh sách mã → các mẫu) lấy đúng các mẫu đó từ `train/train.jsonl` của BTC. Các bước chạy tuần tự, bước sau dùng
+chạy thử nghiệm, [`lifemate/io/data.py`](../../../lifemate/io/data.py) › `read_ids` (file `.txt` → danh sách mã) và `load_split` (thư mục dữ liệu, tên
+split, danh sách mã → các mẫu) lấy đúng các mẫu đó từ [`data/train+public_test/train/train.jsonl`](../../../data/train+public_test/train/train.jsonl) của BTC. Các bước chạy tuần tự, bước sau dùng
 kết quả bước trước. Sơ đồ dưới ghi cả lần benchmark và thử nghiệm dùng từng tập:
 
 ```
@@ -188,13 +188,13 @@ Giải thích từng bước:
    gọi tool và tỉ lệ câu hỏi lại. Nhờ vậy hai câu gần giống nhau không nằm ở hai tập khác nhau.
 4. **`smoke`** (`--smoke 30`): 30 mẫu của `val_seen`, phân tầng theo loại câu trả lời và có/không lịch sử.
 5. **`asr_tune`** (`--asr-tune 300`): 300 mẫu của `train`, cùng cách phân tầng; phần `train` còn lại ghi ra
-   `asr_learn.txt`.
+   [`configs/splits/asr_learn.txt`](../../../configs/splits/asr_learn.txt).
 6. **`*_en_mixed`** (`--en-mixed`, hàm `en_mixed_ids`): giữ mẫu có ít nhất một câu người dùng chêm từ tiếng Anh, theo
-   `lifemate/eval/foreign_words.py › has_foreign_word` (câu → có từ ngoại hay không). Luật nhận từ ngoại: từ không dấu mà
+   [`lifemate/eval/foreign_words.py`](../../../lifemate/eval/foreign_words.py) › `has_foreign_word` (câu → có từ ngoại hay không). Luật nhận từ ngoại: từ không dấu mà
    không ghép được thành âm tiết tiếng Việt, từ viết hoa toàn bộ, hoặc có chữ f, j, w, z; kèm hai danh sách viết sẵn cho
    trường hợp khó (từ mượn viết kiểu Việt như "tivi"; từ tiếng Anh trông giống âm tiết Việt như "chat"). Việc lọc do
    script làm; luật đã được rà tay ở lần 2. Mỗi file `_en_mixed` nằm trọn trong tập gốc tương ứng.
-7. **`meta.json`**: số mẫu từng tập, tỉ lệ nhãn từng phần, số nhóm gần trùng, và số mẫu trùng giữa `train` với hai tập
+7. **[`configs/splits/meta.json`](../../../configs/splits/meta.json)**: số mẫu từng tập, tỉ lệ nhãn từng phần, số nhóm gần trùng, và số mẫu trùng giữa `train` với hai tập
    kiểm tra (đều bằng 0).
 
 Nguyên tắc chung: tập học dùng để học tham số, tập dò dùng để chọn giữa các cách, tập kiểm tra chỉ dùng để đo cách đã
@@ -211,8 +211,8 @@ chọn, một lần.
 
 **Cách chuẩn bị.**
 
-1. Đặt gói dữ liệu của BTC vào `data/train+public_test/` và chạy `make splits` như lần 2. Danh sách 793 mẫu tập học là
-`train.txt` bỏ đi `asr_tune.txt`; lệnh ghi thêm file `configs/splits/asr_learn.txt` (việc chuẩn bị P1, Phụ lục B).
+1. Đặt gói dữ liệu của BTC vào [`data/train+public_test/`](../../../data/train+public_test/) và chạy `make splits` như lần 2. Danh sách 793 mẫu tập học là
+[`configs/splits/train.txt`](../../../configs/splits/train.txt) bỏ đi [`configs/splits/asr_tune.txt`](../../../configs/splits/asr_tune.txt); lệnh ghi thêm file [`configs/splits/asr_learn.txt`](../../../configs/splits/asr_learn.txt) (việc chuẩn bị P1, Phụ lục B).
 2. Chữ ASR của lần 2 dùng lại được: RNNT trên `asr_tune` và hai tập val, large-v3 có và không câu mồi trên `asr_tune`,
 large-v3 `en_full_v1` + g4 trên hai tập val.
 3. Phải chạy GPU để có thêm: large-v3 với các biến thể câu mồi mới trên `asr_tune`; RNNT và large-v3 (câu mồi thắng) trên
@@ -247,7 +247,7 @@ thử nghiệm được ghi ở đây **trước khi đo**, để không chỉnh
 | E          | Chọn biến thể có tỉ lệ chép đúng từ tiếng Anh **của bản ghép** cao nhất, với hai điều kiện: WER câu thuần Việt của bản ghép không tăng so với bản ghép dùng `en_full_v1` (CI 95% của chênh lệch không nằm hẳn trên 0), và p95 thời gian của large-v3 tăng không quá 1 giây |
 | Quyết định ghép (C0, F, G, H) | Loại ứng viên tệ hơn C0 có ý nghĩa thống kê ở chép đúng từ tiếng Anh hoặc ở WER câu thuần Việt, hoặc tốn thêm quá 1 giây ở p95 mỗi mẫu trên T4. Trong số còn lại, chọn ứng viên có độ chính xác quyết định đoạn cao nhất; nếu không hơn có ý nghĩa thống kê một ứng viên đơn giản hơn thì chọn ứng viên đơn giản hơn (thứ tự C0, F, G, H). Chi tiết ở mục 7 |
 | I          | I1 không chọn gì. Chạy I2 (nguồn J4 của J) khi trần trên `asr_tune` cứu thêm được từ 3 điểm phần trăm chép đúng từ tiếng Anh trở lên |
-| J          | Không chọn gì trong lần 3. Bản ghép lần 3 vào `configs/v0.toml` nếu điểm thi không thấp hơn RNNT có ý nghĩa thống kê trên cả hai tập val; định dạng hai phương án vào dữ liệu fine-tune nếu J4 hơn J3 có ý nghĩa thống kê trên ít nhất một tập val và không thua trên tập còn lại |
+| J          | Không chọn gì trong lần 3. Bản ghép lần 3 vào [`configs/v0.toml`](../../../configs/v0.toml) nếu điểm thi không thấp hơn RNNT có ý nghĩa thống kê trên cả hai tập val; định dạng hai phương án vào dữ liệu fine-tune nếu J4 hơn J3 có ý nghĩa thống kê trên ít nhất một tập val và không thua trên tập còn lại |
 
 
 
@@ -332,7 +332,7 @@ Thứ tự bắt buộc theo phụ thuộc: E phải xong trước F, G, H, vì 
 | ------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | --------- | ---------- |
 | P1–P8   | Code chuẩn bị chung và cho E (Phụ lục B.1), test                                                        | Máy dev                                                          |           | Xong, trừ P8 và `ASRConfig.prompt_mode` (Phụ lục A.2) |
 | K1      | Phiên GPU 1: ba biến thể câu mồi (E0, E1, E2) trên `asr_tune`                                           | Colab T4, hơn 1 giờ (3 máy nối tiếp)                             | P1–P8     | Xong       |
-| P9–P15  | Code cho F, G, H, bảng chọn chung, I, J và bước kiểm tra cuối (Phụ lục B.1); viết trong lúc chờ K1, K2 | Máy dev | P1–P8 | Xong (code gộp vào `asr_v3_analysis.py`, `asr_v3_report.py`, `asr_v3_agent.py`) |
+| P9–P15  | Code cho F, G, H, bảng chọn chung, I, J và bước kiểm tra cuối (Phụ lục B.1); viết trong lúc chờ K1, K2 | Máy dev | P1–P8 | Xong (code gộp vào [`lifemate/eval/asr_v3_analysis.py`](../../../lifemate/eval/asr_v3_analysis.py), [`lifemate/eval/asr_v3_report.py`](../../../lifemate/eval/asr_v3_report.py), [`lifemate/eval/asr_v3_agent.py`](../../../lifemate/eval/asr_v3_agent.py)) |
 | E       | Chấm offline, chọn biến thể thắng                                                                       | Máy dev                                                          | K1        | Xong: E2   |
 | K2      | Phiên GPU 2: tập học (RNNT, large-v3 biến thể thắng); val (large-v3 biến thể thắng)                     | Colab T4, khoảng 1 giờ 40 phút (2 máy)                           | E         | Xong       |
 | K3      | Phiên GPU 3: chấm điểm âm thanh (large-v3 không câu mồi) trên tập học, `asr_tune`, val | Colab T4, khoảng 6 phút | K2, P10 | Xong |
@@ -340,7 +340,7 @@ Thứ tự bắt buộc theo phụ thuộc: E phải xong trước F, G, H, vì 
 | I1      | Đếm trần của hai phương án                                                                      | Máy dev                                                          | F, G, H, P13 | Xong: trần +4,8, chạy I2 |
 | K4      | Phiên GPU 4: agent trên chữ đã lưu, J0–J4 trên val | Colab T4, khoảng 15–18 giây mỗi mẫu, 1 323 lượt chạy mẫu; máy bị thu hồi khoảng mỗi 20–60 phút | I1, P14 | Đang chạy: xong J1, J2, J3 trên `val_seen`; J4 `val_seen` 42/117 mẫu |
 | J       | Chấm điểm, so các nguồn, xếp loại lỗi | Máy dev | K4 | Chưa làm |
-| Báo cáo | Điền kết quả, kết luận; cập nhật `docs/experiments.md`, `docs/decisions.md`, SPEC                       | Máy dev                                                          | Mọi bước  | Đã điền E–I; còn J |
+| Báo cáo | Điền kết quả, kết luận; cập nhật [`docs/experiments.md`](../../experiments.md), [`docs/decisions.md`](../../decisions.md), SPEC                       | Máy dev                                                          | Mọi bước  | Đã điền E–I; còn J |
 
 
 Thời gian thực của từng phiên ở Phụ lục B.2.
@@ -349,7 +349,7 @@ Thời gian thực của từng phiên ở Phụ lục B.2.
 
 Độ chính xác của lời gọi tool với từng nguồn chữ đã đo ở thử nghiệm J. Bước sau lần 3 chạy **cả hệ thống** (ASR và LLM cùng
 lúc, cùng một GPU) với cấu hình thắng, để đo **thời gian thật** từng mẫu (ASR, LLM, tool) và bộ nhớ khi hai phần chạy
-cạnh nhau. Lần chạy này cần GPU từ 24 GB, vì T4 không chứa nổi vLLM cùng whisper-large-v3 (`ops/kaggle/README.md`).
+cạnh nhau. Lần chạy này cần GPU từ 24 GB, vì T4 không chứa nổi vLLM cùng whisper-large-v3 ([`ops/kaggle/README.md`](../../../ops/kaggle/README.md)).
 
 ### Đọc tiếp ở đâu
 
@@ -367,17 +367,17 @@ cạnh nhau. Lần chạy này cần GPU từ 24 GB, vì T4 không chứa nổi 
 | Code đã viết và lịch các phiên GPU              | Phụ lục A, B         |
 
 
-**Kết quả thô.** Không có trên git (thư mục `artifacts/` bị git bỏ qua), nằm ở `artifacts/runs/colab/asr/10-30_v3/`:
+**Kết quả thô.** Không có trên git (thư mục `artifacts/` bị git bỏ qua), nằm ở [`artifacts/runs/colab/asr/10-30_v3/`](../../../artifacts/runs/colab/asr/10-30_v3/):
 
 
 | Thư mục | Nội dung |
 | --- | --- |
-| `k1/` | Phiên K1 trên `asr_tune`: `rnnt.hyps.jsonl`, `v3_E0.hyps.jsonl`, `v3_E1.hyps.jsonl`, `v3_E2.hyps.jsonl` (chữ từng câu; bản large-v3 kèm câu mồi đã dùng, số token câu mồi, có chép lại không, điểm tin cậy), `timing.jsonl` (thời gian từng mẫu), `summary.json` (thời gian nạp, kiểm tra tất định, bộ nhớ đỉnh), `gpu_memory.csv` |
-| `k2_asr_learn/`, `k2_val_seen/`, `k2_val_unseen/` | Phiên K2: `rnnt.hyps.jsonl`, `v3_E2.hyps.jsonl` và các file đo như K1, trên tập học và hai tập kiểm tra |
-| `k3/` | Phiên K3: `scores_<tập>.jsonl` (mỗi đoạn cần quyết định một dòng: câu A, câu B, điểm âm thanh và số token của từng câu, cờ câu dài hơn 30 giây), `.timing.jsonl`, `.summary.json`, `.gpu_memory.csv` |
-| `analysis/` | Chấm offline: `e.json`, `e_val.json` (thử nghiệm E), `select.json` (F, G, H, bảng chọn chung, đo trên val, I1), chữ của các nguồn J |
-| `j_sources/` | Chữ đưa cho agent ở J: `j1_rnnt_*`, `j2_round2_*`, `j3_round3_*`, `j4_alternatives_*` (`.hyps.jsonl`) và danh sách mẫu có chữ khác J1 (`*_ids_*.txt`) |
-| `k4/` | Phiên K4: mỗi nguồn và mỗi tập một thư mục run agent (`config.json`, `submission.jsonl`, `trace.jsonl`; `details.jsonl` có điểm từng mẫu khi chạy xong) |
+| [`artifacts/runs/colab/asr/10-30_v3/k1/`](../../../artifacts/runs/colab/asr/10-30_v3/k1/) | Phiên K1 trên `asr_tune`: `rnnt.hyps.jsonl`, `v3_E0.hyps.jsonl`, `v3_E1.hyps.jsonl`, `v3_E2.hyps.jsonl` (chữ từng câu; bản large-v3 kèm câu mồi đã dùng, số token câu mồi, có chép lại không, điểm tin cậy), `timing.jsonl` (thời gian từng mẫu), `summary.json` (thời gian nạp, kiểm tra tất định, bộ nhớ đỉnh), `gpu_memory.csv` |
+| [`artifacts/runs/colab/asr/10-30_v3/k2_asr_learn/`](../../../artifacts/runs/colab/asr/10-30_v3/k2_asr_learn/), [`artifacts/runs/colab/asr/10-30_v3/k2_val_seen/`](../../../artifacts/runs/colab/asr/10-30_v3/k2_val_seen/), [`artifacts/runs/colab/asr/10-30_v3/k2_val_unseen/`](../../../artifacts/runs/colab/asr/10-30_v3/k2_val_unseen/) | Phiên K2: `rnnt.hyps.jsonl`, `v3_E2.hyps.jsonl` và các file đo như K1, trên tập học và hai tập kiểm tra |
+| [`artifacts/runs/colab/asr/10-30_v3/k3/`](../../../artifacts/runs/colab/asr/10-30_v3/k3/) | Phiên K3: `scores_<tập>.jsonl` (mỗi đoạn cần quyết định một dòng: câu A, câu B, điểm âm thanh và số token của từng câu, cờ câu dài hơn 30 giây), `.timing.jsonl`, `.summary.json`, `.gpu_memory.csv` |
+| [`artifacts/runs/colab/asr/10-30_v3/analysis/`](../../../artifacts/runs/colab/asr/10-30_v3/analysis/) | Chấm offline: [`artifacts/runs/colab/asr/10-30_v3/analysis/e.json`](../../../artifacts/runs/colab/asr/10-30_v3/analysis/e.json), [`artifacts/runs/colab/asr/10-30_v3/analysis/e_val.json`](../../../artifacts/runs/colab/asr/10-30_v3/analysis/e_val.json) (thử nghiệm E), [`artifacts/runs/colab/asr/10-30_v3/analysis/select.json`](../../../artifacts/runs/colab/asr/10-30_v3/analysis/select.json) (F, G, H, bảng chọn chung, đo trên val, I1), chữ của các nguồn J |
+| [`artifacts/runs/colab/asr/10-30_v3/j_sources/`](../../../artifacts/runs/colab/asr/10-30_v3/j_sources/) | Chữ đưa cho agent ở J: `j1_rnnt_*`, `j2_round2_*`, `j3_round3_*`, `j4_alternatives_*` (`.hyps.jsonl`) và danh sách mẫu có chữ khác J1 (`*_ids_*.txt`) |
+| [`artifacts/runs/colab/asr/10-30_v3/k4/`](../../../artifacts/runs/colab/asr/10-30_v3/k4/) | Phiên K4: mỗi nguồn và mỗi tập một thư mục run agent (`config.json`, `submission.jsonl`, `trace.jsonl`; `details.jsonl` có điểm từng mẫu khi chạy xong) |
 
 
 ## Mục lục
@@ -403,7 +403,7 @@ cạnh nhau. Lần chạy này cần GPU từ 24 GB, vì T4 không chứa nổi 
 
 Bài thi LifeMate nhận lời nói tiếng Việt của người dùng, có thể chêm từ tiếng Anh, và làm hai bước: **ASR** chép âm
 thanh thành chữ, rồi **LLM** đọc chữ đó và gọi tool. Điểm thi chấm lời gọi tool, không chấm chữ ASR. Thể lệ
-(`docs/overview.md`) đặt ba giới hạn liên quan trực tiếp tới lần 3:
+([`docs/overview.md`](../../overview.md)) đặt ba giới hạn liên quan trực tiếp tới lần 3:
 
 - **30 giây mỗi mẫu** cho toàn bộ hệ thống (ASR, LLM, tool). Mẫu quá giờ nhận 0 điểm. Khi bằng điểm, đội có thời gian
 trung bình mỗi mẫu thấp hơn xếp trên.
@@ -445,7 +445,7 @@ có thêm thông tin. Câu trả lời của trợ lý dài trung vị 14–19 t
 
 Các thuật ngữ đã định nghĩa ở lần 2 (WER, từ ngoại và 4 nhóm, câu chêm, câu thuần Việt, chuẩn hoá chữ, chép đúng từ ngoại, câu
 mồi, lớp bảo vệ g4, tập dò, tập kiểm tra, seen, unseen, CI, bootstrap, oracle) giữ nguyên nghĩa, xem mục 0.3 của
-`docs/reports/benchmark/asr_v2.md`. Thuật ngữ mới của lần 3:
+[`docs/reports/benchmark/asr_v2.md`](asr_v2.md). Thuật ngữ mới của lần 3:
 
 
 | Thuật ngữ                        | Nghĩa                                                                                                                                                                                                |
@@ -471,7 +471,7 @@ mồi, lớp bảo vệ g4, tập dò, tập kiểm tra, seen, unseen, CI, boots
 | Bộ nhớ GPU đỉnh                  | Lượng bộ nhớ GPU lớn nhất mà tiến trình ASR chiếm trong suốt lần chạy, đọc bằng `nvidia-smi` (mục 2.4)                                                                                               |
 | Điểm âm thanh                    | Tổng log xác suất mà whisper-large-v3, không câu mồi, gán cho từng token của một câu cho sẵn khi nghe đoạn âm thanh; càng gần 0 thì câu càng khớp âm thanh (mục 5) |
 | Ép chuỗi (teacher forcing)       | Đưa sẵn chuỗi token vào decoder và chỉ đọc xác suất của từng token, không để decoder tự sinh chữ                    |
-| `ToolEnv`                        | Bộ mô phỏng app của BTC (gói `zaic_tools`), mỗi mẫu một phiên: nhận lời gọi tool của agent, kiểm tra theo schema, chạy trên dữ liệu app của mẫu (danh bạ, lịch, thiết bị…), trả kết quả, ghi nhật ký mọi lời gọi và tính `state_hash` (mã trạng thái app cuối). Hai thứ này là bài nộp |
+| `ToolEnv`                        | Lớp Python do BTC viết và đặt tên, nằm trong gói `zaic_tools` phát kèm dữ liệu thi (mỗi tập một bản). Là một "điện thoại giả" chứa dữ liệu app của đúng một mẫu (danh bạ, lịch, thiết bị…): nhận lời gọi tool của agent, kiểm tra theo schema, chạy trên dữ liệu đó, trả kết quả, ghi nhật ký mọi lời gọi và tính `state_hash` (mã trạng thái app cuối); nhật ký và `state_hash` là bài nộp. BTC tạo nó để mọi đội làm trên cùng một trạng thái app và để chấm lại được bằng cách phát lại lời gọi. Dự án không viết lại `ToolEnv`, chỉ mở nó qua [`lifemate/io/zaic.py`](../../../lifemate/io/zaic.py) › `ZaicLoader.open_env` (mỗi mẫu đúng một lần, nhờ `EnvRegistry`), và dùng bản giả `FakeEnv` ([`tests/fakes.py`](../../../tests/fakes.py)) khi test trên CPU |
 | A30, T4                          | A30: GPU của máy chấm, 24 GB, thế hệ Ampere, hỗ trợ bfloat16. T4: GPU miễn phí của Kaggle và Colab, 15 GB (16 GB danh nghĩa), thế hệ Turing, không hỗ trợ bfloat16                                            |
 
 
@@ -514,9 +514,9 @@ chung (mục 7).
 3. Đo trần và chi phí của cách giữ hai phương án cho LLM (I), rồi đo thật nếu trần đủ cao.
 4. Đo điểm thi của từng nguồn chữ bằng cách chạy agent trên chữ đã lưu (J).
 5. Đo thời gian và bộ nhớ của phần ASR ở mọi lần chạy, để mỗi lựa chọn có kèm cái giá về thời gian.
-6. Viết engine ghép vào hệ thống thật (`lifemate/backends/asr.py`), để thời gian đo được là thời gian của đúng thứ sẽ nộp,
+6. Viết engine ghép vào hệ thống thật ([`lifemate/backends/asr.py`](../../../lifemate/backends/asr.py)), để thời gian đo được là thời gian của đúng thứ sẽ nộp,
 và để bước sau chạy được cả hệ thống với LLM. **Chưa làm ở lần 3:** thời gian được đo bằng bộ chạy
-`lifemate/eval/asr_v3.py`, chạy đúng các bước theo cùng thứ tự trong cùng một tiến trình; engine cho hệ thống thật để
+[`lifemate/eval/asr_v3.py`](../../../lifemate/eval/asr_v3.py), chạy đúng các bước theo cùng thứ tự trong cùng một tiến trình; engine cho hệ thống thật để
 sau khi J chọn xong cấu hình (Phụ lục A.2).
 
 **Ngoài phạm vi lần 3, và lý do.**
@@ -536,7 +536,7 @@ sau khi J chọn xong cấu hình (Phụ lục A.2).
 | Công cụ                                                                                                                            | Mục      | Dùng ở thử nghiệm   |
 | ---------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------- |
 | Công cụ của lần 2: quy tắc tìm từ ngoại, bộ chỉ số tiếng Anh, chấm lại offline, bảng so sánh có CI, quy tắc ghép, từ điển ngữ cảnh | 2.2      | E, F, H, I          |
-| Bộ chạy các phiên GPU (`asr_v3.py`): hai mô hình trong một tiến trình, ghi thời gian từng bước, đọc bộ nhớ GPU                    | 2.4      | Mọi phiên GPU       |
+| Bộ chạy các phiên GPU ([`lifemate/eval/asr_v3.py`](../../../lifemate/eval/asr_v3.py)): hai mô hình trong một tiến trình, ghi thời gian từng bước, đọc bộ nhớ GPU                    | 2.4      | Mọi phiên GPU       |
 | Câu mồi theo mẫu, lớp bảo vệ chỉ so phần cố định, điểm tin cậy của large-v3 trong `hyps.jsonl`                                     | 3.3      | E, H                |
 | Bảng độ tin cậy từng từ và cách quyết định `context_reliable` (F)                                                                  | 4.3      | F, H                |
 | Dựng câu ứng viên, chấm điểm âm thanh bằng `align` của CTranslate2                                                                 | 5.3      | G, H                |
@@ -556,13 +556,13 @@ của bộ phân loại, học bộ phân loại. Dữ liệu học không đư�
 **Giải pháp.**
 
 1. **Tập học = 793 mẫu train ngoài `asr_tune`.** Lần 2 chỉ đọc chữ large-v3 của các mẫu này (bộ đệm
-`data/asr/train_asr.json`, large-v3 beam 5 không câu mồi) để chọn từ cho câu mồi. Lần 3 dùng chính các mẫu này để
+[`data/asr/train_asr.json`](../../../data/asr/train_asr.json), large-v3 beam 5 không câu mồi) để chọn từ cho câu mồi. Lần 3 dùng chính các mẫu này để
 đếm độ tin cậy và học bộ phân loại. Lý do: đây là phần duy nhất có đáp án mà chưa dùng để dò hay đo. Bộ đệm cũ không
 dùng được cho F và H vì chép bằng beam 5 không câu mồi, khác cấu hình sẽ dùng lúc thi (giải mã tham lam + VAD + câu
 mồi); nên phiên K2 chép lại tập học bằng đúng cấu hình đó.
 2. **Câu mồi viết lại theo tập học là một bước chọn.** Nếu E hoặc F dẫn tới viết lại câu mồi cố định, việc viết lại chỉ
 được dựa vào tập học, như lần 2.
-3. **Không dùng `public_test`** ở lần 3, kể cả để học, theo `AGENTS.md`.
+3. **Không dùng `public_test`** ở lần 3, kể cả để học, theo [`AGENTS.md`](../../../AGENTS.md).
 4. **Từ điển ngữ cảnh chỉ lấy giá trị, bỏ khoá JSON.** Ở lần 2, `sample_context_words` lấy cả khoá của catalog và của
 `context` (`type`, `description`, `properties`, `content`, `name`…), nên các từ này có trong từ điển của mọi mẫu và
 large-v3 bịa ra đúng các từ này thì bộ lọc vẫn nhận. Khoá là tên trường do người viết schema đặt, không phải nội dung
@@ -596,15 +596,15 @@ Chỉ số mới:
 
 | Chỉ số (tên trong file kết quả) | Cách tính | Vì sao cần |
 | --- | --- | --- |
-| Chép đúng theo có/không có trong ngữ cảnh (`en_context_v3`, `en_context_merged` trong `e.json`) | Như `en_word_recall`, tách theo từ của đáp án **có** và **không có** trong từ điển ngữ cảnh của mẫu; tính cho large-v3 đứng riêng và cho bản ghép | Câu mồi theo mẫu chỉ có thể giúp từ có trong ngữ cảnh. Tách ra để biết mức tăng đến từ đâu |
+| Chép đúng theo có/không có trong ngữ cảnh (`en_context_v3`, `en_context_merged` trong [`artifacts/runs/colab/asr/10-30_v3/analysis/e.json`](../../../artifacts/runs/colab/asr/10-30_v3/analysis/e.json)) | Như `en_word_recall`, tách theo từ của đáp án **có** và **không có** trong từ điển ngữ cảnh của mẫu; tính cho large-v3 đứng riêng và cho bản ghép | Câu mồi theo mẫu chỉ có thể giúp từ có trong ngữ cảnh. Tách ra để biết mức tăng đến từ đâu |
 | Chép lại lượt trợ lý (`assistant_echo`) | Số câu mà chữ ASR có 4 từ liên tiếp trùng câu trả lời của trợ lý liền trước, trong khi đáp án không có 4 từ đó | Câu mồi theo mẫu chứa lời trợ lý. Đây là dấu hiệu large-v3 in lại lời trợ lý thay vì nghe |
 | Số câu bị cắt câu mồi (`truncated`), số câu chép lại do lớp bảo vệ (`retries`) | Câu mồi dài hơn 223 token; câu mà lớp bảo vệ g4 bắt và chép lại không câu mồi | Câu mồi theo mẫu dài hơn câu mồi cố định |
-| Từ bị lấy nhầm và từ đúng bị bỏ khi ghép (`word_errors` trong `select.json`: `wrong_prompt`, `wrong_other`, `missed_prompt`, `missed_other`) | Lấy nhầm: từ tiếng Anh mới mà phép ghép lấy từ large-v3 nhưng đáp án câu đó không có. Bỏ sót: từ tiếng Anh mới của large-v3 có trong đáp án mà phép ghép không lấy. Mỗi loại tách theo từ của câu mồi / ngoài câu mồi | Đo trực tiếp hai mặt của đánh đổi mà F, G, H muốn cải thiện. Lần 2 đếm tay bằng script; lần 3 đưa vào code |
+| Từ bị lấy nhầm và từ đúng bị bỏ khi ghép (`word_errors` trong [`artifacts/runs/colab/asr/10-30_v3/analysis/select.json`](../../../artifacts/runs/colab/asr/10-30_v3/analysis/select.json): `wrong_prompt`, `wrong_other`, `missed_prompt`, `missed_other`) | Lấy nhầm: từ tiếng Anh mới mà phép ghép lấy từ large-v3 nhưng đáp án câu đó không có. Bỏ sót: từ tiếng Anh mới của large-v3 có trong đáp án mà phép ghép không lấy. Mỗi loại tách theo từ của câu mồi / ngoài câu mồi | Đo trực tiếp hai mặt của đánh đổi mà F, G, H muốn cải thiện. Lần 2 đếm tay bằng script; lần 3 đưa vào code |
 | Độ chính xác quyết định đoạn (`decision_accuracy`) | Trên các đoạn có nhãn tự động (mục 6.3), tỉ lệ đoạn mà cách quyết định chọn đúng phía ít lỗi hơn so với đáp án; kèm CI và CI của chênh lệch so với C0 | Chỉ số chọn của bảng chọn chung (mục 7): đo thẳng các quyết định mà các ứng viên khác nhau |
-| Trần của hai phương án (`I1` trong `select.json`: `chosen_recall`, `ceiling_recall`, `ceiling_diff_ci`, `counts`) | Mục 8 | I |
+| Trần của hai phương án (`I1` trong [`artifacts/runs/colab/asr/10-30_v3/analysis/select.json`](../../../artifacts/runs/colab/asr/10-30_v3/analysis/select.json): `chosen_recall`, `ceiling_recall`, `ceiling_diff_ci`, `counts`) | Mục 8 | I |
 | Token thêm cho LLM | Mục 8; đếm bằng tokenizer của Qwen3-4B | I |
 | Thời gian từng bước mỗi mẫu (`rnnt_s`, `whisper_s`, `merge_s` trong `timing.jsonl`) | Đồng hồ thực (`time.perf_counter`) quanh từng bước, cộng theo mẫu. `whisper_s` gồm cả lớp bảo vệ và lần chép lại nếu có | Biết bước nào tốn thời gian |
-| Thời gian ASR mỗi mẫu: p50, p95, tối đa (`whisper_p50_p95_max`, `total_p50_p95_max` trong `e.json`) | Tổng thời gian các bước của mọi câu trong mẫu | Ngân sách 30 giây là theo mẫu |
+| Thời gian ASR mỗi mẫu: p50, p95, tối đa (`whisper_p50_p95_max`, `total_p50_p95_max` trong [`artifacts/runs/colab/asr/10-30_v3/analysis/e.json`](../../../artifacts/runs/colab/asr/10-30_v3/analysis/e.json)) | Tổng thời gian các bước của mọi câu trong mẫu | Ngân sách 30 giây là theo mẫu |
 | RTF | Tổng thời gian ASR chia tổng số giây âm thanh của tập | So được giữa các tập có độ dài khác nhau |
 | Thời gian nạp mô hình (`load_s` trong `summary.json`) | Từ lúc nạp mô hình tới khi khởi động (`warmup`) xong | Không tính vào từng mẫu, nhưng cộng vào tổng thời gian chạy Docker |
 | Bộ nhớ GPU đỉnh (`gpu_peak_mb` trong `summary.json`) | Mục 2.4 | Phần còn lại cho vLLM |
@@ -615,7 +615,7 @@ Chỉ số mới:
 ### 2.3. Cách chọn và đo
 
 Như lần 2: chọn trên `asr_tune`, đo cấu hình thắng đúng một lần trên `val_seen` và `val_unseen`. So sánh dùng bootstrap có
-ghép cặp theo mẫu, 1 000 vòng, seed 0 (`lifemate/eval/asr_compare.py` › `compare`). Hai hệ thống chỉ được coi là khác
+ghép cặp theo mẫu, 1 000 vòng, seed 0 ([`lifemate/eval/asr_compare.py`](../../../lifemate/eval/asr_compare.py) › `compare`). Hai hệ thống chỉ được coi là khác
 nhau khi CI 95% của chênh lệch không chứa 0. Tiêu chí chọn của từng thử nghiệm đã ghi ở phần tóm tắt, trước khi đo.
 
 Tập dò được dùng hai lần: chọn câu mồi (E), rồi chọn cách quyết định ghép (mục 7). Mọi tham số khác (θ của F, hệ số của
@@ -631,7 +631,7 @@ thật. Mỗi lựa chọn ở lần 3 (câu mồi dài hơn ở E, chấm đi�
 
 **Giải pháp.** Không có thử nghiệm riêng cho thời gian; mọi phiên GPU (K1, K2, K3) đo kèm.
 
-- **Đo trong cùng một tiến trình.** Bộ chạy `lifemate/eval/asr_v3.py` nạp RNNT và large-v3 một lần rồi chạy lần lượt
+- **Đo trong cùng một tiến trình.** Bộ chạy [`lifemate/eval/asr_v3.py`](../../../lifemate/eval/asr_v3.py) nạp RNNT và large-v3 một lần rồi chạy lần lượt
 RNNT, large-v3, lớp bảo vệ, phép ghép (phiên K1, K2) và chấm điểm G (phiên K3), đúng thứ tự các bước lúc nộp. Engine ghép
 cho hệ thống thật chưa viết ở lần 3 (Phụ lục A.2).
 - **Thời gian mỗi mẫu.** Bộ chạy ghi một dòng `timing.jsonl` cho mỗi mẫu: `{id, n_utterances, audio_s, rnnt_s,
@@ -641,7 +641,7 @@ whisper_s, merge_s, retries}`. Ở phiên K1, `whisper_s`, `merge_s` và `retrie
 - **Khởi động trước khi đo.** Mỗi mô hình chạy một lần trên 1 giây im lặng (`warmup`) trước mẫu đầu tiên, và lần đó
 không tính. Lý do: lần chạy đầu của GPU tốn thêm thời gian dựng kernel, không lặp lại ở các mẫu sau.
 - **Bộ nhớ GPU.** large-v3 chạy trên CTranslate2, không phải PyTorch, nên `torch.cuda.max_memory_allocated` không thấy
-bộ nhớ của large-v3. Vì vậy `lifemate/eval/gpu_memory.py` › `GpuMemoryMonitor` chạy nền
+bộ nhớ của large-v3. Vì vậy [`lifemate/eval/gpu_memory.py`](../../../lifemate/eval/gpu_memory.py) › `GpuMemoryMonitor` chạy nền
 `nvidia-smi --query-gpu=memory.used --format=csv -lms 200` trong suốt phiên và ghi `gpu_memory.csv`; bộ nhớ đỉnh
 (`gpu_peak_mb` trong `summary.json`) là giá trị lớn nhất trừ giá trị trước khi nạp mô hình.
 - **Kiểm tra tất định.** Ở phiên K1, bộ chạy chép lại 50 mẫu đầu của `asr_tune` (145 câu) lần hai bằng RNNT và large-v3
@@ -712,14 +712,14 @@ câu bị cắt và số token bị cắt được ghi lại.
 
 **Code.**
 
-- `lifemate/backends/asr_prompt.py` › `build_sample_prompts(sample, catalog_apps, fixed_prompt, variant)`:
+- [`lifemate/backends/asr_prompt.py`](../../../lifemate/backends/asr_prompt.py) › `build_sample_prompts(sample, catalog_apps, fixed_prompt, variant)`:
 nhận một mẫu, catalog (từ điển mã app → mục catalog), câu mồi cố định và tên biến thể; trả về danh sách câu mồi, một
 câu mồi cho mỗi câu người dùng theo đúng thứ tự file âm thanh của `ASRTranscriber.wav_paths` (lịch sử trước, lượt cuối
 sau). Hàm chỉ đọc `sample.context`, `sample.history` (lượt trợ lý) và catalog; không đọc lượt người dùng và không đọc
 file môi trường của BTC.
-- `lifemate/backends/asr.py` › `FasterWhisperASR.transcribe_one(audio, prompt)`: chép một câu với câu mồi riêng, trả
+- [`lifemate/backends/asr.py`](../../../lifemate/backends/asr.py) › `FasterWhisperASR.transcribe_one(audio, prompt)`: chép một câu với câu mồi riêng, trả
 thêm điểm tin cậy; `transcribe_batch(wav_paths, prompts=None)` nhận câu mồi riêng cho từng file. Bộ chạy
-`lifemate/eval/asr_v3.py` gọi `build_sample_prompts` cho từng mẫu; khoá config `[asr].prompt_mode` cho hệ thống thật chưa
+[`lifemate/eval/asr_v3.py`](../../../lifemate/eval/asr_v3.py) gọi `build_sample_prompts` cho từng mẫu; khoá config `[asr].prompt_mode` cho hệ thống thật chưa
 thêm (Phụ lục A.2).
 - `hyps.jsonl` có thêm trường `prompt` (câu mồi đã dùng cho câu đó) và `scores` (`avg_logprob`,
 `no_speech_prob` của từng đoạn, cho thử nghiệm H). File kết quả không lên git, nên chứa chữ của dữ liệu cũng được.
@@ -728,13 +728,13 @@ thêm (Phụ lục A.2).
 mồi" và chép lại không câu mồi. Với câu mồi có lời trợ lý, người dùng hay **nhắc lại đúng lời trợ lý** ("Gửi cho Sarah
 hay Sara?" → "gửi cho Sarah"), nên so với toàn bộ câu mồi sẽ bắt nhầm câu đúng. Vì vậy ở E1 và E2, lớp bảo vệ chỉ so với
 **phần cố định** (`en_full_v1`), cộng kiểm tra tỉ lệ nén như cũ (bắt câu lặp). Việc in lại lời trợ lý được đo riêng bằng
-`assistant_echo` (mục 2.2), không dùng để chép lại. Code: `lifemate/backends/asr_guard.py` › `needs_retry` giữ nguyên;
-bộ chạy `lifemate/eval/asr_v3.py` truyền vào câu mồi phần cố định thay cho câu mồi đầy đủ.
+`assistant_echo` (mục 2.2), không dùng để chép lại. Code: [`lifemate/backends/asr_guard.py`](../../../lifemate/backends/asr_guard.py) › `needs_retry` giữ nguyên;
+bộ chạy [`lifemate/eval/asr_v3.py`](../../../lifemate/eval/asr_v3.py) truyền vào câu mồi phần cố định thay cho câu mồi đầy đủ.
 
 **Phép ghép với câu mồi theo mẫu.** `context_other` nhận mọi từ của câu mồi. Với câu mồi theo mẫu, "từ của câu mồi" gồm
 từ của phần cố định và từ của phần riêng; từ của phần riêng vốn đã có trong từ điển ngữ cảnh, nên quy tắc không đổi.
 Vì vậy phép ghép chỉ cần tập từ của phần cố định (`en_full_v1`) làm "từ của câu mồi", giống lần 2
-(`lifemate/eval/asr_v3_report.py` › `_fixed_prompt`).
+([`lifemate/eval/asr_v3_report.py`](../../../lifemate/eval/asr_v3_report.py) › `_fixed_prompt`).
 
 ### 3.4. Lý do
 
@@ -935,13 +935,13 @@ phần còn lại, rồi chấm bản ghép `context_reliable` trên phần đó
 
 **Code.**
 
-- `lifemate/eval/asr_v3_analysis.py` › `count_prompt_words(utterances, prompt_words)`: nhận các câu đã tách vùng
+- [`lifemate/eval/asr_v3_analysis.py`](../../../lifemate/eval/asr_v3_analysis.py) › `count_prompt_words(utterances, prompt_words)`: nhận các câu đã tách vùng
 (`utterance_regions`) và tập từ của câu mồi; trả về từ điển `từ đã chuẩn hoá → (written, correct)`.
 `reliability(counts)` trả về từ điển `từ đã chuẩn hoá → độ tin cậy`.
-- `lifemate/eval/asr_v3_analysis.py` › `f_decider(context, prompt_words, reliability, theta)`: hàm quyết định cho từng
+- [`lifemate/eval/asr_v3_analysis.py`](../../../lifemate/eval/asr_v3_analysis.py) › `f_decider(context, prompt_words, reliability, theta)`: hàm quyết định cho từng
 vùng theo `context_reliable`. Cách lọc này nằm trong code phân tích, chưa thêm vào `CONTEXT_POLICIES` của
-`lifemate/eval/asr_merge.py`, vì F không thắng (mục 7).
-- `lifemate/eval/asr_v3_report.py` › `stage_select`: kiểm định chéo chọn θ và ghi bảng độ tin cậy vào `select.json` (không
+[`lifemate/eval/asr_merge.py`](../../../lifemate/eval/asr_merge.py), vì F không thắng (mục 7).
+- [`lifemate/eval/asr_v3_report.py`](../../../lifemate/eval/asr_v3_report.py) › `stage_select`: kiểm định chéo chọn θ và ghi bảng độ tin cậy vào [`artifacts/runs/colab/asr/10-30_v3/analysis/select.json`](../../../artifacts/runs/colab/asr/10-30_v3/analysis/select.json) (không
 lên git, vì số đếm lấy từ dữ liệu thi).
 
 ### 4.4. Lý do
@@ -1066,7 +1066,7 @@ một mô hình tính trên cùng âm thanh.
    decoder nhìn các vector của encoder và các token trước, trả về xác suất cho mọi token trong bộ từ vựng; giải mã tham lam
    lấy token có xác suất cao nhất. Dừng khi gặp token kết thúc `<|endoftext|>`.
 4. Cấu hình thắng lần 2 có thêm VAD (bỏ khoảng lặng trước khi mã hoá), câu mồi `en_full_v1`, lớp bảo vệ g4 (câu ra chép lại
-   cụm 4 từ của câu mồi thì chép lại không câu mồi) và bộ lọc câu bịa (`asr_sanitizer.py`).
+   cụm 4 từ của câu mồi thì chép lại không câu mồi) và bộ lọc câu bịa ([`lifemate/backends/asr_sanitizer.py`](../../../lifemate/backends/asr_sanitizer.py)).
 
 Câu mồi chỉ là token đứng trước, nên câu mồi đổi xác suất ở **mọi** bước giải mã: "Mail" có trong câu mồi thì xác suất
 viết "Mail" tăng, dù âm thanh là "mai".
@@ -1150,14 +1150,14 @@ dài hơn 30 giây (0 trên 968 đoạn của cả bốn tập).
 
 **Code.**
 
-- `lifemate/eval/candidate_scoring.py` › `candidate_pairs(primary, secondary)`: nhận chữ RNNT và chữ large-v3 của một
+- [`lifemate/eval/candidate_scoring.py`](../../../lifemate/eval/candidate_scoring.py) › `candidate_pairs(primary, secondary)`: nhận chữ RNNT và chữ large-v3 của một
   câu, trả về danh sách cặp (chỉ số đoạn, câu A, câu B) đã đưa về cùng kiểu viết (`scoring_text`).
-- `lifemate/backends/asr.py` › `FasterWhisperASR.score_texts(audio, texts)`: nhận âm thanh một câu và các câu ứng viên,
+- [`lifemate/backends/asr.py`](../../../lifemate/backends/asr.py) › `FasterWhisperASR.score_texts(audio, texts)`: nhận âm thanh một câu và các câu ứng viên,
   trả về (tổng log xác suất, số token) của từng câu (`model.encode` một lần, `model.model.align` không câu mồi cho từng
   câu).
-- `lifemate/eval/asr_v3.py` › `score_candidates` (lệnh `score`): chạy phiên K3, ghi `scores_<tập>.jsonl`.
-- `lifemate/eval/candidate_scoring.py` › `decide_g(score_a, score_b)`: `True` khi lấy chữ large-v3.
-  `lifemate/eval/asr_v3_analysis.py` › `g_decider(fallback)` dùng hàm này cho từng đoạn, và dùng F cho đoạn thiếu điểm
+- [`lifemate/eval/asr_v3.py`](../../../lifemate/eval/asr_v3.py) › `score_candidates` (lệnh `score`): chạy phiên K3, ghi `scores_<tập>.jsonl`.
+- [`lifemate/eval/candidate_scoring.py`](../../../lifemate/eval/candidate_scoring.py) › `decide_g(score_a, score_b)`: `True` khi lấy chữ large-v3.
+  [`lifemate/eval/asr_v3_analysis.py`](../../../lifemate/eval/asr_v3_analysis.py) › `g_decider(fallback)` dùng hàm này cho từng đoạn, và dùng F cho đoạn thiếu điểm
   hoặc dài hơn 30 giây.
 
 ### 5.4. Lý do
@@ -1300,17 +1300,17 @@ dùng nữa: số từ hai phía đã là đặc trưng, và điều kiện đó
 
 **Code.**
 
-- `lifemate/eval/asr_v3_analysis.py` › `utterance_regions(rnnt_rows, v3_rows, scores)`: tách mỗi câu thành các đoạn
+- [`lifemate/eval/asr_v3_analysis.py`](../../../lifemate/eval/asr_v3_analysis.py) › `utterance_regions(rnnt_rows, v3_rows, scores)`: tách mỗi câu thành các đoạn
 cần quyết định, kèm nhãn tự động (1, 0 hoặc `None` khi hoà) và điểm âm thanh của G.
-- `lifemate/eval/asr_v3_analysis.py` › `region_features(u, region, k, context, prompt_words, reliability)`: vector đặc
+- [`lifemate/eval/asr_v3_analysis.py`](../../../lifemate/eval/asr_v3_analysis.py) › `region_features(u, region, k, context, prompt_words, reliability)`: vector đặc
 trưng của một đoạn, theo thứ tự `FEATURES`.
-- `lifemate/eval/asr_v3_analysis.py` › `fit_logistic(x, y, l2)`: trả về `LogisticModel` (trung bình, độ lệch, trọng
+- [`lifemate/eval/asr_v3_analysis.py`](../../../lifemate/eval/asr_v3_analysis.py) › `fit_logistic(x, y, l2)`: trả về `LogisticModel` (trung bình, độ lệch, trọng
 số). `predict(model, features)`: xác suất. `h_decider(model, context, prompt_words, reliability)`: hàm quyết định cho
 từng đoạn.
-- `lifemate/eval/asr_merge.py` › `split_regions`, `candidate_regions`, `assemble`: tách hai bản chữ thành đoạn khớp và
+- [`lifemate/eval/asr_merge.py`](../../../lifemate/eval/asr_merge.py) › `split_regions`, `candidate_regions`, `assemble`: tách hai bản chữ thành đoạn khớp và
 đoạn khác nhau, rồi ghép lại theo một hàm quyết định, để luật và bộ phân loại dùng chung một code gióng. Với luật
 `rule_decision`, chữ ghép giống hệt lần 2 từng byte.
-- `lifemate/eval/asr_v3_report.py` › `stage_select`: chọn hệ số phạt, học trên cả tập học, ghi trọng số vào `select.json`.
+- [`lifemate/eval/asr_v3_report.py`](../../../lifemate/eval/asr_v3_report.py) › `stage_select`: chọn hệ số phạt, học trên cả tập học, ghi trọng số vào [`artifacts/runs/colab/asr/10-30_v3/analysis/select.json`](../../../artifacts/runs/colab/asr/10-30_v3/analysis/select.json).
 
 ### 6.4. Lý do
 
@@ -1562,9 +1562,9 @@ Từ bốn loại này đếm được, trên mỗi tập:
 - **Rủi ro**: số đoạn "rủi ro" (trong ví dụ là 2) và tỉ lệ câu thuần Việt có ít nhất một đoạn không chắc.
 - **Chi phí**: số token thêm vào mỗi mẫu, đếm bằng tokenizer của Qwen3-4B (chỉ nạp tokenizer, không chạy mô hình).
 
-**Code.** `lifemate/eval/asr_v3_analysis.py` › `alternatives(utterances, decide, uncertain)`: nhận các câu đã tách
+**Code.** [`lifemate/eval/asr_v3_analysis.py`](../../../lifemate/eval/asr_v3_analysis.py) › `alternatives(utterances, decide, uncertain)`: nhận các câu đã tách
 đoạn, hàm quyết định đã chốt và hàm chọn đoạn không chắc; trả về chữ dạng hai phương án của từng câu và số đoạn của từng
-loại (không chắc, cứu được, rủi ro, hoà). `lifemate/eval/asr_v3_report.py` › `stage_select` tính trần, CI và ghi
+loại (không chắc, cứu được, rủi ro, hoà). [`lifemate/eval/asr_v3_report.py`](../../../lifemate/eval/asr_v3_report.py) › `stage_select` tính trần, CI và ghi
 `j4_alternatives_<tập>.hyps.jsonl` để thử nghiệm J đọc lại. Số token thêm được đếm một lần trên máy dev bằng file
 tokenizer của `Qwen/Qwen3-4B-Instruct-2507` (chỉ nạp tokenizer, không chạy mô hình), so chữ J4 với chữ J3 từng mẫu; lệnh
 đếm chưa đưa vào code.
@@ -1671,15 +1671,15 @@ Không cần chạy ASR cùng lúc, nên làm được trên T4: T4 không chứ
 | J3 | Bản ghép thắng của lần 3 (câu mồi thắng của E, cách thắng của mục 7) | Lần 3 giúp thêm bao nhiêu |
 | J4 | J3 có hai phương án ở đoạn không chắc (I2) | LLM có chọn đúng không; chỉ chạy khi I1 đạt tiêu chí (mục 8.6) |
 
-**Đọc lại chữ.** `lifemate/eval/rescore_asr.py` › `ReplayTranscriber` nhận các dòng `hyps.jsonl` và trả về
-`Transcript` của từng mẫu như một ASR thật. `lifemate/run/cli.py` có thêm `--transcripts replay --hyps <file>` (dùng
+**Đọc lại chữ.** [`lifemate/eval/rescore_asr.py`](../../../lifemate/eval/rescore_asr.py) › `ReplayTranscriber` nhận các dòng `hyps.jsonl` và trả về
+`Transcript` của từng mẫu như một ASR thật. [`lifemate/run/cli.py`](../../../lifemate/run/cli.py) có thêm `--transcripts replay --hyps <file>` (dùng
 `ReplayTranscriber`) và `--set khoá=giá_trị` (đổi một khoá config cho một lần chạy); J0 dùng `--transcripts gold` đã có.
-Mọi nguồn chạy cùng `configs/v0.toml`: `Qwen/Qwen3-4B-Instruct-2507` qua vLLM 0.32.0, seed 0, prompt hệ thống
-`configs/prompts/system_v1.md`.
+Mọi nguồn chạy cùng [`configs/v0.toml`](../../../configs/v0.toml): `Qwen/Qwen3-4B-Instruct-2507` qua vLLM 0.32.0, seed 0, prompt hệ thống
+[`configs/prompts/system_v1.md`](../../../configs/prompts/system_v1.md).
 
 **Chỉ chạy lại mẫu có chữ khác J1.** Agent giải mã tất định, nên mẫu có chữ giống hệt J1 ở mọi lượt cho cùng lời gọi tool.
 Vì vậy J0 và J1 chạy đủ mọi mẫu; J2, J3, J4 chỉ chạy các mẫu có ít nhất một lượt khác chữ J1, các mẫu còn lại dùng điểm
-của J1 (`lifemate/eval/asr_v3_agent.py` › `differing_ids`, `source_scores`). Số mẫu khác J1:
+của J1 ([`lifemate/eval/asr_v3_agent.py`](../../../lifemate/eval/asr_v3_agent.py) › `differing_ids`, `source_scores`). Số mẫu khác J1:
 
 | Nguồn | `val_seen` (274 mẫu) | `val_unseen` (178 mẫu) |
 |---|---|---|
@@ -1687,14 +1687,14 @@ của J1 (`lifemate/eval/asr_v3_agent.py` › `differing_ids`, `source_scores`).
 | J3 ghép lần 3 | 77 | 35 |
 | J4 hai phương án | 117 | 71 |
 
-**Prompt cho J4.** `configs/prompts/system_v1_alternatives.md` là `system_v1.md` thêm quy tắc 15: "lời người dùng có thể
+**Prompt cho J4.** [`configs/prompts/system_v1_alternatives.md`](../../../configs/prompts/system_v1_alternatives.md) là [`configs/prompts/system_v1.md`](../../../configs/prompts/system_v1.md) thêm quy tắc 15: "lời người dùng có thể
 chứa đoạn dạng `{A | B}`, là hai cách nghe của cùng một đoạn âm thanh. Chọn cách hợp với danh sách app đã cài, kết quả
 tool và ngữ cảnh; dùng đúng chữ của cách đã chọn, không chép dấu ngoặc `{`, `}` hay dấu `|` vào tham số." J4 chạy với
 `--set agent.system_prompt=configs/prompts/system_v1_alternatives.md`; J0–J3 giữ prompt như cũ.
 
-**Chấm điểm.** Sau khi chạy, bộ chấm của dự án (`lifemate/eval/score.py`, theo đúng luật chấm của BTC) phát lại lời gọi
+**Chấm điểm.** Sau khi chạy, bộ chấm của dự án ([`lifemate/eval/score.py`](../../../lifemate/eval/score.py), theo đúng luật chấm của BTC) phát lại lời gọi
 tool của agent và lời gọi đáp án trên `ToolEnv` của từng mẫu, so `state_hash` và so từng lời gọi, rồi ghi điểm từng mẫu
-vào `details.jsonl`. `lifemate/eval/asr_v3_agent.py` › `summarize` (lệnh `score`) tính điểm trung bình, CI 95% và CI
+vào `details.jsonl`. [`lifemate/eval/asr_v3_agent.py`](../../../lifemate/eval/asr_v3_agent.py) › `summarize` (lệnh `score`) tính điểm trung bình, CI 95% và CI
 của chênh lệch so với J1 bằng bootstrap ghép cặp theo mẫu (1 000 vòng, seed 0), số mẫu điểm tối đa, số mẫu được và mất
 điểm so với J1, đếm loại lỗi theo trường `errors` của `details.jsonl`, và với J4 đếm số mẫu có `{`, `}` hoặc `|` lọt vào
 tham số tool.
@@ -1725,7 +1725,7 @@ thêm số mẫu có dấu ngoặc `{`, `}` hoặc `|` lọt vào tham số tool
 J không chọn gì trong pipeline ASR (lựa chọn đã chốt ở E và mục 7). Kết quả của J dùng cho hai quyết định của bước sau,
 ghi trước khi đo:
 
-- Bản ghép thắng của lần 3 (J3) được đưa vào `configs/v0.toml` thay cho large-v3 đứng riêng nếu điểm thi của J3 không thấp
+- Bản ghép thắng của lần 3 (J3) được đưa vào [`configs/v0.toml`](../../../configs/v0.toml) thay cho large-v3 đứng riêng nếu điểm thi của J3 không thấp
   hơn J1 có ý nghĩa thống kê trên cả hai tập val.
 - Định dạng hai phương án được đưa vào dữ liệu fine-tune LLM nếu J4 hơn J3 có ý nghĩa thống kê trên ít nhất một tập val và
   không thua có ý nghĩa thống kê trên tập còn lại.
@@ -1777,16 +1777,16 @@ với J1 7,85 (85 mẫu); J3 7,51 so với J1 6,19 (77 mẫu).
 ### 9.9. Kết luận
 
 Tạm thời, trên `val_seen`: bản ghép lần 3 không thấp hơn RNNT có ý nghĩa thống kê (J3 − J1 = +0,37 [−0,90; +1,72]), tức
-đạt điều kiện đặt trước ở `val_seen` để đưa vào `configs/v0.toml`; còn phải chờ `val_unseen`. Với LLM chưa fine-tune,
+đạt điều kiện đặt trước ở `val_seen` để đưa vào [`configs/v0.toml`](../../../configs/v0.toml); còn phải chờ `val_unseen`. Với LLM chưa fine-tune,
 cải thiện ASR chỉ thêm vài phần mười điểm; phần lớn điểm còn mất nằm ở LLM. Kết luận về J4 (hai phương án) và mức trần
 (J0) chờ phiên K4 chạy xong.
 
 ### 9.10. Giới hạn
 
 - **Định dạng hội thoại cũ.** Phiên K4 chạy agent ở định dạng JSON `{"action": ...}` (`[agent].format = "json"`). Từ
-  30/10/2026 hệ thống chạy thi dùng định dạng ChatML giống dữ liệu huấn luyện của lead (`docs/decisions.md` D50), nên điểm
+  30/10/2026 hệ thống chạy thi dùng định dạng ChatML giống dữ liệu huấn luyện của lead ([`docs/decisions.md`](../../decisions.md) D50), nên điểm
   tuyệt đối ở đây không áp dụng cho hệ thống hiện tại; phép so giữa các nguồn chữ vẫn có giá trị vì mọi nguồn chạy cùng
-  định dạng. Chạy tiếp J ở định dạng cũ: dùng `configs/v0_json.toml`, `--resume` trên các thư mục `k4/`.
+  định dạng. Chạy tiếp J ở định dạng cũ: dùng [`configs/v0_json.toml`](../../../configs/v0_json.toml), `--resume` trên các thư mục `k4/`.
 
 - **Chỉ đo độ chính xác, không đo thời gian thật.** ASR không chạy cùng lúc, máy là T4 chứ không phải A30. Thời gian thật
   của cả hệ thống đo ở lần chạy hệ thống sau lần 3.
@@ -1813,44 +1813,44 @@ chung), nên số tập dò của bước chọn thứ hai lạc quan hơn (mụ
 
 | File › tên                                                          | Loại         | Đầu vào → đầu ra                                                             | Việc làm                                      |
 | ------------------------------------------------------------------- | ------------ | ---------------------------------------------------------------------------- | --------------------------------------------- |
-| `lifemate/eval/foreign_words.py` › `find_foreign_words`             | hàm          | câu, tập từ viết thường → danh sách từ ngoại (cách viết gốc, dạng chuẩn hoá, nhóm) | Quy tắc tìm từ ngoại (báo cáo lần 2, mục 2.1) |
-| `lifemate/eval/eval_asr.py` › `evaluate`                            | hàm          | mẫu, transcriber, câu mồi → `AsrReport`                                      | Chấm mọi chỉ số ASR                           |
-| `lifemate/eval/rescore_asr.py` › `ReplayTranscriber`                | lớp          | `hyps.jsonl` → chữ từng câu                                                  | Chấm lại offline                              |
-| `lifemate/eval/asr_compare.py` › `compare`                          | hàm          | mẫu, các hệ thống → chỉ số, CI, CI của chênh lệch                            | Bootstrap có ghép cặp theo mẫu                |
-| `lifemate/eval/asr_merge.py` › `merge_transcripts`                  | hàm          | chữ RNNT, chữ large-v3, bộ lọc → chữ ghép                                    | Quy tắc ghép                                  |
-| `lifemate/eval/asr_merge.py` › `sample_context_words`               | hàm          | mẫu, catalog → `frozenset[str]` từ đã chuẩn hoá                                    | Từ điển ngữ cảnh                              |
-| `lifemate/eval/asr_merge.py` › `english_filter`, `CONTEXT_POLICIES` | hàm, hằng số | cách lọc, ngữ cảnh, từ câu mồi → hàm nhận/loại một từ                        | Bộ lọc bước 3b                                |
-| `lifemate/backends/asr.py` › `ASRTranscriber`                       | lớp          | mẫu → `Transcript` (chữ từng lượt, `seconds`)                                | Chép mọi câu của mẫu, lớp bảo vệ, lọc ảo giác |
-| `lifemate/backends/asr.py` › `FasterWhisperASR`                     | lớp          | danh sách file WAV → danh sách chữ                                           | Backend large-v3 (CTranslate2)                |
-| `lifemate/backends/asr.py` › `ChunkFormerASR`                       | lớp          | danh sách file WAV → danh sách chữ                                           | Backend RNNT                                  |
-| `lifemate/backends/asr_guard.py` › `needs_retry`                    | hàm          | chữ, chữ đã lọc, câu mồi, độ dài cụm, ngưỡng nén → có chép lại không         | Lớp bảo vệ câu mồi                            |
-| `lifemate/run/timing.py` › `TimedTranscriber`                       | lớp          | bọc transcriber → cộng dồn số giây và số lần gọi                             | Đo thời gian trong lần chạy hệ thống          |
-| `lifemate/io/zaic.py` › `load_catalog`                              | hàm          | thư mục dữ liệu, split → catalog tool                                        | Đọc catalog (không đọc file môi trường)       |
+| [`lifemate/eval/foreign_words.py`](../../../lifemate/eval/foreign_words.py) › `find_foreign_words`             | hàm          | câu, tập từ viết thường → danh sách từ ngoại (cách viết gốc, dạng chuẩn hoá, nhóm) | Quy tắc tìm từ ngoại (báo cáo lần 2, mục 2.1) |
+| [`lifemate/eval/eval_asr.py`](../../../lifemate/eval/eval_asr.py) › `evaluate`                            | hàm          | mẫu, transcriber, câu mồi → `AsrReport`                                      | Chấm mọi chỉ số ASR                           |
+| [`lifemate/eval/rescore_asr.py`](../../../lifemate/eval/rescore_asr.py) › `ReplayTranscriber`                | lớp          | `hyps.jsonl` → chữ từng câu                                                  | Chấm lại offline                              |
+| [`lifemate/eval/asr_compare.py`](../../../lifemate/eval/asr_compare.py) › `compare`                          | hàm          | mẫu, các hệ thống → chỉ số, CI, CI của chênh lệch                            | Bootstrap có ghép cặp theo mẫu                |
+| [`lifemate/eval/asr_merge.py`](../../../lifemate/eval/asr_merge.py) › `merge_transcripts`                  | hàm          | chữ RNNT, chữ large-v3, bộ lọc → chữ ghép                                    | Quy tắc ghép                                  |
+| [`lifemate/eval/asr_merge.py`](../../../lifemate/eval/asr_merge.py) › `sample_context_words`               | hàm          | mẫu, catalog → `frozenset[str]` từ đã chuẩn hoá                                    | Từ điển ngữ cảnh                              |
+| [`lifemate/eval/asr_merge.py`](../../../lifemate/eval/asr_merge.py) › `english_filter`, `CONTEXT_POLICIES` | hàm, hằng số | cách lọc, ngữ cảnh, từ câu mồi → hàm nhận/loại một từ                        | Bộ lọc bước 3b                                |
+| [`lifemate/backends/asr.py`](../../../lifemate/backends/asr.py) › `ASRTranscriber`                       | lớp          | mẫu → `Transcript` (chữ từng lượt, `seconds`)                                | Chép mọi câu của mẫu, lớp bảo vệ, lọc ảo giác |
+| [`lifemate/backends/asr.py`](../../../lifemate/backends/asr.py) › `FasterWhisperASR`                     | lớp          | danh sách file WAV → danh sách chữ                                           | Backend large-v3 (CTranslate2)                |
+| [`lifemate/backends/asr.py`](../../../lifemate/backends/asr.py) › `ChunkFormerASR`                       | lớp          | danh sách file WAV → danh sách chữ                                           | Backend RNNT                                  |
+| [`lifemate/backends/asr_guard.py`](../../../lifemate/backends/asr_guard.py) › `needs_retry`                    | hàm          | chữ, chữ đã lọc, câu mồi, độ dài cụm, ngưỡng nén → có chép lại không         | Lớp bảo vệ câu mồi                            |
+| [`lifemate/run/timing.py`](../../../lifemate/run/timing.py) › `TimedTranscriber`                       | lớp          | bọc transcriber → cộng dồn số giây và số lần gọi                             | Đo thời gian trong lần chạy hệ thống          |
+| [`lifemate/io/zaic.py`](../../../lifemate/io/zaic.py) › `load_catalog`                              | hàm          | thư mục dữ liệu, split → catalog tool                                        | Đọc catalog (không đọc file môi trường)       |
 
 
 ### A.2. Code đã viết hoặc sửa ở lần 3
 
 | File › tên | Loại | Đầu vào → đầu ra | Việc làm | Thử nghiệm |
 |---|---|---|---|---|
-| `lifemate/eval/make_splits.py` | sửa | ghi thêm `configs/splits/asr_learn.txt` (793 mã) | Danh sách tập học | F, G, H |
-| `lifemate/eval/asr_merge.py` › `sample_context_words` | sửa | mẫu, catalog → tập từ, chỉ lấy giá trị JSON | Từ điển ngữ cảnh bỏ khoá | mọi cách ghép |
-| `lifemate/eval/asr_merge.py` › `Region`, `split_regions`, `candidate_regions`, `assemble`, `rule_decision` | mới | hai câu → từ khớp và vùng khác nhau; hàm quyết định → câu ghép | Dùng chung cho C0, F, G, H; ghép lại giống hệt lần 2 từng byte | mọi cách ghép |
-| `lifemate/backends/asr_prompt.py` › `build_sample_prompts` | module mới | mẫu, catalog, câu mồi cố định, biến thể → câu mồi từng câu theo thứ tự file | Câu mồi theo mẫu | E |
-| `lifemate/backends/asr.py` › `FasterWhisperASR.transcribe_one` | hàm mới | âm thanh, câu mồi → chữ, `avg_logprob`, `no_speech_prob` | Câu mồi riêng từng câu, điểm tin cậy | E, H |
-| `lifemate/backends/asr.py` › `FasterWhisperASR.score_texts` | hàm mới | âm thanh, các câu → (tổng log xác suất, số token) | Chấm ép chuỗi không câu mồi (`encode` một lần, `align` từng câu) | G |
-| `lifemate/eval/asr_v3.py` › `transcribe_variants`, `score_candidates` | module mới | file id, biến thể → `hyps.jsonl`, `timing.jsonl`, `summary.json`; chữ hai mô hình → điểm âm thanh | Bộ chạy các phiên K1–K3: RNNT, large-v3 với lớp bảo vệ so phần cố định, bộ lọc câu bịa, ghép, chấm điểm, đo thời gian từng bước, `--resume` | E, F, G, H |
-| `lifemate/eval/gpu_memory.py` › `GpuMemoryMonitor` | module mới | chạy nền `nvidia-smi` → `gpu_memory.csv`, bộ nhớ đỉnh | Đo bộ nhớ | mọi phiên |
-| `lifemate/eval/candidate_scoring.py` › `candidate_pairs`, `decide_g` | module mới | chữ RNNT, chữ large-v3 → câu ứng viên A, B; điểm → quyết định | Câu ứng viên của G | G |
-| `lifemate/eval/asr_v3_analysis.py` | module mới | `hyps.jsonl`, điểm âm thanh → vùng có nhãn, bảng độ tin cậy, các cách quyết định C0, F, G, H, hồi quy logistic, độ chính xác quyết định đoạn kèm bootstrap, hai phương án | Phân tích offline | F, G, H, bảng chọn chung, I |
-| `lifemate/eval/asr_v3_report.py` | module mới | thư mục kết quả K1–K3 → các bảng số (`e.json`, `select.json`) và chữ của các nguồn J | Tính số cho báo cáo | E–I |
-| `lifemate/eval/asr_v3_agent.py` | module mới | thư mục run agent → điểm từng nguồn, CI, đếm loại lỗi, dấu ngoặc lọt vào tham số | Chấm thử nghiệm J; mẫu có chữ giống J1 dùng lại điểm J1 | J |
-| `lifemate/run/cli.py` › `--transcripts replay --hyps`, `--set` | sửa | file `hyps.jsonl` → agent đọc chữ đã lưu | Chạy agent trên chữ đã lưu | J |
-| `configs/prompts/system_v1_alternatives.md` | file mới | `system_v1.md` thêm quy tắc 15 | Prompt cho J4 | J |
-| `ops/colab/asr_v3_setup.py`, `ops/colab/asr_v3_launch.py` | script mới | | Chuẩn bị máy Colab và chạy nền một phiên | mọi phiên |
-| `ops/kaggle/asr_v3/` | kernel mới | | Bản Kaggle của K1–K3 (chưa dùng được vì hết hạn mức GPU tuần này) | |
+| [`lifemate/eval/make_splits.py`](../../../lifemate/eval/make_splits.py) | sửa | ghi thêm [`configs/splits/asr_learn.txt`](../../../configs/splits/asr_learn.txt) (793 mã) | Danh sách tập học | F, G, H |
+| [`lifemate/eval/asr_merge.py`](../../../lifemate/eval/asr_merge.py) › `sample_context_words` | sửa | mẫu, catalog → tập từ, chỉ lấy giá trị JSON | Từ điển ngữ cảnh bỏ khoá | mọi cách ghép |
+| [`lifemate/eval/asr_merge.py`](../../../lifemate/eval/asr_merge.py) › `Region`, `split_regions`, `candidate_regions`, `assemble`, `rule_decision` | mới | hai câu → từ khớp và vùng khác nhau; hàm quyết định → câu ghép | Dùng chung cho C0, F, G, H; ghép lại giống hệt lần 2 từng byte | mọi cách ghép |
+| [`lifemate/backends/asr_prompt.py`](../../../lifemate/backends/asr_prompt.py) › `build_sample_prompts` | module mới | mẫu, catalog, câu mồi cố định, biến thể → câu mồi từng câu theo thứ tự file | Câu mồi theo mẫu | E |
+| [`lifemate/backends/asr.py`](../../../lifemate/backends/asr.py) › `FasterWhisperASR.transcribe_one` | hàm mới | âm thanh, câu mồi → chữ, `avg_logprob`, `no_speech_prob` | Câu mồi riêng từng câu, điểm tin cậy | E, H |
+| [`lifemate/backends/asr.py`](../../../lifemate/backends/asr.py) › `FasterWhisperASR.score_texts` | hàm mới | âm thanh, các câu → (tổng log xác suất, số token) | Chấm ép chuỗi không câu mồi (`encode` một lần, `align` từng câu) | G |
+| [`lifemate/eval/asr_v3.py`](../../../lifemate/eval/asr_v3.py) › `transcribe_variants`, `score_candidates` | module mới | file id, biến thể → `hyps.jsonl`, `timing.jsonl`, `summary.json`; chữ hai mô hình → điểm âm thanh | Bộ chạy các phiên K1–K3: RNNT, large-v3 với lớp bảo vệ so phần cố định, bộ lọc câu bịa, ghép, chấm điểm, đo thời gian từng bước, `--resume` | E, F, G, H |
+| [`lifemate/eval/gpu_memory.py`](../../../lifemate/eval/gpu_memory.py) › `GpuMemoryMonitor` | module mới | chạy nền `nvidia-smi` → `gpu_memory.csv`, bộ nhớ đỉnh | Đo bộ nhớ | mọi phiên |
+| [`lifemate/eval/candidate_scoring.py`](../../../lifemate/eval/candidate_scoring.py) › `candidate_pairs`, `decide_g` | module mới | chữ RNNT, chữ large-v3 → câu ứng viên A, B; điểm → quyết định | Câu ứng viên của G | G |
+| [`lifemate/eval/asr_v3_analysis.py`](../../../lifemate/eval/asr_v3_analysis.py) | module mới | `hyps.jsonl`, điểm âm thanh → vùng có nhãn, bảng độ tin cậy, các cách quyết định C0, F, G, H, hồi quy logistic, độ chính xác quyết định đoạn kèm bootstrap, hai phương án | Phân tích offline | F, G, H, bảng chọn chung, I |
+| [`lifemate/eval/asr_v3_report.py`](../../../lifemate/eval/asr_v3_report.py) | module mới | thư mục kết quả K1–K3 → các bảng số ([`artifacts/runs/colab/asr/10-30_v3/analysis/e.json`](../../../artifacts/runs/colab/asr/10-30_v3/analysis/e.json), [`artifacts/runs/colab/asr/10-30_v3/analysis/select.json`](../../../artifacts/runs/colab/asr/10-30_v3/analysis/select.json)) và chữ của các nguồn J | Tính số cho báo cáo | E–I |
+| [`lifemate/eval/asr_v3_agent.py`](../../../lifemate/eval/asr_v3_agent.py) | module mới | thư mục run agent → điểm từng nguồn, CI, đếm loại lỗi, dấu ngoặc lọt vào tham số | Chấm thử nghiệm J; mẫu có chữ giống J1 dùng lại điểm J1 | J |
+| [`lifemate/run/cli.py`](../../../lifemate/run/cli.py) › `--transcripts replay --hyps`, `--set` | sửa | file `hyps.jsonl` → agent đọc chữ đã lưu | Chạy agent trên chữ đã lưu | J |
+| [`configs/prompts/system_v1_alternatives.md`](../../../configs/prompts/system_v1_alternatives.md) | file mới | [`configs/prompts/system_v1.md`](../../../configs/prompts/system_v1.md) thêm quy tắc 15 | Prompt cho J4 | J |
+| [`ops/colab/asr_v3_setup.py`](../../../ops/colab/asr_v3_setup.py), [`ops/colab/asr_v3_launch.py`](../../../ops/colab/asr_v3_launch.py) | script mới | | Chuẩn bị máy Colab và chạy nền một phiên | mọi phiên |
+| [`ops/kaggle/asr_v3/`](../../../ops/kaggle/asr_v3/) | kernel mới | | Bản Kaggle của K1–K3 (chưa dùng được vì hết hạn mức GPU tuần này) | |
 
-**Chưa làm ở lần 3:** engine ghép cho hệ thống thật (`MergedASR` trong `lifemate/backends/asr.py`) và khoá config
-`ASRConfig.prompt_mode`. Thời gian ở lần 3 được đo bằng bộ chạy `lifemate/eval/asr_v3.py`, chạy đúng các bước của engine
+**Chưa làm ở lần 3:** engine ghép cho hệ thống thật (`MergedASR` trong [`lifemate/backends/asr.py`](../../../lifemate/backends/asr.py)) và khoá config
+`ASRConfig.prompt_mode`. Thời gian ở lần 3 được đo bằng bộ chạy [`lifemate/eval/asr_v3.py`](../../../lifemate/eval/asr_v3.py), chạy đúng các bước của engine
 theo cùng thứ tự trong cùng một tiến trình; engine cho hệ thống thật là việc của bước sau lần 3.
 
 ## Phụ lục B. Việc chuẩn bị và lịch các phiên GPU
@@ -1858,36 +1858,36 @@ theo cùng thứ tự trong cùng một tiến trình; engine cho hệ thống t
 ### B.1. Việc chuẩn bị (máy dev, không cần GPU)
 
 Kế hoạch ban đầu tách code theo từng thử nghiệm (P9, P11, P13 mỗi việc một module). Khi viết, phần phân tích offline
-của F, G, H, bảng chọn chung và I được gộp vào `lifemate/eval/asr_v3_analysis.py` và `lifemate/eval/asr_v3_report.py`;
+của F, G, H, bảng chọn chung và I được gộp vào [`lifemate/eval/asr_v3_analysis.py`](../../../lifemate/eval/asr_v3_analysis.py) và [`lifemate/eval/asr_v3_report.py`](../../../lifemate/eval/asr_v3_report.py);
 cột "Đã làm ở" ghi file thật. Tên hàm ở Phụ lục A.2.
 
 | Mã | Cho | Việc | Đã làm ở | Trạng thái |
 | --- | --- | --- | --- | --- |
-| P1 | Chung | `make_splits` ghi `asr_learn.txt` (793 mã = `train.txt` bỏ `asr_tune.txt`) | `lifemate/eval/make_splits.py` | Xong |
+| P1 | Chung | `make_splits` ghi [`configs/splits/asr_learn.txt`](../../../configs/splits/asr_learn.txt) (793 mã = [`configs/splits/train.txt`](../../../configs/splits/train.txt) bỏ [`configs/splits/asr_tune.txt`](../../../configs/splits/asr_tune.txt)) | [`lifemate/eval/make_splits.py`](../../../lifemate/eval/make_splits.py) | Xong |
 | P2 | Chung | Đọc mã nguồn faster-whisper 1.2.1: cách cắt câu mồi khi quá 223 token; xác nhận `align` chấm được chuỗi cho sẵn không kèm câu mồi | Mục 3.3 và 5.3 | Xong |
-| P3 | Chung | `sample_context_words` bỏ khoá JSON, chỉ lấy giá trị | `lifemate/eval/asr_merge.py` | Xong |
-| P4 | Chung | Chỉ số mới (mục 2.2) | `lifemate/eval/asr_v3_report.py` (`en_context_recall`, `assistant_echo`, `merge_word_errors`) | Xong |
-| P5 | Chung | Đọc bộ nhớ GPU bằng `nvidia-smi` chạy nền | `lifemate/eval/gpu_memory.py` › `GpuMemoryMonitor` | Xong |
-| P6 | E | Câu mồi theo mẫu | `lifemate/backends/asr_prompt.py` › `build_sample_prompts` | Xong |
-| P7 | E | `FasterWhisperASR` chép với câu mồi riêng từng câu, trả điểm tin cậy; lớp bảo vệ so phần cố định; ghi `prompt` và `scores` vào `hyps.jsonl` | `lifemate/backends/asr.py`, `lifemate/eval/asr_v3.py` | Xong, trừ khoá config `ASRConfig.prompt_mode` |
-| P8 | E | Engine `MergedASR` cho hệ thống thật (RNNT, large-v3, lớp bảo vệ, ghép) | Bộ chạy `lifemate/eval/asr_v3.py` thay cho engine khi đo | Chưa làm (để sau J) |
-| P9 | F | Đếm, độ tin cậy, kiểm định chéo chọn θ, cách quyết định `context_reliable` | `asr_v3_analysis.py`, `asr_v3_report.py` › `stage_select` | Xong |
-| P10 | G | Câu ứng viên, `FasterWhisperASR.score_texts`, lệnh chấm điểm cho K3 | `lifemate/eval/candidate_scoring.py`, `lifemate/backends/asr.py`, `lifemate/eval/asr_v3.py` › `score_candidates` | Xong |
-| P11 | H | Đặc trưng, nhãn tự động, hồi quy logistic | `asr_v3_analysis.py` | Xong |
-| P12 | Bảng chọn chung | Độ chính xác quyết định đoạn kèm bootstrap; chạy mọi ứng viên trên cùng các đoạn và áp quy tắc chọn | `asr_v3_analysis.py` › `decision_accuracy`, `bootstrap_accuracy`; `asr_v3_report.py` › `stage_select` | Xong |
-| P13 | I | Định dạng hai phương án, đếm trần | `asr_v3_analysis.py` › `alternatives` | Xong (đếm token bằng lệnh riêng, mục 8.3) |
-| P14 | J | `--transcripts replay`, `--set`, prompt cho J4, chấm các nguồn | `lifemate/run/cli.py`, `configs/prompts/system_v1_alternatives.md`, `lifemate/eval/asr_v3_agent.py` | Xong |
+| P3 | Chung | `sample_context_words` bỏ khoá JSON, chỉ lấy giá trị | [`lifemate/eval/asr_merge.py`](../../../lifemate/eval/asr_merge.py) | Xong |
+| P4 | Chung | Chỉ số mới (mục 2.2) | [`lifemate/eval/asr_v3_report.py`](../../../lifemate/eval/asr_v3_report.py) (`en_context_recall`, `assistant_echo`, `merge_word_errors`) | Xong |
+| P5 | Chung | Đọc bộ nhớ GPU bằng `nvidia-smi` chạy nền | [`lifemate/eval/gpu_memory.py`](../../../lifemate/eval/gpu_memory.py) › `GpuMemoryMonitor` | Xong |
+| P6 | E | Câu mồi theo mẫu | [`lifemate/backends/asr_prompt.py`](../../../lifemate/backends/asr_prompt.py) › `build_sample_prompts` | Xong |
+| P7 | E | `FasterWhisperASR` chép với câu mồi riêng từng câu, trả điểm tin cậy; lớp bảo vệ so phần cố định; ghi `prompt` và `scores` vào `hyps.jsonl` | [`lifemate/backends/asr.py`](../../../lifemate/backends/asr.py), [`lifemate/eval/asr_v3.py`](../../../lifemate/eval/asr_v3.py) | Xong, trừ khoá config `ASRConfig.prompt_mode` |
+| P8 | E | Engine `MergedASR` cho hệ thống thật (RNNT, large-v3, lớp bảo vệ, ghép) | Bộ chạy [`lifemate/eval/asr_v3.py`](../../../lifemate/eval/asr_v3.py) thay cho engine khi đo | Chưa làm (để sau J) |
+| P9 | F | Đếm, độ tin cậy, kiểm định chéo chọn θ, cách quyết định `context_reliable` | [`lifemate/eval/asr_v3_analysis.py`](../../../lifemate/eval/asr_v3_analysis.py), [`lifemate/eval/asr_v3_report.py`](../../../lifemate/eval/asr_v3_report.py) › `stage_select` | Xong |
+| P10 | G | Câu ứng viên, `FasterWhisperASR.score_texts`, lệnh chấm điểm cho K3 | [`lifemate/eval/candidate_scoring.py`](../../../lifemate/eval/candidate_scoring.py), [`lifemate/backends/asr.py`](../../../lifemate/backends/asr.py), [`lifemate/eval/asr_v3.py`](../../../lifemate/eval/asr_v3.py) › `score_candidates` | Xong |
+| P11 | H | Đặc trưng, nhãn tự động, hồi quy logistic | [`lifemate/eval/asr_v3_analysis.py`](../../../lifemate/eval/asr_v3_analysis.py) | Xong |
+| P12 | Bảng chọn chung | Độ chính xác quyết định đoạn kèm bootstrap; chạy mọi ứng viên trên cùng các đoạn và áp quy tắc chọn | [`lifemate/eval/asr_v3_analysis.py`](../../../lifemate/eval/asr_v3_analysis.py) › `decision_accuracy`, `bootstrap_accuracy`; [`lifemate/eval/asr_v3_report.py`](../../../lifemate/eval/asr_v3_report.py) › `stage_select` | Xong |
+| P13 | I | Định dạng hai phương án, đếm trần | [`lifemate/eval/asr_v3_analysis.py`](../../../lifemate/eval/asr_v3_analysis.py) › `alternatives` | Xong (đếm token bằng lệnh riêng, mục 8.3) |
+| P14 | J | `--transcripts replay`, `--set`, prompt cho J4, chấm các nguồn | [`lifemate/run/cli.py`](../../../lifemate/run/cli.py), [`configs/prompts/system_v1_alternatives.md`](../../../configs/prompts/system_v1_alternatives.md), [`lifemate/eval/asr_v3_agent.py`](../../../lifemate/eval/asr_v3_agent.py) | Xong |
 | P15 | Kết thúc | `make check`, `make test`, cập nhật SPEC và README các thư mục | | `make check`, `make test` qua; SPEC chờ kết quả J |
 
-Kiểm tra: 284 test qua (2 bỏ qua), trong đó `tests/test_asr_v3.py`, `tests/test_asr_v3_analysis.py` và phần thêm của
-`tests/test_asr_merge.py` là test của lần 3.
+Kiểm tra: 284 test qua (2 bỏ qua), trong đó [`tests/test_asr_v3.py`](../../../tests/test_asr_v3.py), [`tests/test_asr_v3_analysis.py`](../../../tests/test_asr_v3_analysis.py) và phần thêm của
+[`tests/test_asr_merge.py`](../../../tests/test_asr_merge.py) là test của lần 3.
 
 ### B.2. Các phiên GPU
 
 **Máy chạy thực tế.** Hạn mức GPU Kaggle của tuần đã hết (30 giờ) khi bắt đầu lần 3, nên mọi phiên chạy trên **Colab T4**
 (15 GB) qua Colab CLI. Máy Colab miễn phí bị thu hồi sau khoảng 50–60 phút mỗi lần; bộ chạy có `--resume` (giữ các mẫu đã
 xong, xoá dòng của mẫu đang dở), và kết quả được tải về máy dev mỗi 4–10 phút, nên mỗi lần bị thu hồi chỉ mất vài mẫu.
-Máy Colab dùng CUDA 13; CTranslate2 cần thêm `nvidia-cublas-cu12` và cuDNN 9 (`ops/colab/asr_v3_setup.py`).
+Máy Colab dùng CUDA 13; CTranslate2 cần thêm `nvidia-cublas-cu12` và cuDNN 9 ([`ops/colab/asr_v3_setup.py`](../../../ops/colab/asr_v3_setup.py)).
 
 | Phiên | Máy | Chạy gì | Số câu hoặc mẫu | Thời gian thực |
 |---|---|---|---|---|
@@ -1896,4 +1896,4 @@ Máy Colab dùng CUDA 13; CTranslate2 cần thêm `nvidia-cublas-cu12` và cuDNN
 | K3 | Colab T4 | Điểm âm thanh của mọi vùng cần quyết định | 968 vùng | Khoảng 6 phút |
 | K4 | Colab T4, hai tài khoản, nhiều máy nối tiếp (vòng tự dựng lại máy và chạy tiếp bằng `--resume`) | vLLM 0.32.0 với Qwen3-4B; agent trên val: J0, J1 đủ mẫu; J2, J3, J4 trên các mẫu có chữ khác J1 | 452 + 452 + 119 + 112 + 188 mẫu | Đang chạy: xong J1, J2, J3 trên `val_seen` |
 
-Kết quả thô: `artifacts/runs/colab/asr/10-30_v3/` (`k1/`, `k2_*/`, `k3/`, `k4/`, `analysis/`, `j_sources/`).
+Kết quả thô: [`artifacts/runs/colab/asr/10-30_v3/`](../../../artifacts/runs/colab/asr/10-30_v3/) ([`artifacts/runs/colab/asr/10-30_v3/k1/`](../../../artifacts/runs/colab/asr/10-30_v3/k1/), [`artifacts/runs/colab/asr/10-30_v3/k2_asr_learn/`](../../../artifacts/runs/colab/asr/10-30_v3/k2_asr_learn/), [`artifacts/runs/colab/asr/10-30_v3/k2_val_seen/`](../../../artifacts/runs/colab/asr/10-30_v3/k2_val_seen/), [`artifacts/runs/colab/asr/10-30_v3/k2_val_unseen/`](../../../artifacts/runs/colab/asr/10-30_v3/k2_val_unseen/), [`artifacts/runs/colab/asr/10-30_v3/k3/`](../../../artifacts/runs/colab/asr/10-30_v3/k3/), [`artifacts/runs/colab/asr/10-30_v3/k4/`](../../../artifacts/runs/colab/asr/10-30_v3/k4/), [`artifacts/runs/colab/asr/10-30_v3/analysis/`](../../../artifacts/runs/colab/asr/10-30_v3/analysis/), [`artifacts/runs/colab/asr/10-30_v3/j_sources/`](../../../artifacts/runs/colab/asr/10-30_v3/j_sources/)).

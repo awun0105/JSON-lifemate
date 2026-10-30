@@ -70,6 +70,15 @@ Mỗi mẫu thi gồm:
 Dữ liệu app nằm trong `<split>_environment/state.json`, nhưng hệ thống không được đọc file đó; mọi thông tin về app
 chỉ lấy qua `ToolEnv`.
 
+Tên `ToolEnv` và code của nó là của BTC (`from zaic_tools import ToolEnv`); dự án không viết lại hay đóng gói lại. Phía
+dự án chỉ có ba phần bao quanh:
+
+- [`lifemate/io/zaic.py`](../lifemate/io/zaic.py) › `ZaicLoader.open_env`: nạp đúng gói `zaic_tools` của tập đang chạy
+  và gọi `ToolEnv(...)` của BTC cho một mẫu; `EnvRegistry` nhớ các mẫu đã mở để mỗi mẫu chỉ có một `ToolEnv`.
+- [`lifemate/core/types.py`](../lifemate/core/types.py) › `ToolEnvLike`: mô tả kiểu "thứ có `call`, `get_tool_calls`,
+  `get_state_hash`", để code agent không phụ thuộc trực tiếp vào gói của BTC.
+- [`tests/fakes.py`](../tests/fakes.py) › `FakeEnv`: bản giả dùng khi test trên CPU, thay cho `ToolEnv` thật.
+
 
 **Ràng buộc chính của thể lệ** (`docs/overview.md`, mục 8):
 
