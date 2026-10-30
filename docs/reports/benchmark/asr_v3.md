@@ -183,7 +183,7 @@ Giải thích từng bước:
    (`UNSEEN_OUT_OF_SCOPE`), vào `val_unseen`. Lý do: bộ thi riêng của BTC có app chưa gặp. Tách trước khi chia nên không
    mẫu nào của `val_unseen` lọt vào `train`.
 2. **Gom câu gần trùng** (`cluster_near_duplicates`): các mẫu có chữ đáp án giống nhau từ 85% trở lên thành một nhóm
-   (64 nhóm, 174 mẫu; các mẫu khác đứng một mình). Đây là bước trung gian cho bước 3 nên không ghi file danh sách.
+   (64 nhóm, 174 mẫu; các mẫu khác không thuộc nhóm nào). Đây là bước trung gian cho bước 3 nên không ghi file danh sách.
 3. **Chia 5 phần** (`stratified_group_folds`): xếp nguyên cả nhóm vào một phần, sao cho các phần có cùng tỉ lệ số lời
    gọi tool và tỉ lệ câu hỏi lại. Nhờ vậy hai câu gần giống nhau không nằm ở hai tập khác nhau.
 4. **`smoke`** (`--smoke 30`): 30 mẫu của `val_seen`, phân tầng theo loại câu trả lời và có/không lịch sử.
@@ -284,6 +284,24 @@ Bước ghép tốn dưới 0,01 giây mỗi mẫu. Số đo trên T4 và không
 | J3 ghép lần 3                                           | chưa đo   | chưa đo     |
 | J4 ghép lần 3, hai phương án (I2; I1 đạt nên chạy)      | chưa đo   | chưa đo     |
 
+
+**Ví dụ thật** (tập dò; chi tiết và thêm ví dụ ở mục 3.7, 4.7, 5.7, 6.7, 8.7):
+
+- **Câu mồi tốt nhất** gồm ba phần. Ví dụ ở mẫu `train_1650`, lượt 16: (1) câu mồi cố định "QR trên app mờ quá. Email
+  của Grace Nakamura tới… Voucher nằm trong SMS, check kỹ rồi gửi Zalo cả xóm, coi miếng SJC luôn."; (2) "Ứng dụng đã
+  cài: Nhắc việc, Ghi chú, Tỷ giá, Lịch, Họp trực tuyến, Tin nhắn SMS, Đặt đồ ăn, Danh bạ, Vé máy bay."; (3) lời trợ lý
+  liền trước "Dạ mai có một cái nhắc: gửi slide cho Sếp David lúc tám giờ sáng anh." Người dùng nói "Thôi bỏ cái đó đi,
+  anh gửi slide luôn rồi." Câu mồi cố định cho "…ăn gửi **Zalo** ngon"; câu mồi ba phần cho "…anh gửi **slide** luôn rồi".
+- **Lời trợ lý giúp nghe đúng tên lạ:** trợ lý vừa liệt kê chuyến bay có "JetXanh"; người dùng nói "Lấy chuyến JetXanh
+  chín giờ sáng". Câu mồi cố định cho "Ngày chuyến sẽ sẵn 9h sáng", câu mồi ba phần cho "…**JetXanh** chín giờ sáng".
+- **Tên app giúp nghe đúng từ tiếng Anh:** app "Podcast & Radio" đã cài; "Mở podcast Nhà giả kim…" được viết "Mà ở
+  **podcast** nhà giả kim…" thay cho "Mở bóc khác…".
+- **Luật ghép vẫn còn lấy nhầm từ câu mồi:** "Mai anh có hẹn gì trong lịch không?" được large-v3 viết "…trong **list**
+  không?"; luật C0 lấy "list" vì đó là từ của câu mồi. Chấm bằng âm thanh giữ đúng "lịch", nhưng ở câu khác lại lấy nhầm
+  "Line" cho "Lan".
+- **Hai phương án cho LLM:** "Nina Kowalski ở khách sạn…" thành "nina {ko washi | Kowalski} ở khách sạn…" (LLM chọn đúng thì
+  sửa được); "Bật đèn bếp lên giúp tôi." thành "{bật đèn bếp | Bạn điền web} lên giúp tôi" (bản chốt đã đúng, LLM phải bỏ
+  qua phương án sai).
 
 ### Kết luận
 
@@ -780,6 +798,32 @@ nên **E2 thắng**. Mọi bước sau dùng chữ large-v3 với câu mồi E2.
 large-v3 đứng riêng với E2 trên val: chép đúng từ tiếng Anh 74,9% / 67,9% (E0: 72,2% / 61,1%), WER câu thuần Việt 26,5% /
 25,5% (E0: 29,2% / 28,5%).
 
+**Ví dụ thật** (tập dò, phiên K1; chữ large-v3 đứng riêng, chưa ghép).
+
+Câu mồi E2 đầy đủ của lượt 16 trong mẫu `train_1650` gồm ba phần nối liền nhau:
+
+| Phần | Nội dung |
+|---|---|
+| 1. Câu mồi cố định `en_full_v1` (38 từ khoá, chỉ trích đầu và cuối) | "QR trên app mờ quá. Email của Grace Nakamura tới, Peter Hale mượn laptop chạy demo cho Nexora Labs, nhớ viết note. … Voucher nằm trong SMS, check kỹ rồi gửi Zalo cả xóm, coi miếng SJC luôn." |
+| 2. Tên tiếng Việt của các app đã cài | "Ứng dụng đã cài: Nhắc việc, Ghi chú, Tỷ giá, Lịch, Họp trực tuyến, Tin nhắn SMS, Đặt đồ ăn, Danh bạ, Vé máy bay." |
+| 3. Câu trả lời của trợ lý ở lượt liền trước | "Dạ mai có một cái nhắc: gửi slide cho Sếp David lúc tám giờ sáng anh." |
+
+Câu người dùng nói sau đó là "Thôi bỏ cái đó đi, anh gửi slide luôn rồi." Với câu mồi cố định (E0), large-v3 viết "Phải
+bỏ cái đó đi, ăn gửi **Zalo** ngon": từ "Zalo" của câu mồi kéo mô hình đi. Với E1 và E2, lời trợ lý có "slide", nên
+large-v3 viết "Phải bỏ cái đó đi, anh gửi **slide** luôn rồi."
+
+Các câu khác mà E2 viết đúng một từ tiếng Anh còn E0 viết sai:
+
+| Mẫu | Người dùng nói (đáp án) | E0 (câu mồi cố định) | E2 | Từ đúng lấy từ đâu |
+|---|---|---|---|---|
+| `train_1641`, lượt 6 | Lấy chuyến JetXanh chín giờ sáng, một người thôi. | Ngày chuyến sẽ sẵn 9h sáng một người thôi. | Ngay chuyến, **JetXanh** chín giờ sáng một người thôi. | Lời trợ lý liền trước liệt kê các chuyến bay, có "JetXanh chín giờ" |
+| `train_1740`, lượt cuối | Mở podcast Nhà giả kim bên Sách nói đêm khuya cho em… | Mở bóc khác, nhà giả kim… | Mà ở **podcast** nhà giả kim… | Tên app đã cài "Podcast & Radio" (chỉ E2 có; E1 vẫn viết "bóc khác") |
+| `train_0111`, lượt 4 | Giá vàng SJC bữa nay thế nào? | Giá VASJC bữa nay thế nào? | Giá **vàng SJC** bữa nay thế nào? | Tên app đã cài "Giá vàng" (E1 vẫn viết "VASJC") |
+
+Một trong hai câu bị tính là **chép lại lời trợ lý** (`train_0840`, lượt cuối): trợ lý hỏi "Danh bạ có hai chị Ngân:
+một chị bên phòng pháp lý và một chị bên phòng tuyển dụng…", người dùng nói "Chị Ngân bên pháp lý ấy…", large-v3 viết
+"Chị Ngân bên **phòng** pháp lý…". Mô hình chèn thêm một từ của lời trợ lý mà người dùng không nói; nghĩa không đổi.
+
 ### 3.8. Phân tích
 
 - **Câu mồi theo mẫu giúp đúng chỗ dự đoán: các từ có trong ngữ cảnh của mẫu.** Trên `val_unseen`, số từ có trong ngữ cảnh
@@ -952,6 +996,17 @@ tính trên cả tập học):
 θ thắng là **0,4**: từ của câu mồi có độ tin cậy dưới 0,4 chỉ được nhận khi có trong từ điển ngữ cảnh của mẫu. Trong
 bảng trên chỉ có OK (0,20); ngoài bảng là các từ ít gặp mà lần nào viết ra cũng sai (ví dụ viết ra 1 lần, sai 1 lần, độ
 tin cậy 0,33). List và tour đúng bằng 0,40 nên vẫn được nhận như C0. Kết quả của F trên tập dò và val nằm trong bảng chọn chung (mục 7).
+
+**Ví dụ thật** (tập dò). "OK" có độ tin cậy 0,20 (dưới θ = 0,4), nên F chỉ nhận khi "ok" có trong từ điển ngữ cảnh của
+mẫu:
+
+| Mẫu | Người dùng nói | RNNT | large-v3 | C0 | F | Ai đúng |
+|---|---|---|---|---|---|---|
+| `train_0192`, lượt 0 | Ngày mai có cái hẹn nào không? | ngày mai có kế hẹn nó không | **Ok, may gọi** kể hết nào không? | lấy "Ok, may gọi" | giữ "ngày mai có" | F |
+| `train_0417`, lượt 4 | Ok, được rồi, cảm ơn nhé. | thuốc cây được rồi cảm ơn nhé | **Ok,** được rồi, cảm ơn nhé. | lấy "Ok," | giữ "thuốc cây" | C0 |
+
+Hai ví dụ cho thấy vì sao F chỉ hơn C0 rất ít: lọc "OK" sửa được câu đầu nhưng làm hỏng câu sau, nơi người dùng nói "ok"
+thật.
 
 ### 4.8. Phân tích
 
@@ -1145,6 +1200,16 @@ Trên tập dò (chi tiết trong bảng chọn chung, mục 7):
 | `asr_tune` | 174 | 23 / 17 (sai 43%) | 97 / 37 (sai 28%) |
 | Tập học | 406 | 48 / 31 (sai 39%) | 216 / 111 (sai 34%) |
 
+**Ví dụ thật** (tập dò; điểm âm thanh đo ở phiên K3, câu A là phương án RNNT, câu B là phương án large-v3):
+
+| Mẫu | Người dùng nói | Đoạn A ↔ B | Điểm A / B | C0 | G | Ai đúng |
+|---|---|---|---|---|---|---|
+| `train_0144`, lượt 0 | Mai anh có hẹn gì trong lịch không? | lịch ↔ list | −8,1 / −9,7 | lấy "list" (từ câu mồi) | giữ "lịch" | G |
+| `train_0166`, lượt 0 | Tìm giúp em số của Lan đồng nghiệp với. | lan ↔ Line | −13,6 / −9,6 | giữ "lan" ("line" không có trong ngữ cảnh) | lấy "Line" | C0 |
+
+Ở ví dụ đầu, chấm không câu mồi thì "list" không còn được câu mồi kéo, và "lịch" khớp âm thanh hơn. Ở ví dụ sau, large-v3
+tự nghe "Lan" thành "Line" và vẫn chấm "Line" cao hơn, đúng loại lỗi "từ large-v3 tự bịa" ở mục 5.8.
+
 ### 5.8. Phân tích
 
 - **G sửa đúng loại lỗi mà G nhắm tới, và gây ra loại lỗi khác.** Từ của câu mồi bị lấy nhầm giảm từ 20 xuống 4: khi chấm
@@ -1300,6 +1365,16 @@ Tiêu chí so H với các ứng viên khác: bảng chọn chung (mục 7).
 |---|---|---|---|---|---|---|
 | C0 | 70,7% | 72,1% | 17,8% | 19,7% | 20 / 17 | 0 / 23 |
 | H | **76,4%** [0,0; +11,7] | 71,6% [−2,9; +2,0] | **17,6%** [−0,28; −0,03] | **19,5%** [−0,34; −0,02] | 12 / 17 | 5 / 21 |
+
+**Ví dụ thật** (tập dò; xác suất "nên lấy large-v3" của bộ phân loại, lấy khi từ 0,5 trở lên):
+
+| Mẫu | Người dùng nói | Đoạn RNNT ↔ large-v3 | C0 | H (xác suất) | Ai đúng |
+|---|---|---|---|---|---|
+| `train_0310`, lượt 0 | Ngoài trời bây giờ nóng không ạ? | ngoài trời ↔ Voucher | lấy "Voucher" (từ câu mồi) | giữ "ngoài trời" (0,21) | H |
+| `train_1153`, lượt 2 | Mẹ mới nhắn Zalo gì vậy, đọc mình nghe. | cho tôi vì phải ↔ Zalo gì vậy? | lấy "Zalo gì vậy?" | giữ RNNT (0,30) | C0 |
+
+Ở ví dụ đầu, "Voucher" thay cho hai từ Việt hợp lệ và điểm âm thanh nghiêng về RNNT, nên H giữ RNNT. Ở ví dụ sau, "Zalo"
+là từ câu mồi đáng tin, nhưng đoạn dài và phía RNNT toàn là chữ Việt hợp lệ, nên H nghiêng sai về RNNT.
 
 ### 6.8. Phân tích
 
@@ -1522,6 +1597,19 @@ RNNT dù large-v3 đề xuất một từ tiếng Anh mới (mục 8.3).
 "Cứu được": bản chốt giữ RNNT nhưng chữ large-v3 ít lỗi hơn. "Rủi ro": bản chốt đã ít lỗi hơn, đưa thêm phương án large-v3
 thì LLM có thể chọn nhầm. "Hoà": hai phương án cùng số lỗi. Trên val, 61 trên 274 mẫu (`val_seen`) và 45 trên 178 mẫu
 (`val_unseen`) có ít nhất một đoạn hai phương án; các mẫu đó thêm trung vị 7 token, tối đa 23 token.
+
+**Ví dụ thật** (tập dò; chữ đưa cho LLM, phương án đã chốt đứng trước):
+
+| Loại | Mẫu | Người dùng nói | Chữ dạng hai phương án |
+|---|---|---|---|
+| Cứu được | `train_1497`, lượt 0 | Nina Kowalski ở khách sạn trên đường Bạch Đằng… | nina {ko washi \| Kowalski} ở khách sạn trên đường bạch đằng… |
+| Cứu được | `train_1379`, lượt cuối | …gọi giùm anh một tô ramen gà ở Osaka Ramen, trả bằng ví nha. | …gọi chung ếch một {toramenga \| tô ramen gà} ở {osakaramen đã \| Osaka Ramen, trả} bằng ví ga |
+| Rủi ro | `train_0103`, lượt 0 | Bật đèn bếp lên giúp tôi. | {bật đèn bếp \| Bạn điền web} lên giúp tôi |
+| Rủi ro | `train_0166`, lượt 0 | Tìm giúp em số của Lan đồng nghiệp với. | tìm giúp em số của {lan \| Line} đồng nghiệp với |
+
+Ở hai dòng "cứu được", tên người và tên quán không có trong ngữ cảnh nên luật giữ chữ RNNT sai; LLM thấy cả hai cách viết
+và có thể chọn bản large-v3. Ở hai dòng "rủi ro", chữ RNNT đã đúng; LLM phải bỏ qua phương án sai ("Bạn điền web",
+"Line").
 
 **Áp tiêu chí đặt trước:** trần trên `asr_tune` cứu thêm 4,8 điểm phần trăm, từ 3 điểm trở lên, nên **chạy I2** (nguồn J4
 của thử nghiệm J).
