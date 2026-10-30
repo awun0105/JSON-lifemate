@@ -50,8 +50,8 @@ Mỗi mẫu thi gồm:
 
 | Phần                         | Dạng                                                        | Ghi chú                     |
 | ---------------------------- | ----------------------------------------------------------- | --------------------------- |
-| Câu cuối của người dùng      | Chỉ âm thanh (`.wav`)                                       | Câu được chấm               |
-| Các lượt người dùng trước đó | Chỉ âm thanh, mỗi lượt một file `_u1.wav`, `_u2.wav`…       | Phải tự chép                |
+| Câu cuối của người dùng      | Chỉ âm thanh (`.wav`)                                       | Yêu cầu cần thực hiện; điểm tính trên lời gọi tool đáp lại câu này |
+| Các lượt người dùng trước đó | Chỉ âm thanh, mỗi lượt một file `_u1.wav`, `_u2.wav`…       | Phải tự chép; chữ chép đưa vào lịch sử hội thoại trong prompt của LLM |
 | Các lượt trợ lý trước đó     | Chữ: câu trả lời, lời gọi tool, kết quả tool                | Có sẵn                      |
 | `context`                    | Chữ: giờ hiện tại, múi giờ, vị trí, hồ sơ, `installed_apps` | Có sẵn                      |
 | Catalog tool                 | JSON mô tả mọi app và tool của split                        | Một file cho cả split       |

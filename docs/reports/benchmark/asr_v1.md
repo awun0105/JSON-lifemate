@@ -121,7 +121,8 @@ trong `train.jsonl`, kèm thư mục audio:
  "label": {"tool_calls": [{"name": "alarm.create", "arguments": {"time": "2026-11-11T05:30:00+07:00"}}], …}}
 ```
 
-- `audio`: file ghi âm **yêu cầu cuối**, phần được chấm điểm.
+- `audio`: file ghi âm **yêu cầu cuối**, tức yêu cầu hệ thống phải thực hiện. Điểm thi tính trên lời gọi tool đáp lại
+  yêu cầu này (so với `label.tool_calls`), không chấm chữ ASR.
 - `history`: các lượt hội thoại trước. Mỗi lượt người dùng có file audio riêng (`<id>_u1.wav`, `<id>_u2.wav`…) và chữ
   đáp án `audio_text` riêng.
 - `audio_text`: chữ đáp án do BTC ghi lại. Benchmark dùng trường này làm "đáp án" khi tính WER.
