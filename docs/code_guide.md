@@ -270,7 +270,66 @@ lượt). Mức đã dùng được ghi vào trace (`prompt_shrink_level`).
 Config mặc định ([`configs/v0.toml`](../configs/v0.toml), `[agent].format = "chatml"`) dùng
 [`lifemate/agent/chatml_agent.py`](../lifemate/agent/chatml_agent.py) › `ChatMLAgent`: hội thoại theo định dạng tool
 calling có sẵn của Qwen, giống dữ liệu SFT của lead. Sơ đồ một mẫu, từ lúc nhận mẫu tới lúc có bài nộp (các số lấy từ
-`[agent]` của config: `max_steps = 10`, `max_retries = 2`, `deadline_s = 29.0`):
+`[agent]` của config: `max_steps = 10`, `max_retries = 2`, `deadline_s = 29.0`).
+
+**Sơ đồ tổng quát** (chưa đi vào tên hàm):
+
+```
+            ┌─────────────────────────────┐
+            │  Mẫu thi: âm thanh các câu  │
+            │  người dùng + lịch sử chữ   │
+            │  của trợ lý + app đã cài    │
+            └──────────────┬──────────────┘
+                           ▼
+            ┌─────────────────────────────┐
+            │  ASR: chép mọi câu người    │   bắt đầu tính giờ từ đây
+            │  dùng thành chữ             │   (hạn 29 giây cho cả mẫu)
+            └──────────────┬──────────────┘
+                           ▼
+            ┌─────────────────────────────┐
+            │  Dựng hội thoại cho LLM:    │
+            │  luật, danh sách tool,      │
+            │  lịch sử, yêu cầu cuối      │
+            └──────────────┬──────────────┘
+                           ▼
+     ┌────────────────────────────────────────────┐
+     │  LLM đọc hội thoại và viết câu trả lời     │◄─────────────────────┐
+     └──────────────────────┬─────────────────────┘                      │
+                            ▼                                            │
+              LLM muốn gọi tool hay đã xong?                             │
+           ┌────────────────┴─────────────────┐                          │
+      đã xong (trả lời bằng lời)        muốn gọi tool                    │
+           │                                  ▼                          │
+           │              ┌──────────────────────────────────┐           │
+           │              │ Kiểm tra lời gọi: tool có được   │           │
+           │              │ phép không, tham số có đúng không│           │
+           │              └───────────────┬──────────────────┘           │
+           │                 sai          │          đúng                │
+           │          ┌───────────────────┴──────────────┐               │
+           │          ▼                                  ▼               │
+           │  Không gọi tool;                  Gọi tool trên "điện thoại │
+           │  báo lỗi vào hội thoại            giả" ToolEnv; ghi kết quả │
+           │  để LLM sửa                       vào hội thoại             │
+           │          │                                  │               │
+           │          │                      là câu hỏi lại người dùng?  │
+           │          │                        có │              │ không  │
+           │          │                           ▼              │        │
+           │          │                         dừng             │        │
+           │          │                           │              │        │
+           │          └───────────────────────────┼──────────────┴────────┘
+           │                                      │        (lượt LLM tiếp theo)
+           │◄─────────────────────────────────────┘
+           ▼
+     ┌────────────────────────────────────────────┐
+     │  Bài nộp: danh sách lời gọi tool đã thực   │
+     │  hiện + mã trạng thái app cuối cùng        │
+     └────────────────────────────────────────────┘
+```
+
+Vòng lặp cũng dừng khi: đã đủ 10 lượt LLM, hội thoại quá dài so với giới hạn của LLM, hết giờ, hoặc LLM viết sai quá 2
+lần. Khi dừng giữa chừng, các lời gọi tool đã thực hiện trước đó vẫn được nộp.
+
+**Sơ đồ chi tiết** (kèm tên hàm và file):
 
 ```
 Runner.run_one(mẫu)                                         lifemate/run/runner.py
