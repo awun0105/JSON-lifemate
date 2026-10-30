@@ -229,7 +229,7 @@ Phụ lục B.
 | G. Chấm điểm hai phương án | Cho large-v3 chấm xác suất của hai phương án theo âm thanh có quyết định ghép tốt hơn luật không? | Dựng hai câu chỉ khác nhau ở đoạn cần quyết định; large-v3 không câu mồi chấm từng câu bằng ép chuỗi; chọn câu điểm cao hơn. Không có tham số | Vào bảng chọn chung (mục 7) | Có (phiên K3) |
 | H. Bộ phân loại ghép   | Mô hình nhỏ học từ dữ liệu, dùng mọi tín hiệu, có quyết định ghép tốt hơn không? | Hồi quy logistic, mỗi đoạn khác nhau là một mẫu học, đầu vào là các tín hiệu của E, F, G và điểm tin cậy của large-v3 | Học trên tập học, vào bảng chọn chung (mục 7) | Có (dùng điểm của K3) |
 | I. Giữ hai phương án   | Ở đoạn không chắc, đưa cả hai phương án `{A \| B}` cho LLM chọn có lợi không? | I1: dùng đáp án đếm trần, tức số đoạn cứu được nếu LLM luôn chọn đúng, và chi phí token. I2: nếu trần đủ cao, chạy LLM thật (một nguồn của J) | `asr_tune`, val | I1 không; I2 có (phiên K4) |
-| J. Agent trên chữ đã lưu | Chữ ASR tốt hơn làm điểm thi tăng bao nhiêu? | Chạy agent (Qwen3-4B, vLLM, `ToolEnv`) với chữ đọc lại từ `hyps.jsonl`: chữ chuẩn, RNNT, ghép lần 2, ghép lần 3, ghép lần 3 có hai phương án | val | Có (phiên K4) |
+| J. Agent trên chữ đã lưu | Chữ ASR tốt hơn làm điểm thi tăng bao nhiêu? | Chạy agent (Qwen3-4B qua vLLM, gọi tool trên `ToolEnv` là bộ mô phỏng app của BTC) với chữ đọc lại từ `hyps.jsonl`: chữ chuẩn, RNNT, ghép lần 2, ghép lần 3, ghép lần 3 có hai phương án | val | Có (phiên K4) |
 
 
 **Thứ tự quyết định.** E chọn câu mồi trước. Sau đó F, G, H và luật của lần 2 (C0) cùng vào **một bảng chọn
@@ -471,6 +471,7 @@ mồi, lớp bảo vệ g4, tập dò, tập kiểm tra, seen, unseen, CI, boots
 | Bộ nhớ GPU đỉnh                  | Lượng bộ nhớ GPU lớn nhất mà tiến trình ASR chiếm trong suốt lần chạy, đọc bằng `nvidia-smi` (mục 2.4)                                                                                               |
 | Điểm âm thanh                    | Tổng log xác suất mà whisper-large-v3, không câu mồi, gán cho từng token của một câu cho sẵn khi nghe đoạn âm thanh; càng gần 0 thì câu càng khớp âm thanh (mục 5) |
 | Ép chuỗi (teacher forcing)       | Đưa sẵn chuỗi token vào decoder và chỉ đọc xác suất của từng token, không để decoder tự sinh chữ                    |
+| `ToolEnv`                        | Bộ mô phỏng app của BTC (gói `zaic_tools`), mỗi mẫu một phiên: nhận lời gọi tool của agent, kiểm tra theo schema, chạy trên dữ liệu app của mẫu (danh bạ, lịch, thiết bị…), trả kết quả, ghi nhật ký mọi lời gọi và tính `state_hash` (mã trạng thái app cuối). Hai thứ này là bài nộp |
 | A30, T4                          | A30: GPU của máy chấm, 24 GB, thế hệ Ampere, hỗ trợ bfloat16. T4: GPU miễn phí của Kaggle và Colab, 15 GB (16 GB danh nghĩa), thế hệ Turing, không hỗ trợ bfloat16                                            |
 
 
@@ -1651,7 +1652,7 @@ chỉ biết trần, chưa biết LLM có chọn đúng ở định dạng hai p
 
 ### 9.2. Ý tưởng
 
-Chữ ASR của mọi lần chạy đã được lưu trong `hyps.jsonl`. Chạy agent của hệ thống (Qwen3-4B qua vLLM, `ToolEnv` của BTC,
+Chữ ASR của mọi lần chạy đã được lưu trong `hyps.jsonl`. Chạy agent của hệ thống (Qwen3-4B qua vLLM, gọi tool trên `ToolEnv`, bộ mô phỏng app của BTC (mục 0.3),
 chấm điểm như thi) với chữ đọc lại từ các file đó thay vì chép âm thanh. Đổi file chữ là đổi nguồn chữ, mọi thứ khác giữ
 nguyên, nên chênh lệch điểm chỉ do chữ.
 
@@ -1691,7 +1692,8 @@ chứa đoạn dạng `{A | B}`, là hai cách nghe của cùng một đoạn â
 tool và ngữ cảnh; dùng đúng chữ của cách đã chọn, không chép dấu ngoặc `{`, `}` hay dấu `|` vào tham số." J4 chạy với
 `--set agent.system_prompt=configs/prompts/system_v1_alternatives.md`; J0–J3 giữ prompt như cũ.
 
-**Chấm điểm.** Điểm thi do `ToolEnv` của BTC chấm từng mẫu, như các lần chạy agent trước (`lifemate/run/runner.py`), ghi
+**Chấm điểm.** Sau khi chạy, bộ chấm của dự án (`lifemate/eval/score.py`, theo đúng luật chấm của BTC) phát lại lời gọi
+tool của agent và lời gọi đáp án trên `ToolEnv` của từng mẫu, so `state_hash` và so từng lời gọi, rồi ghi điểm từng mẫu
 vào `details.jsonl`. `lifemate/eval/asr_v3_agent.py` › `summarize` (lệnh `score`) tính điểm trung bình, CI 95% và CI
 của chênh lệch so với J1 bằng bootstrap ghép cặp theo mẫu (1 000 vòng, seed 0), số mẫu điểm tối đa, số mẫu được và mất
 điểm so với J1, đếm loại lỗi theo trường `errors` của `details.jsonl`, và với J4 đếm số mẫu có `{`, `}` hoặc `|` lọt vào

@@ -57,6 +57,19 @@ Mỗi mẫu thi gồm:
 | Catalog tool                 | JSON mô tả mọi app và tool của split                        | Một file cho cả split       |
 | Môi trường tool              | Gói `zaic_tools` của BTC, mô phỏng các app                  | Chỉ được dùng qua `ToolEnv` |
 
+**`ToolEnv` là gì.** `ToolEnv` là lớp Python trong gói `zaic_tools` của BTC: một "điện thoại giả" chứa dữ liệu app của
+đúng một mẫu (danh bạ, lịch, báo thức, thiết bị nhà…). Mỗi mẫu tạo một `ToolEnv` bằng `ToolEnv(split, mã mẫu)`, rồi:
+
+- `env.call(tên_tool, tham_số)`: kiểm tra lời gọi theo schema, chạy trên dữ liệu app của mẫu, trả về kết quả
+  (`{"ok": true, …}`) hoặc lỗi (`{"ok": false, "error": …}`). Agent đọc kết quả này để quyết định bước tiếp.
+- `env.validate(tên_tool, tham_số)`: chỉ kiểm tra schema, không chạy.
+- `env.get_tool_calls()`: nhật ký mọi lời gọi đã thực hiện, kể cả lời gọi bị từ chối; đây là phần `tool_calls` của bài nộp.
+- `env.get_state_hash()`: mã băm trạng thái app cuối cùng; đây là `state_hash` của bài nộp. BTC chấm bằng cách phát lại
+  lời gọi trên cùng thư viện, nên chạy trên máy cho cùng kết quả như lúc chấm.
+
+Dữ liệu app nằm trong `<split>_environment/state.json`, nhưng hệ thống không được đọc file đó; mọi thông tin về app
+chỉ lấy qua `ToolEnv`.
+
 
 **Ràng buộc chính của thể lệ** (`docs/overview.md`, mục 8):
 
