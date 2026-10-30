@@ -90,3 +90,30 @@ def test_out_of_fold_deciders_use_model_learned_without_own_fold() -> None:
         assert u.sample_id not in seen[fold]
         assert decide(u, u.candidates[0], u.parts[u.candidates[0]]) == (fold % 2 == 0)  # type: ignore[arg-type]
     assert sorted(seen) == [0, 1, 2]
+
+
+def test_english_word_sources_counts_each_word_once() -> None:
+    """Từ có ở cả hai, chỉ B, không bên nào; bản ghép giữ được từ chỉ B; trần bỏ phần không bên nào có."""
+    refs = {("s", "final"): "gửi email cho Olivia Brown qua Zalo"}
+    hyps = {
+        "a": {("s", "final"): "gửi email cho olivia browd qua zalo"},
+        "b": {("s", "final"): "Gửi email cho Olivia Broad qua Zalo"},
+        "merged": {("s", "final"): "gửi email cho olivia browd qua zalo"},
+    }
+    out = analysis.english_word_sources(refs, hyps)
+    assert (out["total"], out["both"], out["neither"]) == (4, 3, 1)
+    assert out["neither_examples"][0]["word"] == "Brown"
+    assert out["ceiling"] == 0.75
+    hyps["a"][("s", "final")] = "gửi mail cho olivia qua zalo"
+    hyps["merged"][("s", "final")] = "gửi mail cho olivia qua zalo"
+    out = analysis.english_word_sources(refs, hyps)
+    assert out["b_only"] == 1 and out["merged_kept"]["b_only"] == 0
+
+
+def test_digit_counts() -> None:
+    rows = [
+        {"ref": "đặt 5 giờ", "hyp": "đặt năm giờ"},
+        {"ref": "để 30%", "hyp": "để 30 phần trăm"},
+        {"ref": "ok", "hyp": "ok"},
+    ]
+    assert analysis.digit_sentences(rows) == {"ref_with_digits": 2, "hyp_with_digits": 1}

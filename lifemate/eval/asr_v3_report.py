@@ -4,6 +4,8 @@ Cách dùng (từ thư mục gốc repo):
   python -m lifemate.eval.asr_v3_report e --k1 <K1> --out <thư mục>
   python -m lifemate.eval.asr_v3_report select --k1 <K1> --k2 <K2> --k3 <K3> --winner E1 --out <thư mục>
   python -m lifemate.eval.asr_v3_report select-cv --k1 <K1> --k2 <K2> --k3 <K3> --winner E2 --out <thư mục>
+  python -m lifemate.eval.asr_v3_report gaps --k2 <K2> --merged <analysis/j3_merged_val_seen.hyps.jsonl> \
+      --split val_seen --winner E2 --out <thư mục>
 
 Nội dung chính:
 - `stage_e`: thử nghiệm E: so ba biến thể câu mồi (bản ghép C0 và large-v3 đứng riêng) trên `asr_tune`, áp tiêu chí.
@@ -11,6 +13,8 @@ Nội dung chính:
   chữ của các nguồn J cho phiên K4.
 - `stage_select_cv`: làm lại bảng chọn chung bằng kiểm định chéo 5 phần trên cả `asr_tune` và `asr_learn` (1 093 mẫu
   train), thêm ứng viên ALL (luôn lấy large-v3).
+- `stage_gaps`: các số đếm của mục nghiệm thu lần 3 trên một tập val: từ tiếng Anh của đáp án nằm ở nguồn chữ nào, giá
+  trị tham số bị thiếu theo từng nguồn, câu có chữ số theo từng nguồn, giá trị tham số có chữ số.
 
 Thư mục vào:
 - K1: `rnnt.hyps.jsonl`, `v3_E0|E1|E2.hyps.jsonl`, `timing.jsonl`, `summary.json` (tập dò).
@@ -642,8 +646,44 @@ def _cv_markdown(res: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def stage_gaps(args: argparse.Namespace) -> dict[str, Any]:
+    """Số đếm của mục nghiệm thu lần 3 trên tập `args.split` (chữ của phiên K2 và bản ghép đã lưu; không cần GPU).
+
+    Ba nguồn chữ: RNNT (A), large-v3 câu mồi thắng (B), bản ghép (`--merged`). Với mỗi nguồn: giá trị tham số của lời
+    gọi đáp án bị thiếu trong chữ lượt cuối (`eval_asr.entity_miss_rate`) và số câu có chữ số. Thêm vị trí của từng từ
+    tiếng Anh của đáp án (`A.english_word_sources`) và số giá trị tham số có chữ số của tập.
+    """
+    from lifemate.core.types import Transcript
+    from lifemate.eval.eval_asr import entity_miss_rate
+
+    samples, _ = _data(f"configs/splits/{args.split}.txt")
+    sources = {
+        "a": _rows(args.k2 / f"k2_{args.split}" / "rnnt.hyps.jsonl"),
+        "b": _rows(args.k2 / f"k2_{args.split}" / f"v3_{args.winner}.hyps.jsonl"),
+        "merged": _rows(args.merged),
+    }
+    by_key = {
+        name: {(str(r["id"]), str(r["turn"])): str(r["hyp"]) for r in rows} for name, rows in sources.items()
+    }
+    refs = {(str(r["id"]), str(r["turn"])): str(r["ref"]) for r in sources["a"]}
+    out: dict[str, Any] = {"split": args.split, "n_samples": len(samples), "sources": {}}
+    for name, rows in sources.items():
+        finals = [Transcript(final=by_key[name].get((s.id, "final"), ""), history=(), seconds=0.0) for s in samples]
+        missed, total, rate, details = entity_miss_rate(samples, finals)
+        out["sources"][name] = {
+            "entity_missed": missed,
+            "entity_total": total,
+            "entity_miss_rate": rate,
+            "entity_missed_values": [v for d in details for v in d.missed],
+            **A.digit_sentences(rows),
+        }
+    out["english_words"] = A.english_word_sources(refs, by_key)
+    out["argument_values"] = A.argument_values_with_digits(samples)
+    return out
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    """CLI: lệnh `e`, `select` hoặc `select-cv`, ghi kết quả JSON vào `--out`."""
+    """CLI: lệnh `e`, `select`, `select-cv` hoặc `gaps`, ghi kết quả JSON vào `--out`."""
     ap = argparse.ArgumentParser(prog="lifemate.eval.asr_v3_report", description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
     pe = sub.add_parser("e")
@@ -659,9 +699,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         pc.add_argument(k, type=Path, required=True)
     pc.add_argument("--winner", required=True)
     pc.add_argument("--out", type=Path, required=True)
+    pg = sub.add_parser("gaps")
+    pg.add_argument("--k2", type=Path, required=True)
+    pg.add_argument("--merged", type=Path, required=True)
+    pg.add_argument("--split", default="val_seen")
+    pg.add_argument("--winner", default="E2")
+    pg.add_argument("--out", type=Path, required=True)
     args = ap.parse_args(argv)
     args.out.mkdir(parents=True, exist_ok=True)
-    if args.cmd == "e":
+    if args.cmd == "gaps":
+        res = stage_gaps(args)
+        path = args.out / f"gaps_{args.split}.json"
+        path.write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
+        keys = ("entity_miss_rate", "ref_with_digits", "hyp_with_digits")
+        en_keys = ("total", "both", "a_only", "b_only", "neither", "merged_kept", "ceiling")
+        brief = {
+            "sources": {k: {x: v[x] for x in keys} for k, v in res["sources"].items()},
+            "english_words": {k: res["english_words"][k] for k in en_keys},
+            "argument_values": res["argument_values"],
+        }
+        print(json.dumps(brief, ensure_ascii=False, indent=1))
+    elif args.cmd == "e":
         res = stage_e(args)
         (args.out / "e.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
         print(json.dumps({"winner": res["winner"], "merged": res["merged"]}, ensure_ascii=False, indent=1))

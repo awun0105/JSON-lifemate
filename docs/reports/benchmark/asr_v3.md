@@ -1,8 +1,9 @@
 # Báo cáo benchmark ASR lần 3: câu mồi theo mẫu, chọn cách quyết định ghép, và đo điểm thi
 
-Ngày lập kế hoạch: 29/10/2026. Chạy: 30/10/2026 trên Colab T4. Trạng thái: **đã xong E, F, G, H, bảng chọn chung (mục 7,
-làm lại bằng kiểm định chéo ngày 31/10: H thắng) và I1; thử nghiệm J (gồm I2) đang dở**: đã có J1, J2, J3 trên `val_seen`
-(với cách ghép C0). Các ô còn lại của J ghi "chưa đo".
+Ngày lập kế hoạch: 29/10/2026. Chạy: 30/10/2026 trên Colab T4. Trạng thái: **đã nghiệm thu ngày 31/10/2026** (mục
+"Nghiệm thu lần 3"). Xong E, F, G, H, bảng chọn chung (mục 7, làm lại bằng kiểm định chéo: H thắng) và I1; thử nghiệm J
+(gồm I2) có J1, J2, J3 trên `val_seen` (với cách ghép C0). Các ô còn lại của J ghi "chưa đo" và chuyển sang lần 4
+([`asr_v4.md`](asr_v4.md)).
 
 Báo cáo trả lời bốn câu hỏi:
 
@@ -336,8 +337,8 @@ Phần ASR (E, F, G, H, bảng chọn chung, I1) đã có kết luận; phần �
    thật với LLM trong J (nguồn J4). Số đoạn "rủi ro" gấp đôi số đoạn "cứu được", nên chưa biết LLM thật có được lợi không
    (mục 8).
 5. **Trên `val_seen`, bản ghép chưa làm điểm thi tăng rõ** với agent chưa fine-tune: J3 15,43 và J2 15,53 so với
-   RNNT 15,06, chênh lệch chưa có ý nghĩa thống kê. Điểm thi đang bị LLM giới hạn là chính. Còn chờ `val_unseen`, J4 và
-   J0 (mục 9).
+   RNNT 15,06, chênh lệch chưa có ý nghĩa thống kê. Độ phủ từ tiếng Anh tăng 25,6 điểm (49,9% lên 75,5%) chỉ đổi được
+   +0,4 điểm thi, nên từ tiếng Anh không phải chỗ ASR đang mất điểm. `val_unseen`, J4 và J0 chuyển sang lần 4 (mục 9).
 
 ### Kế hoạch thực hiện và tiến độ
 
@@ -355,14 +356,47 @@ Thứ tự bắt buộc theo phụ thuộc: E phải xong trước F, G, H, vì 
 | F, G, H | Đếm độ tin cậy và chọn θ, học H (chỉ trên tập học); bảng chọn chung trên `asr_tune`; đo ứng viên thắng một lần trên val (mục 7) | Máy dev | K2, K3, P9, P11, P12 | Xong: C0 thắng trên tập dò |
 | 7.2 | Làm lại bảng chọn chung bằng kiểm định chéo 5 phần trên cả 1 093 mẫu train (`select-cv`); đo H một lần trên `val_seen` | Máy dev | K1–K3 | Xong 31/10: H thắng; `val_unseen` để dành (D53) |
 | I1      | Đếm trần của hai phương án                                                                      | Máy dev                                                          | F, G, H, P13 | Xong: trần +4,8, chạy I2 |
-| K4      | Phiên GPU 4: agent trên chữ đã lưu, J0–J4 trên val | Colab T4, khoảng 15–18 giây mỗi mẫu, 1 323 lượt chạy mẫu; máy bị thu hồi khoảng mỗi 20–60 phút | I1, P14 | Đang chạy: xong J1, J2, J3 trên `val_seen`; J4 `val_seen` 42/117 mẫu |
-| J       | Chấm điểm, so các nguồn, xếp loại lỗi | Máy dev | K4 | Chưa làm |
-| Báo cáo | Điền kết quả, kết luận; cập nhật [`docs/experiments.md`](../../experiments.md), [`docs/decisions.md`](../../decisions.md), SPEC                       | Máy dev                                                          | Mọi bước  | Đã điền E–I; còn J |
+| K4      | Phiên GPU 4: agent trên chữ đã lưu, J0–J4 trên val | Colab T4, khoảng 15–18 giây mỗi mẫu, 1 323 lượt chạy mẫu; máy bị thu hồi khoảng mỗi 20–60 phút | I1, P14 | Dừng 30/10 sau J1, J2, J3 trên `val_seen` (J4 `val_seen` 42/117 mẫu); phần còn lại chuyển lần 4 |
+| J       | Chấm điểm, so các nguồn, xếp loại lỗi | Máy dev | K4 | Xong cho J1–J3 `val_seen`; còn lại chuyển lần 4 |
+| Nghiệm thu | Ba số đếm tiền đề lần 4 (`asr_v3_report gaps`) | Máy dev | K2, J3 | Xong 31/10 |
+| Báo cáo | Điền kết quả, kết luận; cập nhật [`docs/experiments.md`](../../experiments.md), [`docs/decisions.md`](../../decisions.md), SPEC                       | Máy dev                                                          | Mọi bước  | Xong (D55) |
 
 
 Thời gian thực của từng phiên ở Phụ lục B.2.
 
+### Nghiệm thu lần 3 (31/10/2026)
+
+**Đã chốt** (không mở lại ở lần 4): câu mồi E2 với lớp bảo vệ phần cố định (mục 3); bộ quyết định H học trên cả train,
+θ = 0,6, L2 = 10 (mục 7.2); kết luận của I1 (trần hai phương án) và của J1–J3 trên `val_seen` (mục 8, 9).
+
+**Chuyển sang lần 4** (cần GPU, không nằm trong phạm vi nghiệm thu này): J0 (chữ chuẩn, trần của mọi cải tiến ASR), J4
+(hai phương án), mọi J trên `val_unseen`, `val_unseen` của H (khoá theo D53), engine `MergedASR` và lần đo cả hệ thống.
+
+**Ba số đếm làm tiền đề cho lần 4.** Đếm trên `val_seen` (274 mẫu) từ chữ đã lưu của phiên K2 và bản ghép C0, lệnh
+`python -m lifemate.eval.asr_v3_report gaps` ([`lifemate/eval/asr_v3_report.py › stage_gaps`](../../../lifemate/eval/asr_v3_report.py));
+kết quả ở `artifacts/runs/colab/asr/10-30_v3/analysis/gaps_val_seen.json`:
+
+1. *Trần của bộ quyết định thấp.* Trong 335 từ tiếng Anh của đáp án: 149 (44,5%) có ở cả RNNT lẫn large-v3, 102 (30,4%)
+   chỉ ở large-v3 (bản ghép giữ 88), 18 (5,4%) chỉ ở RNNT (giữ 16), **66 (19,7%) không có ở bên nào**. Bộ quyết định
+   hoàn hảo đạt tối đa 80,3% độ phủ; H đang ở 76,7%. Phần còn cải thiện được của H là 3,6 điểm độ phủ, trong khi 25,6
+   điểm độ phủ của lần 3 chỉ đổi được +0,4 điểm thi. Không đầu tư thêm vào H.
+2. *Giá trị tham số bị thiếu không giảm theo việc ghép.* Tỉ lệ giá trị tham số của lời gọi đáp án (109 giá trị xuất
+   hiện nguyên văn trong lời chuẩn lượt cuối) vắng trong chữ ASR: RNNT 32,1%, large-v3 E2 29,4%, bản ghép 30,3%. Trong
+   33 giá trị bản ghép làm mất, 25 là chữ Việt hoặc tên Việt ("tắt bếp" chép thành "thất bếp", "Lan" thành "len",
+   "sếp Dũng" thành "sếp chuẩn", "Olivia Brown" thành "olivia browd"), 8 là số.
+3. *Số viết bằng chữ.* 493 trên 840 giá trị tham số của `val_seen` (59%) có chữ số (giờ, số tiền, phần trăm, số điện
+   thoại). Trong 95 câu mà lời chuẩn có chữ số, chữ RNNT có chữ số ở **0** câu, large-v3 ở 81 câu, bản ghép (nền RNNT)
+   ở 6 câu. LLM hiện phải tự đổi "không chín không một hai ba bốn năm sáu bảy" thành số điện thoại và "bảy giờ kém
+   mười lăm" thành giờ.
+
+**Kết luận nghiệm thu.** Ba lần benchmark tối ưu độ phủ từ tiếng Anh tới gần trần của thước đo đó, nhưng thước đo đó
+tương quan yếu với điểm thi. Lần 4 đổi mục tiêu sang **giá trị tham số có trong chữ** (`entity_miss_rate`) và điểm thi,
+với ba hướng không cần GPU để làm trước: đổi số đọc thành chữ số, sửa tên riêng theo danh sách có sẵn của mẫu và catalog,
+và dựng dữ liệu fine-tune từ chữ ASR thật. Kế hoạch ở [`asr_v4.md`](asr_v4.md).
+
 ### Sau lần 3
+
+Các việc dưới chuyển vào kế hoạch lần 4 ([`asr_v4.md`](asr_v4.md)), ghi lại đây để tra cứu:
 
 1. Viết engine ghép `MergedASR` cho hệ thống thật với cách quyết định H: RNNT, large-v3 câu mồi E2, chấm điểm âm thanh, bộ
    phân loại; trọng số H đưa vào `configs/` có phiên bản (hiện ở `artifacts/.../analysis/h_full_train.json`).
@@ -395,7 +429,7 @@ cạnh nhau. Lần chạy này cần GPU từ 24 GB, vì T4 không chứa nổi 
 | [`artifacts/runs/colab/asr/10-30_v3/k1/`](../../../artifacts/runs/colab/asr/10-30_v3/k1/) | Phiên K1 trên `asr_tune`: `rnnt.hyps.jsonl`, `v3_E0.hyps.jsonl`, `v3_E1.hyps.jsonl`, `v3_E2.hyps.jsonl` (chữ từng câu; bản large-v3 kèm câu mồi đã dùng, số token câu mồi, có chép lại không, điểm tin cậy), `timing.jsonl` (thời gian từng mẫu), `summary.json` (thời gian nạp, kiểm tra tất định, bộ nhớ đỉnh), `gpu_memory.csv` |
 | [`artifacts/runs/colab/asr/10-30_v3/k2_asr_learn/`](../../../artifacts/runs/colab/asr/10-30_v3/k2_asr_learn/), [`artifacts/runs/colab/asr/10-30_v3/k2_val_seen/`](../../../artifacts/runs/colab/asr/10-30_v3/k2_val_seen/), [`artifacts/runs/colab/asr/10-30_v3/k2_val_unseen/`](../../../artifacts/runs/colab/asr/10-30_v3/k2_val_unseen/) | Phiên K2: `rnnt.hyps.jsonl`, `v3_E2.hyps.jsonl` và các file đo như K1, trên tập học và hai tập kiểm tra |
 | [`artifacts/runs/colab/asr/10-30_v3/k3/`](../../../artifacts/runs/colab/asr/10-30_v3/k3/) | Phiên K3: `scores_<tập>.jsonl` (mỗi đoạn cần quyết định một dòng: câu A, câu B, điểm âm thanh và số token của từng câu, cờ câu dài hơn 30 giây), `.timing.jsonl`, `.summary.json`, `.gpu_memory.csv` |
-| [`artifacts/runs/colab/asr/10-30_v3/analysis/`](../../../artifacts/runs/colab/asr/10-30_v3/analysis/) | Chấm offline: [`artifacts/runs/colab/asr/10-30_v3/analysis/e.json`](../../../artifacts/runs/colab/asr/10-30_v3/analysis/e.json), [`artifacts/runs/colab/asr/10-30_v3/analysis/e_val.json`](../../../artifacts/runs/colab/asr/10-30_v3/analysis/e_val.json) (thử nghiệm E), [`artifacts/runs/colab/asr/10-30_v3/analysis/select.json`](../../../artifacts/runs/colab/asr/10-30_v3/analysis/select.json) (F, G, H, bảng chọn chung, đo trên val, I1), chữ của các nguồn J |
+| [`artifacts/runs/colab/asr/10-30_v3/analysis/`](../../../artifacts/runs/colab/asr/10-30_v3/analysis/) | Chấm offline: [`artifacts/runs/colab/asr/10-30_v3/analysis/e.json`](../../../artifacts/runs/colab/asr/10-30_v3/analysis/e.json), [`artifacts/runs/colab/asr/10-30_v3/analysis/e_val.json`](../../../artifacts/runs/colab/asr/10-30_v3/analysis/e_val.json) (thử nghiệm E), [`artifacts/runs/colab/asr/10-30_v3/analysis/select.json`](../../../artifacts/runs/colab/asr/10-30_v3/analysis/select.json) (F, G, H, bảng chọn chung, đo trên val, I1), `select_cv.json` (mục 7.2), `h_full_train.json` (trọng số H), `gaps_val_seen.json` (nghiệm thu), chữ của các nguồn J |
 | [`artifacts/runs/colab/asr/10-30_v3/j_sources/`](../../../artifacts/runs/colab/asr/10-30_v3/j_sources/) | Chữ đưa cho agent ở J: `j1_rnnt_*`, `j2_round2_*`, `j3_round3_*`, `j4_alternatives_*` (`.hyps.jsonl`) và danh sách mẫu có chữ khác J1 (`*_ids_*.txt`) |
 | [`artifacts/runs/colab/asr/10-30_v3/k4/`](../../../artifacts/runs/colab/asr/10-30_v3/k4/) | Phiên K4: mỗi nguồn và mỗi tập một thư mục run agent (`config.json`, `submission.jsonl`, `trace.jsonl`; `details.jsonl` có điểm từng mẫu khi chạy xong) |
 
@@ -1850,8 +1884,10 @@ ghi trước khi đo:
 
 ### 9.7. Kết quả
 
-Phiên K4 đang chạy. Đã xong J1, J2 và J3 trên `val_seen`; J4 `val_seen`, bốn nguồn trên `val_unseen` và J0 còn chạy.
-Máy Colab miễn phí bị thu hồi khoảng mỗi 20–60 phút; một vòng tự động xin máy mới, dựng lại và chạy tiếp bằng `--resume`.
+Phiên K4 dừng ngày 30/10 sau khi xong J1, J2 và J3 trên `val_seen` (J4 `val_seen` được 42/117 mẫu, không chấm). J0, J4
+và bốn nguồn trên `val_unseen` chuyển sang lần 4 ([`asr_v4.md`](asr_v4.md)); lần chạy lại sẽ dùng định dạng ChatML (D50)
+nên không nối tiếp các run dở. Máy Colab miễn phí bị thu hồi khoảng mỗi 20–60 phút; một vòng tự động xin máy mới, dựng lại
+và chạy tiếp bằng `--resume`.
 
 **`val_seen` (274 mẫu), agent Qwen3-4B chưa fine-tune** (điểm thi chấm `strict` như BTC; chênh lệch so với J1 kèm CI 95%,
 bootstrap ghép cặp theo mẫu, 1 000 vòng):
@@ -1899,7 +1935,7 @@ với J1 7,85 (85 mẫu); J3 7,51 so với J1 6,19 (77 mẫu).
 Tạm thời, trên `val_seen`: bản ghép lần 3 không thấp hơn RNNT có ý nghĩa thống kê (J3 − J1 = +0,37 [−0,90; +1,72]), tức
 đạt điều kiện đặt trước ở `val_seen` để đưa vào [`configs/v0.toml`](../../../configs/v0.toml); còn phải chờ `val_unseen`. Với LLM chưa fine-tune,
 cải thiện ASR chỉ thêm vài phần mười điểm; phần lớn điểm còn mất nằm ở LLM. Kết luận về J4 (hai phương án) và mức trần
-(J0) chờ phiên K4 chạy xong.
+(J0) chuyển sang lần 4.
 
 ### 9.10. Giới hạn
 

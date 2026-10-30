@@ -9,6 +9,8 @@ Nội dung chính:
 - `region_features`, `fit_logistic`, `predict`: bộ phân loại H (hồi quy logistic có phạt L2, phương pháp Newton).
 - `decision_accuracy`, `bootstrap_accuracy`: độ chính xác quyết định đoạn và khoảng tin cậy bootstrap.
 - `alternatives`: định dạng hai phương án và đếm trần (I1).
+- `english_word_sources`, `digit_sentences`, `argument_values_with_digits`: các số đếm của mục nghiệm thu lần 3 (từ
+  tiếng Anh nằm ở nguồn nào, câu có chữ số, giá trị tham số có chữ số).
 
 Cách hoạt động:
 - Vùng cần quyết định: vùng khác nhau mà chữ large-v3 có từ tiếng Anh mới (`asr_merge.candidate_regions`). Câu
@@ -29,7 +31,7 @@ from typing import Any
 from lifemate.core.types import Sample
 from lifemate.eval.asr_merge import Region, assemble, candidate_regions, english_filter, split_regions
 from lifemate.eval.eval_asr import _edit_distance, normalize_text
-from lifemate.eval.foreign_words import contains_word, find_foreign_words, folded_words
+from lifemate.eval.foreign_words import contains_word, find_foreign_words, folded_words, match_words_in_transcript
 
 THETAS = (0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
 L2_GRID = (0.01, 0.1, 1.0, 10.0)
@@ -466,3 +468,79 @@ def context_words_by_sample(
     from lifemate.eval.asr_merge import sample_context_words
 
     return {s.id: sample_context_words(s, catalog) for s in samples}
+
+
+def english_word_sources(
+    refs: Mapping[tuple[str, str], str],
+    hyps: Mapping[str, Mapping[tuple[str, str], str]],
+    merged_key: str = "merged",
+) -> dict[str, Any]:
+    """Mỗi từ tiếng Anh của đáp án nằm ở nguồn chữ nào: cả A và B, chỉ A, chỉ B, hay không nguồn nào (nghiệm thu lần 3).
+
+    Tham số:
+        refs: `{(id, turn): câu đáp án}`.
+        hyps: `{"a": {...}, "b": {...}, "merged": {...}}`, mỗi phần là `{(id, turn): chữ ASR}`; câu thiếu coi như rỗng.
+        merged_key: khoá của bản ghép trong `hyps`.
+
+    Trả về:
+        `{"total": n, "both": ..., "a_only": ..., "b_only": ..., "neither": ..., "merged_kept": {"a_only": k,
+        "b_only": k}, "ceiling": trần độ phủ khi luôn chọn đúng bên, "by_group": {nhóm từ: {...}},
+        "neither_examples": [...]}`.
+    """
+    a, b, merged = hyps["a"], hyps["b"], hyps[merged_key]
+    vocab = {w.folded for t in refs.values() for w in find_foreign_words(t) if w.text.islower()}
+    out: dict[str, Any] = {k: 0 for k in ("total", "both", "a_only", "b_only", "neither")}
+    kept = {"a_only": 0, "b_only": 0}
+    by_group: dict[str, dict[str, int]] = {}
+    examples: list[dict[str, str]] = []
+    for key, ref in refs.items():
+        words = find_foreign_words(ref, vocab)
+        if not words:
+            continue
+        in_a = match_words_in_transcript(words, a.get(key, ""))
+        in_b = match_words_in_transcript(words, b.get(key, ""))
+        in_m = match_words_in_transcript(words, merged.get(key, ""))
+        for w, x, y, z in zip(words, in_a, in_b, in_m, strict=True):
+            where = "both" if x and y else "a_only" if x else "b_only" if y else "neither"
+            out["total"] += 1
+            out[where] += 1
+            by_group.setdefault(w.group, dict.fromkeys(("both", "a_only", "b_only", "neither"), 0))[where] += 1
+            if where in kept and z:
+                kept[where] += 1
+            if where == "neither" and len(examples) < 40:
+                examples.append(
+                    {"id": key[0], "turn": key[1], "word": w.text, "a": a.get(key, ""), "b": b.get(key, "")}
+                )
+    out["merged_kept"] = kept
+    out["ceiling"] = (out["both"] + out["a_only"] + out["b_only"]) / out["total"] if out["total"] else 0.0
+    out["by_group"] = by_group
+    out["neither_examples"] = examples
+    return out
+
+
+def digit_sentences(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    """Số câu mà đáp án có chữ số, và trong đó số câu chữ ASR cũng có chữ số (RNNT viết số bằng chữ)."""
+    with_digit = [r for r in rows if any(c.isdigit() for c in str(r["ref"]))]
+    return {
+        "ref_with_digits": len(with_digit),
+        "hyp_with_digits": sum(any(c.isdigit() for c in str(r["hyp"])) for r in with_digit),
+    }
+
+
+def argument_values_with_digits(samples: Sequence[Sample]) -> dict[str, int]:
+    """Số giá trị tham số của lời gọi đáp án, và số giá trị có chữ số (giờ, số tiền, phần trăm, số điện thoại)."""
+
+    def values(obj: Any) -> list[Any]:
+        if isinstance(obj, Mapping):
+            return [v for x in obj.values() for v in values(x)]
+        if isinstance(obj, list):
+            return [v for x in obj for v in values(x)]
+        return [obj]
+
+    total = digits = 0
+    for s in samples:
+        for call in (s.label or {}).get("tool_calls") or []:
+            for v in values(call.get("arguments") or {}):
+                total += 1
+                digits += any(c.isdigit() for c in str(v))
+    return {"values": total, "with_digits": digits}
