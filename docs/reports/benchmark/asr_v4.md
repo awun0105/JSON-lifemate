@@ -1,7 +1,7 @@
 # Báo cáo benchmark ASR lần 4: giá trị tham số trong chữ ASR (đổi số, sửa tên, dữ liệu fine-tune từ chữ ASR)
 
-Ngày lập kế hoạch: 31/10/2026. Trạng thái: **kế hoạch; chưa chạy thử nghiệm nào**. Phần không cần GPU (L1, L2, L3a) làm
-trước trên máy dev; phần cần GPU (L0, L3b, L4) ghi rõ và chờ phiên GPU.
+Ngày lập kế hoạch: 31/10/2026. Trạng thái: **L1 đã đo trên chữ đã lưu (mục 3.4); L2, L3a đang làm; L0, L3b và các việc
+cần GPU chưa chạy**. Phần không cần GPU (L1, L2, L3a) làm trước trên máy dev; phần cần GPU ghi rõ và chờ phiên GPU.
 
 Lần 3 ([`asr_v3.md`](asr_v3.md), mục "Nghiệm thu lần 3") kết thúc với ba số đếm trên `val_seen`:
 
@@ -88,14 +88,69 @@ Bộ luật `lifemate/backends/asr_numbers.py` (tên dự kiến) chạy sau b�
 
 ### 3.3. Cách đo
 
-Trên chữ RNNT và bản ghép H của train (kiểm định chéo để chọn kiểu viết và danh sách đơn vị) rồi `val_seen` một lần:
-`entity_miss_rate`, WER mọi câu, WER câu thuần Việt, số câu có chữ số sau đổi so với lời chuẩn, số chỗ đổi sai (chữ số
-sau đổi không có trong lời chuẩn).
+Bộ đổi không có tham số dò: luật và kiểu viết chọn theo cách lời chuẩn của train viết số (đếm trên 3 593 câu người
+dùng của train: 459 token chữ số, hầu hết là số nguyên trần "5 giờ", "500 nghìn", "127 triệu", "30 phần trăm"; chữ
+"nghìn", "triệu", "rưỡi", "phần trăm" giữ bằng chữ). Đo trên train (1 093 mẫu, tập phát triển) rồi `val_seen` một lần,
+bằng `python -m lifemate.eval.asr_v4_report l1` ([`lifemate/eval/asr_v4_report.py › stage_l1`](../../../lifemate/eval/asr_v4_report.py)):
+bốn hệ thống RNNT, RNNT + L1, ghép H (mốc; học lại H trên cả train như D54), ghép H + L1; `compare` bootstrap ghép cặp
+theo mẫu.
 
-Tiêu chí đặt trước: `entity_miss_rate` giảm có ý nghĩa so với mốc và WER câu thuần Việt không tăng có ý nghĩa. Đạt thì
-L1 vào pipeline (cũng vào `MergedASR`).
+Tiêu chí đặt trước: `entity_miss_rate` giảm có ý nghĩa so với mốc và WER câu thuần Việt không tăng có ý nghĩa.
 
-Trạng thái: chưa làm.
+**Điều phát hiện khi đo, ảnh hưởng tới cách đọc WER.** Lời chuẩn của BTC viết số **không nhất quán**: cùng kiểu câu,
+"tám giờ" bằng chữ xuất hiện 84 lần, "5 giờ" bằng chữ số 82 lần. Vì vậy WER so với lời chuẩn gốc phạt cả khi đổi đúng
+("8 giờ" so với "tám giờ" là một lỗi), và không tách được lỗi đổi số khỏi khác biệt cách viết. Báo cáo vì thế thêm hai
+số: WER bỏ số (`wer_nonum`, bỏ mọi chữ số và từ đọc số ở hai phía; phải **không đổi** nếu bộ đổi không đụng gì khác) và
+WER so với **đáp án đã đổi số cùng luật**. Tiêu chí chặn về WER câu thuần Việt được đọc trên hai số này, không trên WER
+gốc; đây là thay đổi so với tiêu chí viết lúc lập kế hoạch và được ghi lại ở đây thay vì sửa âm thầm.
+
+### 3.4. Kết quả
+
+**Train (1 093 mẫu, 455 giá trị tham số; chênh lệch so với ghép H kèm CI 95%):**
+
+| Hệ thống | Giá trị tham số thiếu | WER gốc | WER bỏ số | WER so đáp án đã đổi số | Câu có chữ số: đáp án / ASR | Chữ số đúng / tổng (đáp án đã đổi) | Chữ số lạ | Câu bị đổi |
+|---|---|---|---|---|---|---|---|---|
+| RNNT | 36,3% [+1,1; +4,6] | 20,86% | 20,23% | 23,42% | 357 / 0 | 0 / 1 285 | 0 | 0 |
+| RNNT + L1 | 27,7% [−9,6; −1,7] | 22,07% | 20,23% | 19,93% | 357 / 256 | 991 / 1 285 | 85 | 880 |
+| Ghép H (mốc) | 33,4% | 19,99% | 19,33% | 22,51% | 357 / 28 | 34 / 1 285 | 15 | 0 |
+| **Ghép H + L1** | **24,8%** [−12,0; −5,1] | 21,23% [+0,9; +1,6] | 19,33% [0; 0] | **19,08%** | 357 / 269 | **1 005 / 1 285** | 98 | 861 |
+
+**`val_seen` (274 mẫu, 109 giá trị tham số), đo một lần:**
+
+| Hệ thống | Giá trị tham số thiếu | WER gốc | WER bỏ số | WER so đáp án đã đổi số | Câu có chữ số: đáp án / ASR | Chữ số đúng / tổng | Chữ số lạ | Câu bị đổi |
+|---|---|---|---|---|---|---|---|---|
+| Ghép H (mốc) | 30,3% (33/109) | 18,97% | 18,63% | 21,19% | 95 / 5 | 6 / 299 | 1 | 0 |
+| **Ghép H + L1** | **26,6%** (29/109) [−9,4; +1,1] | 20,28% [+0,8; +1,8] | 18,63% [0; 0] | **18,40%** | 95 / 63 | **228 / 299** | 20 | 200 |
+
+*"Chữ số lạ": chữ số trong chữ ASR không có trong đáp án đã đổi số; gồm cả đổi sai lẫn nghe sai. Rà 88 trường hợp trên
+chữ RNNT của train: phần lớn là nghe sai ("131 triệu" nghe thành "một trăm hai mươi mốt triệu", số điện thoại thiếu
+chữ số), không phải lỗi của bộ đổi; ba lỗi đổi tìm được khi rà ("không" phủ định thành 0, nhiệt độ đọc tắt "hai sáu
+độ", "chín h") đã sửa trước khi đo lần cuối.*
+
+### 3.5. Phân tích và kết luận
+
+- **Trên train, L1 đạt tiêu chí**: giá trị tham số thiếu giảm 8,6 điểm (CI không chứa 0); WER bỏ số không đổi, nghĩa là
+  bộ đổi không đụng gì ngoài số; WER so đáp án đã đổi số giảm 3,4 điểm; 1 005 trên 1 285 chữ số của đáp án nay có trong
+  chữ (trước đó 34).
+- **Trên `val_seen` cùng chiều nhưng CI chứa 0** (−3,7 điểm, CI [−9,4; +1,1]): tập này chỉ có 109 giá trị tham số, quá
+  ít để tách 4 giá trị; số đo chữ số (6 lên 228 trên 299) và WER so đáp án đã đổi (21,2% xuống 18,4%) cho thấy hiệu
+  quả giống train.
+- **WER gốc tăng 1,2 điểm là do cách viết của lời chuẩn**, không phải do chữ sai: WER bỏ số không đổi. Khi lời chuẩn
+  viết "tám giờ", chữ "8 giờ" bị tính là một lỗi dù LLM đọc "8 giờ" dễ hơn.
+- Thước đo `entity_miss_rate` **đếm thiếu** phần số: chỉ tính giá trị tham số xuất hiện nguyên văn trong lời chuẩn, nên
+  giá trị `30` của câu lời chuẩn viết "ba mươi phần trăm" không được tính. Mức giảm thật với LLM có thể lớn hơn số đo.
+
+**Kết luận.** L1 được đưa vào pipeline (áp lên chữ RNNT trước khi ghép, trong `MergedASR`) với điều kiện: điểm thi của
+agent với chữ H + L1 không thấp hơn chữ H (đo ở L0 cùng phiên GPU). Code: [`lifemate/backends/asr_numbers.py`](../../../lifemate/backends/asr_numbers.py)
+(`digitize`), test `tests/test_asr_numbers.py`. Kết quả thô: `artifacts/runs/colab/asr/10-30_v3/analysis/l1_train.json`,
+`l1_val_seen.json`.
+
+### 3.6. Giới hạn
+
+- Không đổi giờ thành dạng `HH:MM`, không gộp "một triệu hai" thành `1200000`; LLM vẫn phải làm bước cuối.
+- Luật "một", "hai" đơn không đổi trước danh từ đếm ("hai chỗ", "một lít") vì lời chuẩn viết bằng chữ; nếu LLM nhầm ở
+  đó, cần đo lại.
+- Chưa đo điểm thi; chưa đo `val_unseen`.
 
 ## 4. Thử nghiệm L2: sửa tên riêng theo danh sách của mẫu
 
@@ -153,7 +208,7 @@ Trạng thái: chưa làm.
 
 | Bước | Việc | Cần GPU | Trạng thái |
 |---|---|---|---|
-| 1 | L1: bộ đổi số, test, đo trên chữ đã lưu (train kiểm định chéo, `val_seen` một lần) | Không | Chưa làm |
+| 1 | L1: bộ đổi số, test, đo trên chữ đã lưu (train, `val_seen` một lần) | Không | Xong 31/10: đạt trên train, cùng chiều trên `val_seen` (mục 3.4) |
 | 2 | L2: danh sách ứng viên từ mẫu và catalog, bộ sửa tên, test, đo như L1 | Không | Chưa làm |
 | 3 | L3a: dựng dữ liệu SFT từ chữ ASR của train | Không | Chưa làm |
 | 4 | `MergedASR` với H, L1, L2 (phần code và test không cần GPU) | Không | Chưa làm |
