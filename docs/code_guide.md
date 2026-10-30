@@ -9,11 +9,11 @@ Ngày viết: 30/10/2026, theo mã trên nhánh `asr-benchmark-v2`. Các tài li
 
 | Muốn biết                                  | Đọc                                                                       |
 | ------------------------------------------ | ------------------------------------------------------------------------- |
-| Đặc tả đầy đủ, quyết định thiết kế ban đầu | `docs/SPEC.md`                                                            |
-| Thể lệ thi                                 | `docs/overview.md`                                                        |
-| Các quyết định đã chốt và lý do            | `docs/decisions.md`                                                       |
-| Kết quả benchmark ASR                      | `docs/reports/benchmark/asr_v1.md`, `asr_v2.md`, `asr_v3.md`              |
-| Mô tả ngắn từng thư mục                    | `README.md` trong mỗi thư mục `lifemate/*/`, `configs/`, `ops/`, `tests/` |
+| Đặc tả đầy đủ, quyết định thiết kế ban đầu | [`docs/SPEC.md`](SPEC.md)                                                            |
+| Thể lệ thi                                 | [`docs/overview.md`](overview.md)                                                        |
+| Các quyết định đã chốt và lý do            | [`docs/decisions.md`](decisions.md)                                                       |
+| Kết quả benchmark ASR                      | [`docs/reports/benchmark/asr_v1.md`](reports/benchmark/asr_v1.md), [`docs/reports/benchmark/asr_v2.md`](reports/benchmark/asr_v2.md), [`docs/reports/benchmark/asr_v3.md`](reports/benchmark/asr_v3.md)              |
+| Mô tả ngắn từng thư mục                    | `README.md` trong mỗi thư mục `lifemate/*/`, [`configs/`](../configs/), [`ops/`](../ops/), [`tests/`](../tests/) |
 
 
 Cách ghi tham chiếu mã trong tài liệu: `đường/dẫn/file.py › TênHàm`, đường dẫn tính từ thư mục gốc repo.
@@ -80,7 +80,7 @@ dự án chỉ có ba phần bao quanh:
 - [`tests/fakes.py`](../tests/fakes.py) › `FakeEnv`: bản giả dùng khi test trên CPU, thay cho `ToolEnv` thật.
 
 
-**Ràng buộc chính của thể lệ** (`docs/overview.md`, mục 8):
+**Ràng buộc chính của thể lệ** ([`docs/overview.md`](overview.md), mục 8):
 
 - Mỗi mẫu xử lý trong 30 giây, tính cả ASR, LLM và tool. Quá giờ thì mẫu đó 0 điểm.
 - Tổng tham số dưới 6B; LLM dưới 5B và context tối đa 16 384 token.
@@ -91,9 +91,9 @@ trên `ToolEnv` đó phải có trong file nộp.
 
 **Repo này làm ba việc:**
 
-1. **Hệ thống dự thi:** từ âm thanh ra `submission.jsonl` (gói `lifemate/agent`, `backends`, `run`, `io`).
-2. **Đo lường:** chấm điểm giống BTC, chia tập, benchmark ASR (`lifemate/eval`).
-3. **Huấn luyện:** dựng dữ liệu SFT và fine-tune LLM, fine-tune ASR (`lifemate/train`).
+1. **Hệ thống dự thi:** từ âm thanh ra `submission.jsonl` (gói [`lifemate/agent`](../lifemate/agent), `backends`, `run`, `io`).
+2. **Đo lường:** chấm điểm giống BTC, chia tập, benchmark ASR ([`lifemate/eval`](../lifemate/eval)).
+3. **Huấn luyện:** dựng dữ liệu SFT và fine-tune LLM, fine-tune ASR ([`lifemate/train`](../lifemate/train)).
 
 Mô hình đang dùng: LLM **Qwen3-4B-Instruct-2507** (4,02B) chạy bằng **vLLM**. ASR trong config hiện tại là
 **whisper-large-v3** (1,55B) chạy bằng **faster-whisper**; benchmark đề xuất đổi sang ChunkFormer RNNT ghép với large-v3
@@ -130,7 +130,7 @@ run  ─────►  agent  ─────►  backends  ─────►
 eval, train  ─────►  dùng lại agent, backends, io, core (eval và train không import lẫn nhau)
 ```
 
-`core/types.py` không import gì khác trong `lifemate`, nên mọi tầng dùng được mà không bị import vòng.
+[`lifemate/core/types.py`](../lifemate/core/types.py) không import gì khác trong `lifemate`, nên mọi tầng dùng được mà không bị import vòng.
 
 ---
 
@@ -138,15 +138,15 @@ eval, train  ─────►  dùng lại agent, backends, io, core (eval và
 
 **Hai định dạng hội thoại với LLM** (`[agent].format`, quyết định D50 ngày 30/10/2026):
 
-| | `chatml` (mặc định trong `configs/v0.toml`) | `json` (`configs/v0_json.toml`, định dạng cũ) |
+| | `chatml` (mặc định trong [`configs/v0.toml`](../configs/v0.toml)) | `json` ([`configs/v0_json.toml`](../configs/v0_json.toml), định dạng cũ) |
 |---|---|---|
-| Vòng lặp | `agent/chatml_agent.py › ChatMLAgent` | `agent/agent.py › Agent` |
-| Dựng tin nhắn | `agent/chatml.py`, giống hệt `build_messages` của repo lead | `agent/prompt.py › PromptBuilder` + `configs/prompts/system_v1.md` |
+| Vòng lặp | [`lifemate/agent/chatml_agent.py`](../lifemate/agent/chatml_agent.py) › `ChatMLAgent` | [`lifemate/agent/agent.py`](../lifemate/agent/agent.py) › `Agent` |
+| Dựng tin nhắn | [`lifemate/agent/chatml.py`](../lifemate/agent/chatml.py), giống hệt `build_messages` của repo lead | [`lifemate/agent/prompt.py`](../lifemate/agent/prompt.py) › `PromptBuilder` + [`configs/prompts/system_v1.md`](../configs/prompts/system_v1.md) |
 | Danh sách tool | Trường `tools` của tin `system` (JSON schema); chat template của Qwen chèn vào khối `<tools>` | Văn bản gọn trong nội dung tin `system` (`render_tools`) |
 | Lời gọi tool | Tin `assistant` có `tool_calls`; mô hình sinh `<tool_call>{"name": ..., "arguments": ...}</tool_call>` | Nội dung tin `assistant` là JSON `{"action":"call",...}`, ép theo schema |
 | Kết quả tool, lỗi guard | Tin vai `tool`; lỗi guard là `{"ok": false, "error": ...}` | Tin `user` `KẾT QUẢ: ...` hoặc `LỖI (chưa gọi tool): ...` |
 | Kết thúc | Câu trả lời bằng lời (không có `<tool_call>`) | `{"action":"done"}` |
-| Dữ liệu huấn luyện | `src/preprocessing/dataset/builder.py` của repo lead | `lifemate/train/sft_data.py` |
+| Dữ liệu huấn luyện | [`src/preprocessing/dataset/builder.py`](https://github.com/ThanhDanh1510/ZaloAI2026/blob/main/src/preprocessing/dataset/builder.py) của repo lead | [`lifemate/train/sft_data.py`](../lifemate/train/sft_data.py) |
 
 Hai vòng lặp có cùng ngân sách, guard, hạn giờ, cách ghi kết quả. Các bước dưới mô tả định dạng `json` (nơi mã được
 viết trước); bước 3 và 4 có ghi chú phần khác của `chatml`. Thử nghiệm J của benchmark ASR lần 3 chạy ở định dạng `json`.
@@ -161,13 +161,13 @@ python -m lifemate.run.cli --config configs/v0.toml --env local --split train --
 
 `lifemate/run/cli.py › run`:
 
-1. Đọc `configs/v0.toml` thành `Config` (`core/config.py › load_config`), áp các `--set khoá=giá_trị` nếu có.
-2. Đọc profile máy `configs/env/local.toml` (`load_profile`): thư mục dữ liệu, thư mục run, nguồn token Hugging Face.
-3. Đọc các mẫu của split, lọc theo `--ids` (`io/data.py › load_split`, `read_ids`).
+1. Đọc [`configs/v0.toml`](../configs/v0.toml) thành `Config` ([`lifemate/core/config.py`](../lifemate/core/config.py) › `load_config`), áp các `--set khoá=giá_trị` nếu có.
+2. Đọc profile máy [`configs/env/local.toml`](../configs/env/local.toml) (`load_profile`): thư mục dữ liệu, thư mục run, nguồn token Hugging Face.
+3. Đọc các mẫu của split, lọc theo `--ids` ([`lifemate/io/data.py`](../lifemate/io/data.py) › `load_split`, `read_ids`).
 4. Mở thư mục run và kiểm tra `--resume` **trước** khi nạp mô hình, để lỗi config lộ ra ngay chứ không sau vài phút nạp
  vLLM.
-5. Cố định seed của Python, NumPy, PyTorch (`core/seeding.py › seed_everything`).
-6. Gọi `run/factory.py › build` để tạo mọi đối tượng, rồi giao cho `run/runner.py › Runner`.
+5. Cố định seed của Python, NumPy, PyTorch ([`lifemate/core/seeding.py`](../lifemate/core/seeding.py) › `seed_everything`).
+6. Gọi [`lifemate/run/factory.py`](../lifemate/run/factory.py) › `build` để tạo mọi đối tượng, rồi giao cho [`lifemate/run/runner.py`](../lifemate/run/runner.py) › `Runner`.
 
 `factory.build` là **nơi duy nhất** tạo đối tượng. Theo tên trong config, hàm chọn:
 
@@ -180,14 +180,14 @@ python -m lifemate.run.cli --config configs/v0.toml --env local --split train --
 | Guard       | `[agent].guards`                     | `allowed_tool`, `schema`, `duplicate_write`, `after_ask`         |
 
 
-LLM và transcriber được bọc trong `TimedLLM`, `TimedTranscriber` (`run/timing.py`) để đo giờ mà không sửa lớp bên trong.
+LLM và transcriber được bọc trong `TimedLLM`, `TimedTranscriber` ([`lifemate/run/timing.py`](../lifemate/run/timing.py)) để đo giờ mà không sửa lớp bên trong.
 
 ### Bước 1. Runner nhận một mẫu
 
 `Runner.run` ghi ngay một `submission.jsonl` có đủ dòng giữ chỗ cho mọi mẫu, khởi động (warm-up) LLM và ASR, rồi duyệt
 mẫu theo thứ tự id. Với từng mẫu, `Runner.run_one`:
 
-- mở **đúng một** `ToolEnv` cho mẫu (`io/zaic.py › ZaicLoader.open_env`; mở lần hai báo lỗi);
+- mở **đúng một** `ToolEnv` cho mẫu ([`lifemate/io/zaic.py`](../lifemate/io/zaic.py) › `ZaicLoader.open_env`; mở lần hai báo lỗi);
 - gọi `Agent.run(sample, env)`;
 - nếu có bất kỳ `Exception` nào: trả kết quả `exception`, **vẫn giữ** các lời gọi tool đã gửi và hash trạng thái. Đây là
 chỗ duy nhất trong repo bắt mọi lỗi; một mẫu lỗi không làm dừng cả lần chạy.
@@ -197,7 +197,7 @@ chừng vẫn còn file nộp đủ dòng, và `--resume` chạy tiếp từ m�
 
 ### Bước 2. Bấm giờ và chép âm thanh
 
-`agent/agent.py › Agent.run`:
+[`lifemate/agent/agent.py`](../lifemate/agent/agent.py) › `Agent.run`:
 
 ```python
 budget = Budget(self.cfg, self.llm_cfg, clock)      # bấm giờ TRƯỚC khi chạy ASR
@@ -212,10 +212,10 @@ lượt người dùng có chữ, lượt trợ lý là `None`.
 
 ### Bước 3. Dựng prompt
 
-`agent/prompt.py › PromptBuilder.start` dựng hội thoại gồm hai tin nhắn:
+[`lifemate/agent/prompt.py`](../lifemate/agent/prompt.py) › `PromptBuilder.start` dựng hội thoại gồm hai tin nhắn:
 
-**Tin nhắn `system`** = quy tắc trong `configs/prompts/system_v1.md` + mô tả các tool **của app đã cài** (thay vào chỗ
-`{tool_docs}`). Mô tả tool do `agent/tooldocs.py › render_tools` sinh, mỗi app một khối, mỗi tool ba dòng (ví dụ minh
+**Tin nhắn `system`** = quy tắc trong [`configs/prompts/system_v1.md`](../configs/prompts/system_v1.md) + mô tả các tool **của app đã cài** (thay vào chỗ
+`{tool_docs}`). Mô tả tool do [`lifemate/agent/tooldocs.py`](../lifemate/agent/tooldocs.py) › `render_tools` sinh, mỗi app một khối, mỗi tool ba dòng (ví dụ minh
 hoạ dạng):
 
 ```
@@ -258,7 +258,7 @@ Ba điểm cần biết:
 - **Bảng lịch 15 ngày** (`render_calendar`): LLM hay tính sai "thứ sáu", "mai", "chủ nhật này". Bảng tính sẵn giúp LLM
 chỉ cần tra.
 - **`installed_apps` không in ra**: danh sách tool trong `system` đã chỉ gồm tool được phép.
-- **Định dạng `chatml`** dựng khác (`agent/chatml.py › build_messages`): tin `system` là lời dặn ngắn của lead kèm thời
+- **Định dạng `chatml`** dựng khác ([`lifemate/agent/chatml.py`](../lifemate/agent/chatml.py) › `build_messages`): tin `system` là lời dặn ngắn của lead kèm thời
   gian, hồ sơ, vị trí, và trường `tools`; lịch sử thành các tin `user`, `assistant` (`tool_calls`), `tool` riêng; không có
   bảng lịch. Rút gọn hai mức: schema rút gọn (`compact_tool_schema`), rồi bỏ dần lượt lịch sử cũ.
 - **Rút gọn khi quá dài**: nếu prompt cộng `max_tokens` vượt `max_model_len`, thử lần lượt bốn mức: 0 giữ nguyên; 1 cắt
@@ -287,7 +287,7 @@ parse                → Action (call / done) hoặc ParseError
 `<tool_call>`, không có khối nào là câu kết (dừng `DONE`). Lời gọi bị guard chặn thành tin `tool` `{"ok": false, "error": "<lý do>"}`, đúng dạng lượt "phục
 hồi lỗi" trong dữ liệu của lead. Phần dưới mô tả định dạng `json`.
 
-**Định dạng đầu ra** (`agent/protocol.py`): mỗi lượt LLM trả đúng một JSON:
+**Định dạng đầu ra** ([`lifemate/agent/protocol.py`](../lifemate/agent/protocol.py)): mỗi lượt LLM trả đúng một JSON:
 
 ```json
 {"action":"call","name":"alarm.create","arguments":{"time":"2026-11-11T05:30:00+07:00"}}
@@ -299,7 +299,7 @@ có thêm `sys.ask_missing_info`). vLLM dùng schema này để **ép** đầu r
 không tồn tại hay sinh JSON sai cấu trúc. `parse` vẫn chịu lỗi (cắt phần thừa ngoài cặp ngoặc nhọn) và không bao giờ ném
 lỗi.
 
-**Chuỗi guard** (`agent/guards.py`), chạy theo thứ tự trong config, dừng ở kết quả BLOCK hoặc STOP đầu tiên:
+**Chuỗi guard** ([`lifemate/agent/guards.py`](../lifemate/agent/guards.py)), chạy theo thứ tự trong config, dừng ở kết quả BLOCK hoặc STOP đầu tiên:
 
 
 | Guard                          | Kiểm tra                                  | Kết quả khi vi phạm                                  |
@@ -313,17 +313,17 @@ lỗi.
 Ý nghĩa của BLOCK: lời gọi sai **không bao giờ tới env**, nên không bị tính vào file nộp và không làm hỏng trạng thái. LLM
 đọc lỗi và sửa ở bước sau. Ví dụ LLM quên tham số bắt buộc `time`: G2 chặn, LLM nhận `LỖI (chưa gọi tool): thiếu tham số bắt buộc: time` và gọi lại cho đủ.
 
-**Ngân sách** (`agent/budget.py`): trước mỗi bước kiểm tra ba điều kiện theo thứ tự: số bước, tràn context
+**Ngân sách** ([`lifemate/agent/budget.py`](../lifemate/agent/budget.py)): trước mỗi bước kiểm tra ba điều kiện theo thứ tự: số bước, tràn context
 (`prompt_tokens + max_tokens > max_model_len`), hết giờ. Số lần thử lại (lỗi parse, BLOCK) đếm riêng, tối đa
 `max_retries = 2`.
 
-**Hội thoại chỉ nối thêm** (`agent/prompt.py › Conversation`): tin cũ không bao giờ bị sửa. Hai lợi ích: vLLM dùng lại
+**Hội thoại chỉ nối thêm** ([`lifemate/agent/prompt.py`](../lifemate/agent/prompt.py) › `Conversation`): tin cũ không bao giờ bị sửa. Hai lợi ích: vLLM dùng lại
 phần đầu prompt đã tính (prefix cache), và hội thoại lúc chạy khớp từng byte với dữ liệu huấn luyện (mục 11). Token được
 đếm tăng dần; khi số đếm lệch với số vLLM báo, lấy số của vLLM (`reconcile`).
 
 ### Bước 5. Hạn giờ được thực thi thật
 
-`backends/llm.py › VLLMBackend._generate_until` không gọi `LLM.chat` một lần rồi chờ. Hàm đưa request vào engine của vLLM,
+[`lifemate/backends/llm.py`](../lifemate/backends/llm.py) › `VLLMBackend._generate_until` không gọi `LLM.chat` một lần rồi chờ. Hàm đưa request vào engine của vLLM,
 chạy từng bước giải mã (`engine.step()`), và **huỷ request** (`abort_request`) ngay khi chạm hạn. Một mẫu vì vậy không
 bao giờ vượt hạn quá một bước giải mã. Bước bị huỷ trả `timed_out=True`, agent dừng với `StopReason.TIMEOUT`, và các lời
 gọi tool đã gửi trước đó **vẫn được nộp**.
@@ -347,7 +347,7 @@ gọi tool đã gửi trước đó **vẫn được nộp**.
 
 Hết mẫu, `RunStore.finalize` dựng lại `submission.jsonl` từ `trace.jsonl`. Split có nhãn thì `Runner._score` chạy
 `lifemate.eval.score` trong **tiến trình con** (để không nạp `zaic_tools` lần hai), ghi `score.txt` và `details.jsonl`.
-Split không nhãn (public test) thì chạy `check_submission`. Cuối cùng nối một dòng vào `index.csv`.
+Split không nhãn (public test) thì chạy `check_submission`. Cuối cùng nối một dòng vào [`artifacts/runs/index.csv`](../artifacts/runs/index.csv).
 
 Thư mục một lần chạy:
 
@@ -364,19 +364,19 @@ Thư mục một lần chạy:
 
 ---
 
-## 4. Lõi chung: `lifemate/core`
+## 4. Lõi chung: [`lifemate/core`](../lifemate/core)
 
 
 | File                    | Giữ việc gì                                                                              | Điểm cần nhớ                                                                                                                                                                                                                                                      |
 | ----------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.py`              | Mọi kiểu dữ liệu và giao diện dùng chung                                                 | Dataclass `frozen=True, slots=True` (không sửa được sau khi tạo). Enum `StopReason`, `ErrorCode`, `GuardVerdict` thay cho chuỗi tự do. Các giao diện là `Protocol`: `ToolEnvLike`, `LLMBackend`, `Transcriber`, `TokenCounter`, `Clock`, `Guard`, `AgentObserver` |
-| `config.py`             | Đọc `configs/*.toml` thành `Config` (ba mục `[llm]`, `[agent]`, `[asr]`) và `EnvProfile` | Kiểm tra chặt: khoá lạ hoặc thiếu khoá báo `ConfigError` ngay lúc nạp. Token HF không nằm trong file; profile chỉ ghi nguồn (`env:HF_TOKEN`, `kaggle_secret:...`)                                                                                                 |
-| `envinfo.py`            | Dò GPU, commit mã, phiên bản thư viện; chọn dtype                                        | `dtype = "auto"`: bfloat16 trên GPU từ Ampere (A30), float16 trên T4                                                                                                                                                                                              |
-| `seeding.py`            | Cố định seed Python, NumPy, PyTorch                                                      | Theo yêu cầu tái lập của thể lệ                                                                                                                                                                                                                                   |
-| `tokens.py`             | Đếm token theo chat template của Qwen                                                    | `HFTokenCounter` dùng tokenizer thật; `SimpleTokenCounter` đếm thô cho test                                                                                                                                                                                       |
-| `textsim.py`            | Gom câu gần trùng (giống nhau từ 85%)                                                    | Dùng khi chia tập và lọc dữ liệu SFT; lấy ý tưởng từ `split.py` của lead                                                                                                                                                                                          |
-| `jsonutil.py`           | `canonical_json`: JSON sắp khoá, không khoảng trắng                                      | Cùng dữ liệu luôn ra cùng chuỗi, nên so sánh và băm được                                                                                                                                                                                                          |
-| `paths.py`, `tomlio.py` | Thư mục gốc repo; ghi TOML đơn giản                                                      |                                                                                                                                                                                                                                                                   |
+| [`lifemate/core/types.py`](../lifemate/core/types.py)              | Mọi kiểu dữ liệu và giao diện dùng chung                                                 | Dataclass `frozen=True, slots=True` (không sửa được sau khi tạo). Enum `StopReason`, `ErrorCode`, `GuardVerdict` thay cho chuỗi tự do. Các giao diện là `Protocol`: `ToolEnvLike`, `LLMBackend`, `Transcriber`, `TokenCounter`, `Clock`, `Guard`, `AgentObserver` |
+| [`lifemate/core/config.py`](../lifemate/core/config.py)             | Đọc `configs/*.toml` thành `Config` (ba mục `[llm]`, `[agent]`, `[asr]`) và `EnvProfile` | Kiểm tra chặt: khoá lạ hoặc thiếu khoá báo `ConfigError` ngay lúc nạp. Token HF không nằm trong file; profile chỉ ghi nguồn (`env:HF_TOKEN`, `kaggle_secret:...`)                                                                                                 |
+| [`lifemate/core/envinfo.py`](../lifemate/core/envinfo.py)            | Dò GPU, commit mã, phiên bản thư viện; chọn dtype                                        | `dtype = "auto"`: bfloat16 trên GPU từ Ampere (A30), float16 trên T4                                                                                                                                                                                              |
+| [`lifemate/core/seeding.py`](../lifemate/core/seeding.py)            | Cố định seed Python, NumPy, PyTorch                                                      | Theo yêu cầu tái lập của thể lệ                                                                                                                                                                                                                                   |
+| [`lifemate/core/tokens.py`](../lifemate/core/tokens.py)             | Đếm token theo chat template của Qwen                                                    | `HFTokenCounter` dùng tokenizer thật; `SimpleTokenCounter` đếm thô cho test                                                                                                                                                                                       |
+| [`lifemate/core/textsim.py`](../lifemate/core/textsim.py)            | Gom câu gần trùng (giống nhau từ 85%)                                                    | Dùng khi chia tập và lọc dữ liệu SFT; lấy ý tưởng từ [`src/preprocessing/dataset/split.py`](https://github.com/ThanhDanh1510/ZaloAI2026/blob/main/src/preprocessing/dataset/split.py) của lead                                                                                                                                                                                          |
+| [`lifemate/core/jsonutil.py`](../lifemate/core/jsonutil.py)           | `canonical_json`: JSON sắp khoá, không khoảng trắng                                      | Cùng dữ liệu luôn ra cùng chuỗi, nên so sánh và băm được                                                                                                                                                                                                          |
+| [`lifemate/core/paths.py`](../lifemate/core/paths.py), [`lifemate/core/tomlio.py`](../lifemate/core/tomlio.py) | Thư mục gốc repo; ghi TOML đơn giản                                                      |                                                                                                                                                                                                                                                                   |
 
 
 **Vì sao dùng `Protocol`:** `Agent` chỉ biết "một thứ có `generate(...)`", không biết đó là vLLM hay LLM giả. Nhờ vậy
@@ -385,22 +385,22 @@ test chạy `Agent` với `FakeLLM` và `FakeEnv` trên CPU, còn lúc thi dùng
 
 ---
 
-## 5. Đọc và ghi dữ liệu: `lifemate/io`
+## 5. Đọc và ghi dữ liệu: [`lifemate/io`](../lifemate/io)
 
 
 | File                  | Giữ việc gì                                                                                                                                                                             |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `data.py`             | `load_split(root, split, ids)`: đọc `<root>/<split>/<split>.jsonl` thành danh sách `Sample`. `read_ids`: đọc file mỗi dòng một mã mẫu                                                   |
-| `zaic.py`             | Nạp gói `zaic_tools` **của đúng split** và mở `ToolEnv` cho từng mẫu. **Đây là module duy nhất được chạm tới thư mục môi trường của BTC** (qua `zaic_tools`); có test kiểm tra điều này |
-| `store.py`            | `RunStore`: đọc ghi thư mục run, ghi nguyên tử, chạy tiếp, dựng `submission.jsonl` và `summary.json` từ trace                                                                           |
-| `check_submission.py` | Kiểm tra file nộp cho split không nhãn: đủ id, không trùng, tên tool có trong catalog, phân bố câu trả lời giống train                                                                  |
+| [`lifemate/io/data.py`](../lifemate/io/data.py)             | `load_split(root, split, ids)`: đọc `<root>/<split>/<split>.jsonl` thành danh sách `Sample`. `read_ids`: đọc file mỗi dòng một mã mẫu                                                   |
+| [`lifemate/io/zaic.py`](../lifemate/io/zaic.py)             | Nạp gói `zaic_tools` **của đúng split** và mở `ToolEnv` cho từng mẫu. **Đây là module duy nhất được chạm tới thư mục môi trường của BTC** (qua `zaic_tools`); có test kiểm tra điều này |
+| [`lifemate/io/store.py`](../lifemate/io/store.py)            | `RunStore`: đọc ghi thư mục run, ghi nguyên tử, chạy tiếp, dựng `submission.jsonl` và `summary.json` từ trace                                                                           |
+| [`lifemate/io/check_submission.py`](../lifemate/io/check_submission.py) | Kiểm tra file nộp cho split không nhãn: đủ id, không trùng, tên tool có trong catalog, phân bố câu trả lời giống train                                                                  |
 
 
-**`zaic.py` làm gì cụ thể:** mỗi split có bản `zaic_tools` riêng nhưng cùng tên module. `load_zaic` xoá bản cũ khỏi
+**[`lifemate/io/zaic.py`](../lifemate/io/zaic.py) làm gì cụ thể:** mỗi split có bản `zaic_tools` riêng nhưng cùng tên module. `load_zaic` xoá bản cũ khỏi
 `sys.modules`, chèn thư mục split lên đầu `sys.path`, import lại, rồi kiểm tra module thật sự nằm trong thư mục split.
 `EnvRegistry` ghi nhớ cặp (split, mã mẫu) đã mở để mỗi mẫu chỉ có một `ToolEnv`, đúng luật.
 
-**`store.py` và chạy tiếp:** `trace.jsonl` là nguồn gốc duy nhất; mỗi mẫu xong ghi một dòng có `flush` và `fsync`. Khi
+**[`lifemate/io/store.py`](../lifemate/io/store.py) và chạy tiếp:** `trace.jsonl` là nguồn gốc duy nhất; mỗi mẫu xong ghi một dòng có `flush` và `fsync`. Khi
 chạy tiếp, mẫu đã có trong trace được bỏ qua, dòng cuối bị cắt dở (do tắt máy giữa lúc ghi) bị loại, và config mới phải
 khớp config cũ ở các khoá quan trọng (`check_resume`), để không trộn kết quả của hai cấu hình.
 
@@ -415,7 +415,7 @@ khớp config cũ ở các khoá quan trọng (`check_resume`), để không tr�
 | ------------------------------------------- | ------------------------------------------------------------- | --------------------------------------- |
 | `GoldTranscriber`                           | Muốn tách lỗi ASR khỏi lỗi LLM                                | Trả lại chữ đáp án `audio_text` của BTC |
 | `ASRTranscriber`                            | Chạy ASR thật                                                 | Chép mọi file âm thanh của mẫu          |
-| `ReplayTranscriber` (`eval/rescore_asr.py`) | Đọc lại chữ ASR đã lưu (`--transcripts replay --hyps <file>`) | Chữ từ file `hyps.jsonl`                |
+| `ReplayTranscriber` ([`lifemate/eval/rescore_asr.py`](../lifemate/eval/rescore_asr.py)) | Đọc lại chữ ASR đã lưu (`--transcripts replay --hyps <file>`) | Chữ từ file `hyps.jsonl`                |
 
 
 `ASRTranscriber.transcribe` làm bốn việc:
@@ -441,7 +441,7 @@ CPU. `FasterWhisperASR` có thêm ba hàm cho benchmark lần 3: `transcribe_one
 riêng, trả thêm điểm tin cậy), `transcribe_batch(paths, prompts)`, và `score_texts(audio, texts)` (chấm xác suất của các
 câu cho sẵn bằng ép chuỗi).
 
-### 6.3. Lớp bảo vệ câu mồi: `asr_guard.py`
+### 6.3. Lớp bảo vệ câu mồi: [`lifemate/backends/asr_guard.py`](../lifemate/backends/asr_guard.py)
 
 Câu mồi (`initial_prompt`) giúp Whisper viết đúng tên tiếng Anh, nhưng đôi khi làm Whisper chép lại câu mồi hoặc lặp vô
 hạn. `needs_retry` coi một câu là hỏng khi có một trong bốn dấu hiệu, không cần đáp án:
@@ -453,17 +453,17 @@ hạn. `needs_retry` coi một câu là hỏng khi có một trong bốn dấu h
 
 Câu hỏng được chép lại không câu mồi.
 
-### 6.4. Bộ lọc câu bịa: `asr_sanitizer.py`
+### 6.4. Bộ lọc câu bịa: [`lifemate/backends/asr_sanitizer.py`](../lifemate/backends/asr_sanitizer.py)
 
 Whisper được huấn luyện trên nhiều phụ đề YouTube, nên đôi khi "nghe" ra "hãy subscribe cho kênh…" trên đoạn im lặng.
-`sanitize` cắt các cụm phụ đề đã biết (`HALLUCINATION_PATTERNS`) và gộp đoạn lặp. Lấy từ `sanitizer.py` của lead, sửa
+`sanitize` cắt các cụm phụ đề đã biết (`HALLUCINATION_PATTERNS`) và gộp đoạn lặp. Lấy từ [`src/preprocessing/asr/sanitizer.py`](https://github.com/ThanhDanh1510/ZaloAI2026/blob/main/src/preprocessing/asr/sanitizer.py) của lead, sửa
 một chỗ: mẫu "đăng ký" chỉ khớp khi nói về kênh, để không cắt yêu cầu thật như "hủy gói đăng ký".
 
-### 6.5. Câu mồi theo mẫu: `asr_prompt.py`
+### 6.5. Câu mồi theo mẫu: [`lifemate/backends/asr_prompt.py`](../lifemate/backends/asr_prompt.py)
 
 `build_sample_prompts(sample, catalog_apps, fixed_prompt, variant)` trả một câu mồi cho mỗi câu người dùng:
 
-- `E0`: câu mồi cố định `configs/asr_prompts/en_full_v1.txt`;
+- `E0`: câu mồi cố định [`configs/asr_prompts/en_full_v1.txt`](../configs/asr_prompts/en_full_v1.txt);
 - `E1`: thêm câu trả lời của trợ lý ở lượt liền trước;
 - `E2`: thêm "Ứng dụng đã cài: &lt;tên tiếng Việt các app&gt;." rồi lời trợ lý liền trước. Đây là biến thể thắng của benchmark
 lần 3.
@@ -472,7 +472,7 @@ Hàm chỉ đọc `installed_apps`, lượt trợ lý và catalog; không đọc
 
 ---
 
-## 7. LLM: `lifemate/backends/llm.py`
+## 7. LLM: [`lifemate/backends/llm.py`](../lifemate/backends/llm.py)
 
 
 | Lớp           | Dùng khi               | Cách hoạt động                                                                                                                                           |
@@ -494,23 +494,23 @@ bất thường.
 
 ---
 
-## 8. Agent: `lifemate/agent`
+## 8. Agent: [`lifemate/agent`](../lifemate/agent)
 
 Mục 3 đã đi qua luồng. Phần này tóm lại trách nhiệm từng file và các hằng số cần biết.
 
 
 | File           | Giữ việc gì                                                 | Không làm                                                                   |
 | -------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `agent.py`     | Vòng lặp: hỏi LLM, parse, guard, gọi env, phát sự kiện      | Không đọc file, không ghi trace, không tạo đối tượng, không bắt `Exception` |
-| `prompt.py`    | Dựng prompt, giữ hội thoại chỉ nối thêm, rút gọn khi dài    | Không quyết định dừng                                                       |
-| `protocol.py`  | Schema đầu ra và bộ parse                                   |                                                                             |
-| `tooldocs.py`  | Mô tả tool gọn từ catalog; `CatalogIndex` tra tool theo tên |                                                                             |
-| `guards.py`    | Chuỗi guard                                                 | Không gọi `env.call`                                                        |
-| `budget.py`    | Trả lời "còn chạy được bước tiếp không"                     | Không gọi LLM                                                               |
-| `observers.py` | Nhận sự kiện (bắt đầu mẫu, từng bước, kết thúc)             | Không tác động ngược vòng lặp                                               |
+| [`lifemate/agent/agent.py`](../lifemate/agent/agent.py)     | Vòng lặp: hỏi LLM, parse, guard, gọi env, phát sự kiện      | Không đọc file, không ghi trace, không tạo đối tượng, không bắt `Exception` |
+| [`lifemate/agent/prompt.py`](../lifemate/agent/prompt.py)    | Dựng prompt, giữ hội thoại chỉ nối thêm, rút gọn khi dài    | Không quyết định dừng                                                       |
+| [`lifemate/agent/protocol.py`](../lifemate/agent/protocol.py)  | Schema đầu ra và bộ parse                                   |                                                                             |
+| [`lifemate/agent/tooldocs.py`](../lifemate/agent/tooldocs.py)  | Mô tả tool gọn từ catalog; `CatalogIndex` tra tool theo tên |                                                                             |
+| [`lifemate/agent/guards.py`](../lifemate/agent/guards.py)    | Chuỗi guard                                                 | Không gọi `env.call`                                                        |
+| [`lifemate/agent/budget.py`](../lifemate/agent/budget.py)    | Trả lời "còn chạy được bước tiếp không"                     | Không gọi LLM                                                               |
+| [`lifemate/agent/observers.py`](../lifemate/agent/observers.py) | Nhận sự kiện (bắt đầu mẫu, từng bước, kết thúc)             | Không tác động ngược vòng lặp                                               |
 
 
-**Ba chuỗi cố định LLM đọc** (trong `agent.py`), phải giống từng byte với dữ liệu huấn luyện, không được sửa:
+**Ba chuỗi cố định LLM đọc** (trong [`lifemate/agent/agent.py`](../lifemate/agent/agent.py)), phải giống từng byte với dữ liệu huấn luyện, không được sửa:
 
 ```python
 PARSE_ERROR_MSG = "LỖI: đầu ra không phải JSON hợp lệ, hãy trả về đúng một JSON"
@@ -518,7 +518,7 @@ BLOCK_PREFIX = "LỖI (chưa gọi tool): "
 RESULT_PREFIX = "KẾT QUẢ: "
 ```
 
-**Prompt hệ thống** (`configs/prompts/system_v1.md`) có 14 quy tắc. Các quy tắc quan trọng nhất:
+**Prompt hệ thống** ([`configs/prompts/system_v1.md`](../configs/prompts/system_v1.md)) có 14 quy tắc. Các quy tắc quan trọng nhất:
 
 1. Không tự đặt ID; chưa có ID thì gọi tool đọc của chính app đó trước.
 2. Gọi tool đọc không kèm bộ lọc, rồi tự chọn trong kết quả.
@@ -529,7 +529,7 @@ RESULT_PREFIX = "KẾT QUẢ: "
 7. Huỷ ý, không app nào làm được, hay chỉ chào hỏi thì trả `done` ngay.
 
 Các quy tắc còn lại hướng dẫn đọc ngày giờ, số tiền, văn bản tự do, số điện thoại, địa chỉ và lịch sử hội thoại.
-`system_v1_alternatives.md` thêm quy tắc 15 cho định dạng hai phương án `{A | B}` (benchmark ASR lần 3).
+[`configs/prompts/system_v1_alternatives.md`](../configs/prompts/system_v1_alternatives.md) thêm quy tắc 15 cho định dạng hai phương án `{A | B}` (benchmark ASR lần 3).
 
 **Train mode** (`--train-mode`): giấu 6 app "held-out" (medication, fitness, flights, bike_rental, library,
 subscriptions) khỏi danh sách tool, để đo khả năng làm việc với app chưa gặp. Mẫu có lịch sử gọi tool của app bị giấu
@@ -537,16 +537,16 @@ báo `HeldOutLeak`.
 
 ---
 
-## 9. Chạy và lắp ráp: `lifemate/run`
+## 9. Chạy và lắp ráp: [`lifemate/run`](../lifemate/run)
 
 
 | File         | Giữ việc gì                                                                    |
 | ------------ | ------------------------------------------------------------------------------ |
-| `cli.py`     | Điểm vào dòng lệnh; đọc tham số, config, mẫu; gọi factory và runner            |
-| `factory.py` | Tạo mọi đối tượng từ `Config`; registry chọn backend theo tên                  |
-| `runner.py`  | Warm-up, chạy từng mẫu, cô lập lỗi theo mẫu, chốt file nộp, chấm hoặc kiểm tra |
-| `timing.py`  | `TimedLLM`, `TimedTranscriber`: đo giờ theo mẫu Decorator                      |
-| `report.py`  | In bảng các lần chạy từ `index.csv`, bảng loss của lần huấn luyện              |
+| [`lifemate/run/cli.py`](../lifemate/run/cli.py)     | Điểm vào dòng lệnh; đọc tham số, config, mẫu; gọi factory và runner            |
+| [`lifemate/run/factory.py`](../lifemate/run/factory.py) | Tạo mọi đối tượng từ `Config`; registry chọn backend theo tên                  |
+| [`lifemate/run/runner.py`](../lifemate/run/runner.py)  | Warm-up, chạy từng mẫu, cô lập lỗi theo mẫu, chốt file nộp, chấm hoặc kiểm tra |
+| [`lifemate/run/timing.py`](../lifemate/run/timing.py)  | `TimedLLM`, `TimedTranscriber`: đo giờ theo mẫu Decorator                      |
+| [`lifemate/run/report.py`](../lifemate/run/report.py)  | In bảng các lần chạy từ [`artifacts/runs/index.csv`](../artifacts/runs/index.csv), bảng loss của lần huấn luyện              |
 
 
 **Các tham số CLI hay dùng:**
@@ -569,9 +569,9 @@ khác nhận đối tượng qua tham số hàm khởi tạo. Không có biến 
 
 ---
 
-## 10. Chấm điểm và đo lường: `lifemate/eval`
+## 10. Chấm điểm và đo lường: [`lifemate/eval`](../lifemate/eval)
 
-### 10.1. Bộ chấm: `score.py`
+### 10.1. Bộ chấm: [`lifemate/eval/score.py`](../lifemate/eval/score.py)
 
 Mô phỏng đúng luật chấm của BTC (luật gốc chép trong docstring của file):
 
@@ -587,9 +587,9 @@ Mô phỏng đúng luật chấm của BTC (luật gốc chép trong docstring c
 Hai chế độ: `strict` (đúng luật) và `canon` (chuẩn hoá chuỗi thêm: chữ thường, gộp khoảng trắng, "700 cm" = "700cm").
 Báo cáo in thêm điểm theo loại câu (thực hiện, hỏi lại, ngoài phạm vi), ma trận nhầm lẫn và lỗi theo loại.
 
-### 10.2. Chia tập: `make_splits.py`
+### 10.2. Chia tập: [`lifemate/eval/make_splits.py`](../lifemate/eval/make_splits.py)
 
-Ghi danh sách mã mẫu vào `configs/splits/`, không chép dữ liệu. Thứ tự:
+Ghi danh sách mã mẫu vào [`configs/splits/`](../configs/splits/), không chép dữ liệu. Thứ tự:
 
 1. Tách mẫu dùng 6 app held-out vào `val_unseen` (178 mẫu).
 2. Gom câu gần trùng thành nhóm.
@@ -597,32 +597,32 @@ Ghi danh sách mã mẫu vào `configs/splits/`, không chép dữ liệu. Thứ
  mẫu).
 4. Rút thêm các tập phụ: `smoke` (30 mẫu chạy thử), `asr_tune` (300), `asr_learn` (793), `*_en_mixed`.
 
-Chi tiết và sơ đồ: `docs/reports/benchmark/asr_v3.md`, mục "Dữ liệu cần chuẩn bị".
+Chi tiết và sơ đồ: [`docs/reports/benchmark/asr_v3.md`](reports/benchmark/asr_v3.md), mục "Dữ liệu cần chuẩn bị".
 
 ### 10.3. Đo ASR
 
 
 | File                                                                                                              | Giữ việc gì                                                                                                                                                                                                          |
 | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `eval_asr.py`                                                                                                     | Chạy một transcriber trên một split, tính WER, CER, tỉ lệ bỏ sót thực thể (tên, số trong đáp án), câu bịa, câu rỗng, thời gian; các chỉ số tiếng Anh: tỉ lệ chép đúng từ tiếng Anh, WER câu chêm, WER câu thuần Việt |
-| `foreign_words.py`                                                                                                | Nhận ra từ tiếng Anh trong câu tiếng Việt bằng luật (từ không dấu không ghép được thành âm tiết Việt, từ viết hoa toàn bộ…)                                                                                          |
-| `asr_tune.py`                                                                                                     | Dò cấu hình từng mô hình ASR trên `asr_tune` theo từng bước (benchmark lần 1, 2)                                                                                                                                     |
-| `asr_compare.py`                                                                                                  | So nhiều hệ thống ASR, khoảng tin cậy bootstrap theo mẫu                                                                                                                                                             |
-| `rescore_asr.py`                                                                                                  | Chấm lại chữ ASR đã lưu, không chạy lại mô hình                                                                                                                                                                      |
-| `asr_merge.py`                                                                                                    | Ghép chữ RNNT với chữ large-v3: giữ chữ RNNT, chỉ lấy từ large-v3 các đoạn có từ tiếng Anh mới qua bộ lọc ngữ cảnh                                                                                                   |
-| `asr_v3.py`, `asr_v3_analysis.py`, `asr_v3_report.py`, `asr_v3_agent.py`, `candidate_scoring.py`, `gpu_memory.py` | Bộ chạy và phân tích của benchmark ASR lần 3                                                                                                                                                                         |
+| [`lifemate/eval/eval_asr.py`](../lifemate/eval/eval_asr.py)                                                                                                     | Chạy một transcriber trên một split, tính WER, CER, tỉ lệ bỏ sót thực thể (tên, số trong đáp án), câu bịa, câu rỗng, thời gian; các chỉ số tiếng Anh: tỉ lệ chép đúng từ tiếng Anh, WER câu chêm, WER câu thuần Việt |
+| [`lifemate/eval/foreign_words.py`](../lifemate/eval/foreign_words.py)                                                                                                | Nhận ra từ tiếng Anh trong câu tiếng Việt bằng luật (từ không dấu không ghép được thành âm tiết Việt, từ viết hoa toàn bộ…)                                                                                          |
+| [`lifemate/eval/asr_tune.py`](../lifemate/eval/asr_tune.py)                                                                                                     | Dò cấu hình từng mô hình ASR trên `asr_tune` theo từng bước (benchmark lần 1, 2)                                                                                                                                     |
+| [`lifemate/eval/asr_compare.py`](../lifemate/eval/asr_compare.py)                                                                                                  | So nhiều hệ thống ASR, khoảng tin cậy bootstrap theo mẫu                                                                                                                                                             |
+| [`lifemate/eval/rescore_asr.py`](../lifemate/eval/rescore_asr.py)                                                                                                  | Chấm lại chữ ASR đã lưu, không chạy lại mô hình                                                                                                                                                                      |
+| [`lifemate/eval/asr_merge.py`](../lifemate/eval/asr_merge.py)                                                                                                    | Ghép chữ RNNT với chữ large-v3: giữ chữ RNNT, chỉ lấy từ large-v3 các đoạn có từ tiếng Anh mới qua bộ lọc ngữ cảnh                                                                                                   |
+| [`lifemate/eval/asr_v3.py`](../lifemate/eval/asr_v3.py), [`lifemate/eval/asr_v3_analysis.py`](../lifemate/eval/asr_v3_analysis.py), [`lifemate/eval/asr_v3_report.py`](../lifemate/eval/asr_v3_report.py), [`lifemate/eval/asr_v3_agent.py`](../lifemate/eval/asr_v3_agent.py), [`lifemate/eval/candidate_scoring.py`](../lifemate/eval/candidate_scoring.py), [`lifemate/eval/gpu_memory.py`](../lifemate/eval/gpu_memory.py) | Bộ chạy và phân tích của benchmark ASR lần 3                                                                                                                                                                         |
 
 
-### 10.4. Phân tích lỗi agent: `audit.py`
+### 10.4. Phân tích lỗi agent: [`lifemate/eval/audit.py`](../lifemate/eval/audit.py)
 
 Giải thích vì sao một lần chạy mất điểm: thiếu lời gọi, thừa lời gọi, đọc thừa, sai tham số (thiếu, thừa, sai kiểu, chỉ
-khác chữ hoa). Lấy ý tưởng từ `audit_labels.py` của lead; ghép cặp theo tên tool thay vì theo vị trí.
+khác chữ hoa). Lấy ý tưởng từ [`src/evaluation/audit_labels.py`](https://github.com/ThanhDanh1510/ZaloAI2026/blob/main/src/evaluation/audit_labels.py) của lead; ghép cặp theo tên tool thay vì theo vị trí.
 
 ---
 
-## 11. Huấn luyện: `lifemate/train`
+## 11. Huấn luyện: [`lifemate/train`](../lifemate/train)
 
-### 11.1. Dữ liệu SFT: `sft_data.py`
+### 11.1. Dữ liệu SFT: [`lifemate/train/sft_data.py`](../lifemate/train/sft_data.py)
 
 Mục tiêu: **mỗi dòng dữ liệu huấn luyện giống từng byte với hội thoại agent sẽ thấy lúc thi.** Cách làm của
 `build_sample`:
@@ -641,21 +641,21 @@ Mục tiêu: **mỗi dòng dữ liệu huấn luyện giống từng byte với 
    - lọc cụm câu trùng.
 5. Bỏ dòng vượt `max_model_len`, ghi lý do vào file riêng.
 
-`asr_cache.py` chép âm thanh một lần và lưu chữ (`data/asr/train_asr.json`) để dựng dữ liệu không phải chạy lại ASR.
+[`lifemate/train/asr_cache.py`](../lifemate/train/asr_cache.py) chép âm thanh một lần và lưu chữ ([`data/asr/train_asr.json`](../data/asr/train_asr.json)) để dựng dữ liệu không phải chạy lại ASR.
 
-### 11.2. Fine-tune LLM: `swift_sft.py`, `sft.py`, `llm_pipeline.py`
+### 11.2. Fine-tune LLM: [`lifemate/train/swift_sft.py`](../lifemate/train/swift_sft.py), [`lifemate/train/sft.py`](../lifemate/train/sft.py), [`lifemate/train/llm_pipeline.py`](../lifemate/train/llm_pipeline.py)
 
 - Huấn luyện chạy bằng **ms-swift** (`swift sft`), theo lựa chọn của lead.
-- Config `configs/train/llm_v1.toml`:
+- Config [`configs/train/llm_v1.toml`](../configs/train/llm_v1.toml):
   - LoRA r = 32, alpha = 64 trên cả 7 lớp tuyến tính;
   - QLoRA 4-bit trên T4;
   - lr 2e-4 cosine, 3 epoch, batch hiệu dụng 16, độ dài tối đa 10 240 token.
 - `swift_sft.check_template` mã hoá vài dòng theo cả cách của ms-swift và cách của dự án (`sft.build_labels`), dừng nếu
 khác nhau. Mục đích là chắc chắn loss chỉ tính trên lượt trợ lý.
-- `llm_pipeline.py` chạy cả quy trình bằng một lệnh: dữ liệu → train → chọn checkpoint theo loss trên `val_unseen` →
+- [`lifemate/train/llm_pipeline.py`](../lifemate/train/llm_pipeline.py) chạy cả quy trình bằng một lệnh: dữ liệu → train → chọn checkpoint theo loss trên `val_unseen` →
 gộp LoRA → chạy agent thật để chấm → chọn → đăng ký mô hình. Tiến độ lưu sau mỗi giai đoạn, chạy tiếp được.
 
-### 11.3. Fine-tune ASR: `asr_data.py`, `asr.py`, `asr_pipeline.py`
+### 11.3. Fine-tune ASR: [`lifemate/train/asr_data.py`](../lifemate/train/asr_data.py), [`lifemate/train/asr.py`](../lifemate/train/asr.py), [`lifemate/train/asr_pipeline.py`](../lifemate/train/asr_pipeline.py)
 
 Mã dựng cặp (file wav, chữ đáp án), fine-tune mô hình kiểu Whisper, chọn checkpoint theo tỉ lệ bỏ sót thực thể. Chưa chạy
 thật; benchmark ASR hiện dùng mô hình có sẵn.
@@ -664,21 +664,21 @@ thật; benchmark ASR hiện dùng mô hình có sẵn.
 
 ## 12. Config, ops, Docker, test
 
-### 12.1. `configs/`
+### 12.1. [`configs/`](../configs/)
 
 
 | Đường dẫn                  | Nội dung                                                                 |
 | -------------------------- | ------------------------------------------------------------------------ |
-| `v0.toml`                  | Config chạy chính: `[llm]`, `[agent]`, `[asr]`                           |
-| `fake.toml`, `docker.toml` | Config cho test với LLM giả; config trong container nộp bài              |
-| `env/*.toml`               | Profile máy: thư mục dữ liệu, thư mục run, nguồn token, cách lưu kết quả |
-| `prompts/`                 | Prompt hệ thống (`system_v1.md` đang dùng)                               |
-| `asr_prompts/`             | Câu mồi tiếng Anh cho large-v3 (`en_full_v1.txt` tốt nhất)               |
-| `splits/`                  | Danh sách mã mẫu và `meta.json`                                          |
-| `train/`                   | Config huấn luyện LLM và ASR                                             |
+| [`configs/v0.toml`](../configs/v0.toml)                  | Config chạy chính: `[llm]`, `[agent]`, `[asr]`                           |
+| [`configs/fake.toml`](../configs/fake.toml), [`configs/docker.toml`](../configs/docker.toml) | Config cho test với LLM giả; config trong container nộp bài              |
+| `configs/env/*.toml`               | Profile máy: thư mục dữ liệu, thư mục run, nguồn token, cách lưu kết quả |
+| [`configs/prompts/`](../configs/prompts/)                 | Prompt hệ thống ([`configs/prompts/system_v1.md`](../configs/prompts/system_v1.md) đang dùng)                               |
+| [`configs/asr_prompts/`](../configs/asr_prompts/)             | Câu mồi tiếng Anh cho large-v3 ([`configs/asr_prompts/en_full_v1.txt`](../configs/asr_prompts/en_full_v1.txt) tốt nhất)               |
+| [`configs/splits/`](../configs/splits/)                  | Danh sách mã mẫu và [`configs/splits/meta.json`](../configs/splits/meta.json)                                          |
+| [`configs/train/`](../configs/train/)                   | Config huấn luyện LLM và ASR                                             |
 
 
-Các giá trị quan trọng trong `v0.toml`:
+Các giá trị quan trọng trong [`configs/v0.toml`](../configs/v0.toml):
 
 
 | Khoá                             | Giá trị                                         | Lý do                                        |
@@ -693,32 +693,32 @@ Các giá trị quan trọng trong `v0.toml`:
 | `asr.backend`                    | `gold`                                          | Đổi sang `asr` khi chạy âm thanh thật        |
 
 
-### 12.2. `ops/`
+### 12.2. [`ops/`](../ops/)
 
 
 | Thư mục         | Nội dung                                                                                             |
 | --------------- | ---------------------------------------------------------------------------------------------------- |
 | `ops/kaggle/*/` | Mỗi thư mục là một kernel Kaggle (script + `kernel-metadata.json`): smoke, eval, asr\_tune, asr\_v3… |
-| `ops/colab/`    | Script chuẩn bị máy Colab và chạy nền cho benchmark ASR lần 3                                        |
-| `ops/docker/`   | `Dockerfile`, `entrypoint.sh`, `smoke.sh` cho bài nộp                                                |
+| [`ops/colab/`](../ops/colab/)    | Script chuẩn bị máy Colab và chạy nền cho benchmark ASR lần 3                                        |
+| [`ops/docker/`](../ops/docker/)   | `Dockerfile`, [`ops/docker/entrypoint.sh`](../ops/docker/entrypoint.sh), [`ops/docker/smoke.sh`](../ops/docker/smoke.sh) cho bài nộp                                                |
 
 
 **Container nộp bài:**
 
 - `Dockerfile` hai tầng, Python 3.11, cài bằng `uv`, chạy offline (`HF_HUB_OFFLINE=1`), `PYTHONHASHSEED=0`.
-- `entrypoint.sh` tìm đúng một `*_tools_catalog.json` trong `/data` để biết tên split, tạo liên kết thư mục cho
+- [`ops/docker/entrypoint.sh`](../ops/docker/entrypoint.sh) tìm đúng một `*_tools_catalog.json` trong `/data` để biết tên split, tạo liên kết thư mục cho
 `ToolEnv`, đổi tên trace cũ (mỗi lần BTC chạy phải là lần chạy mới, không chạy tiếp), rồi gọi CLI ghi
 `result/submission.jsonl`.
 
-### 12.3. `tests/`
+### 12.3. [`tests/`](../tests/)
 
 - Khoảng 280 test, chạy bằng `make test` trên CPU, không cần GPU hay vLLM.
-- `tests/fakes.py` có `FakeClock` (đồng hồ chỉnh tay), `FakeEnv` (mô phỏng tool trong bộ nhớ), bộ đếm token giả.
+- [`tests/fakes.py`](../tests/fakes.py) có `FakeClock` (đồng hồ chỉnh tay), `FakeEnv` (mô phỏng tool trong bộ nhớ), bộ đếm token giả.
 - Test cần dữ liệu thi hoặc tokenizer thật thì tự bỏ qua khi thiếu.
 - Một số test bảo vệ luật thi:
-  - `test_cli.py`: chạy CLI với LLM giả phải được 100 điểm, và token HF không lộ ra log;
-  - có test quét mã nguồn để chắc chắn chỉ `io/zaic.py` chạm tới thư mục môi trường.
-- Danh sách đầy đủ: `tests/README.md`.
+  - [`tests/test_cli.py`](../tests/test_cli.py): chạy CLI với LLM giả phải được 100 điểm, và token HF không lộ ra log;
+  - có test quét mã nguồn để chắc chắn chỉ [`lifemate/io/zaic.py`](../lifemate/io/zaic.py) chạm tới thư mục môi trường.
+- Danh sách đầy đủ: [`tests/README.md`](../tests/README.md).
 
 ### 12.4. Lệnh `make`
 
@@ -728,7 +728,7 @@ Các giá trị quan trọng trong `v0.toml`:
 | `make install`, `make install-gpu`                            | Cài thư viện (CPU), hoặc kèm vLLM |
 | `make check`                                                  | `ruff` + `mypy --strict`          |
 | `make test`                                                   | pytest                            |
-| `make splits`                                                 | Sinh lại `configs/splits/`        |
+| `make splits`                                                 | Sinh lại [`configs/splits/`](../configs/splits/)        |
 | `make run ENV=local SPLIT=train IDS=configs/splits/smoke.txt` | Chạy agent                        |
 | `make score SUB=<submission.jsonl> IDS=<ids>`                 | Chấm một file nộp                 |
 | `make eval ENV=colab TAG=base`                                | Đo ASR trên hai tập val           |
@@ -751,11 +751,11 @@ Các giá trị quan trọng trong `v0.toml`:
  `Exception`, chỉ `Runner.run_one` bắt lỗi theo từng mẫu.
 6. **Tuân thủ thể lệ bằng mã, không bằng lời hứa:**
    - một `ToolEnv` mỗi mẫu (`EnvRegistry`);
-   - không đọc `state.json` (chỉ `io/zaic.py`, có test);
+   - không đọc `state.json` (chỉ [`lifemate/io/zaic.py`](../lifemate/io/zaic.py), có test);
    - hạn giờ thực thi bằng huỷ request;
    - lời gọi sai bị guard chặn trước khi tới env.
 7. **Ghi nguồn khi lấy ý tưởng của lead.** Các file lấy từ repo của lead ghi rõ nguồn và điểm khác:
- `asr_sanitizer.py`, `textsim.py`, `make_splits.py`, `audit.py`, `sft_data.py`, `swift_sft.py`.
+ [`lifemate/backends/asr_sanitizer.py`](../lifemate/backends/asr_sanitizer.py), [`lifemate/core/textsim.py`](../lifemate/core/textsim.py), [`lifemate/eval/make_splits.py`](../lifemate/eval/make_splits.py), [`lifemate/eval/audit.py`](../lifemate/eval/audit.py), [`lifemate/train/sft_data.py`](../lifemate/train/sft_data.py), [`lifemate/train/swift_sft.py`](../lifemate/train/swift_sft.py).
 
 ---
 
@@ -765,7 +765,7 @@ Các giá trị quan trọng trong `v0.toml`:
 | Phần                                             | Trạng thái                                                                                                                                                                                |
 | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Agent, prompt, guard, hạn giờ, runner, chấm điểm | Chạy được, có test; chạy thật trên T4 với Qwen3-4B chưa fine-tune                                                                                                                         |
-| ASR trong hệ thống chạy thật                     | `ASRTranscriber` chỉ chạy **một** engine. `configs/v0.toml` vẫn là large-v3 beam 5, không câu mồi, và mặc định `backend = "gold"`                                                         |
+| ASR trong hệ thống chạy thật                     | `ASRTranscriber` chỉ chạy **một** engine. [`configs/v0.toml`](../configs/v0.toml) vẫn là large-v3 beam 5, không câu mồi, và mặc định `backend = "gold"`                                                         |
 | Pipeline ASR tốt nhất theo benchmark             | RNNT + large-v3 với câu mồi ba phần + ghép theo luật lần 2. **Chưa có trong hệ thống chạy thật**: thiếu engine ghép `MergedASR` và khoá config chọn câu mồi (việc P8 của benchmark lần 3) |
 | Điểm thi hiện tại                                | Trên `val_seen`, agent chưa fine-tune với chữ RNNT được khoảng 15 điểm; chữ ghép cao hơn khoảng 0,4–0,5 điểm, chưa có ý nghĩa thống kê. Điểm bị giới hạn chủ yếu bởi LLM                  |
 | Fine-tune LLM                                    | Mã có đủ (dữ liệu, ms-swift, pipeline); chưa có kết quả trong repo này                                                                                                                    |
@@ -782,7 +782,7 @@ cho ASR, nên LLM chỉ còn khoảng 15 giây. Hết giờ thì bước LLM đa
 
 **Hệ thống dùng định dạng nào?**
 Từ 30/10/2026 (D50), mặc định là `chatml`: tool calling gốc của Qwen, tin nhắn giống hệt `build_messages` của repo lead,
-nên mô hình fine-tune bằng dữ liệu của lead chạy được ngay trong hệ thống này. `tests/test_chatml.py` so tin nhắn với bản
+nên mô hình fine-tune bằng dữ liệu của lead chạy được ngay trong hệ thống này. [`tests/test_chatml.py`](../tests/test_chatml.py) so tin nhắn với bản
 chép nguyên văn hàm của lead trên cả 1 545 mẫu train. Định dạng `json` cũ (mỗi lượt một JSON `{"action": ...}` ép theo
 schema) giữ lại sau `format = "json"` để tái lập các lần chạy trước. Ở `chatml`, đầu ra vẫn được ép (D51,
 `[agent].constrain_tools`): khi mô hình viết `<tool_call>`, phần sau chỉ được là tên một tool đã cài và tham số đúng tên,
@@ -800,19 +800,19 @@ Lỗi lập trình phải lộ ra khi phát triển. Chỉ `Runner.run_one` bắ
 làm dừng cả lần chạy.
 
 **Làm sao chạy thử mà không có GPU?**
-`make test`, hoặc chạy CLI với `configs/fake.toml` (LLM giả phát lại đáp án, chữ đáp án thay ASR): cả hệ thống chạy trên
+`make test`, hoặc chạy CLI với [`configs/fake.toml`](../configs/fake.toml) (LLM giả phát lại đáp án, chữ đáp án thay ASR): cả hệ thống chạy trên
 CPU và phải được 100 điểm trên split có nhãn.
 
 **Muốn thử một prompt hệ thống khác thì sửa gì?**
-Tạo file mới trong `configs/prompts/`, chạy với `--set agent.system_prompt=configs/prompts/<file>.md`. Không sửa
-`system_v1.md` khi đang có dữ liệu huấn luyện dựng theo file đó.
+Tạo file mới trong [`configs/prompts/`](../configs/prompts/), chạy với `--set agent.system_prompt=configs/prompts/<file>.md`. Không sửa
+[`configs/prompts/system_v1.md`](../configs/prompts/system_v1.md) khi đang có dữ liệu huấn luyện dựng theo file đó.
 
 **Muốn đổi mô hình ASR thì sửa gì?**
 Sửa `[asr]` trong config: `backend = "asr"`, `engine`, `model`, `generate_kwargs`. Mã không đổi. Riêng pipeline ghép hai
 mô hình cần viết thêm engine `MergedASR` (mục 14).
 
 **Repo này khác repo của lead thế nào?**
-Repo của lead tập trung vào tiền xử lý dữ liệu và fine-tune (`split.py`, `builder.py`, ChatML). Repo này là hệ thống chạy
+Repo của lead tập trung vào tiền xử lý dữ liệu và fine-tune ([`src/preprocessing/dataset/split.py`](https://github.com/ThanhDanh1510/ZaloAI2026/blob/main/src/preprocessing/dataset/split.py), [`src/preprocessing/dataset/builder.py`](https://github.com/ThanhDanh1510/ZaloAI2026/blob/main/src/preprocessing/dataset/builder.py), ChatML). Repo này là hệ thống chạy
 thi đầy đủ (agent, guard, hạn giờ, chấm điểm, Docker) cộng benchmark ASR, và đã lấy lại các ý tưởng của lead ở phần chia
 tập, lọc câu bịa, dữ liệu SFT, có ghi nguồn. Hai điểm cần thống nhất khi gộp: cách chia tập (pull request #3 trên repo
 của lead), và chữ ASR dùng trong dữ liệu huấn luyện phải theo pipeline ASR sẽ dùng lúc thi.
@@ -825,25 +825,25 @@ của lead), và chữ ASR dùng trong dữ liệu huấn luyện phải theo pi
 | Muốn tìm                         | Ở đâu                                                                                |
 | -------------------------------- | ------------------------------------------------------------------------------------ |
 | Vòng lặp agent                   | `lifemate/agent/agent.py › Agent.run`                                                |
-| Prompt gửi cho LLM trông thế nào | `lifemate/agent/prompt.py › PromptBuilder._build`, `configs/prompts/system_v1.md`    |
+| Prompt gửi cho LLM trông thế nào | `lifemate/agent/prompt.py › PromptBuilder._build`, [`configs/prompts/system_v1.md`](../configs/prompts/system_v1.md)    |
 | Mô tả tool trong prompt          | `lifemate/agent/tooldocs.py › render_tools`                                          |
-| Schema đầu ra, parse             | `lifemate/agent/protocol.py`                                                         |
-| Guard                            | `lifemate/agent/guards.py`                                                           |
-| Hạn giờ, số bước                 | `lifemate/agent/budget.py`, `lifemate/backends/llm.py › VLLMBackend._generate_until` |
+| Schema đầu ra, parse             | [`lifemate/agent/protocol.py`](../lifemate/agent/protocol.py)                                                         |
+| Guard                            | [`lifemate/agent/guards.py`](../lifemate/agent/guards.py)                                                           |
+| Hạn giờ, số bước                 | [`lifemate/agent/budget.py`](../lifemate/agent/budget.py), `lifemate/backends/llm.py › VLLMBackend._generate_until` |
 | Gọi vLLM                         | `lifemate/backends/llm.py › VLLMBackend.generate`                                    |
 | Chép âm thanh                    | `lifemate/backends/asr.py › ASRTranscriber.transcribe`                               |
-| Lọc câu bịa, bảo vệ câu mồi      | `lifemate/backends/asr_sanitizer.py`, `asr_guard.py`                                 |
-| Mở `ToolEnv`                     | `lifemate/io/zaic.py`                                                                |
+| Lọc câu bịa, bảo vệ câu mồi      | [`lifemate/backends/asr_sanitizer.py`](../lifemate/backends/asr_sanitizer.py), [`lifemate/backends/asr_guard.py`](../lifemate/backends/asr_guard.py)                                 |
+| Mở `ToolEnv`                     | [`lifemate/io/zaic.py`](../lifemate/io/zaic.py)                                                                |
 | Ghi kết quả, chạy tiếp           | `lifemate/io/store.py › RunStore`                                                    |
 | Chạy từng mẫu, chấm điểm         | `lifemate/run/runner.py › Runner`                                                    |
 | Tạo đối tượng từ config          | `lifemate/run/factory.py › build`                                                    |
 | Tham số dòng lệnh                | `lifemate/run/cli.py › parse_args`                                                   |
-| Luật chấm                        | `lifemate/eval/score.py`                                                             |
-| Chia tập                         | `lifemate/eval/make_splits.py`                                                       |
-| Đo ASR                           | `lifemate/eval/eval_asr.py`                                                          |
-| Ghép hai ASR                     | `lifemate/eval/asr_merge.py`                                                         |
+| Luật chấm                        | [`lifemate/eval/score.py`](../lifemate/eval/score.py)                                                             |
+| Chia tập                         | [`lifemate/eval/make_splits.py`](../lifemate/eval/make_splits.py)                                                       |
+| Đo ASR                           | [`lifemate/eval/eval_asr.py`](../lifemate/eval/eval_asr.py)                                                          |
+| Ghép hai ASR                     | [`lifemate/eval/asr_merge.py`](../lifemate/eval/asr_merge.py)                                                         |
 | Dữ liệu huấn luyện LLM           | `lifemate/train/sft_data.py › build_sample`                                          |
-| Fine-tune LLM                    | `lifemate/train/swift_sft.py`, `llm_pipeline.py`, `configs/train/llm_v1.toml`        |
-| Kiểu dữ liệu, enum, giao diện    | `lifemate/core/types.py`                                                             |
-| Config và profile máy            | `lifemate/core/config.py`, `configs/v0.toml`, `configs/env/`                         |
-| Container nộp bài                | `ops/docker/Dockerfile`, `ops/docker/entrypoint.sh`                                  |
+| Fine-tune LLM                    | [`lifemate/train/swift_sft.py`](../lifemate/train/swift_sft.py), [`lifemate/train/llm_pipeline.py`](../lifemate/train/llm_pipeline.py), [`configs/train/llm_v1.toml`](../configs/train/llm_v1.toml)        |
+| Kiểu dữ liệu, enum, giao diện    | [`lifemate/core/types.py`](../lifemate/core/types.py)                                                             |
+| Config và profile máy            | [`lifemate/core/config.py`](../lifemate/core/config.py), [`configs/v0.toml`](../configs/v0.toml), [`configs/env/`](../configs/env/)                         |
+| Container nộp bài                | [`ops/docker/Dockerfile`](../ops/docker/Dockerfile), [`ops/docker/entrypoint.sh`](../ops/docker/entrypoint.sh)                                  |
