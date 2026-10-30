@@ -125,7 +125,19 @@ def make_counter(model: str, revision: str) -> TokenCounter:
 def make_builder(
     run_cfg: RunPromptConfig, repo_root: Path, index: CatalogIndex, counter: TokenCounter
 ) -> PromptBuilder:
-    """Tạo `PromptBuilder` lắp ráp giống hệt `lifemate.run.factory.build`, để prompt train trùng prompt lúc chạy."""
+    """Tạo `PromptBuilder` lắp ráp giống hệt `lifemate.run.factory.build`, để prompt train trùng prompt lúc chạy.
+
+    Lỗi:
+        ConfigError: khi config chạy dùng `[agent].format = "chatml"`. Module này chỉ sinh dữ liệu theo định dạng JSON
+            cũ (`{"action": ...}`); dữ liệu ChatML lấy từ `src/preprocessing/dataset/builder.py` của repo lead, cùng
+            định dạng với `lifemate.agent.chatml`.
+    """
+    if run_cfg.agent.format == "chatml":
+        raise ConfigError(
+            "sft_data builds the old JSON format only; for agent.format = 'chatml' build SFT data with the lead's "
+            "src/preprocessing/dataset/builder.py (same messages as lifemate.agent.chatml), "
+            "or set agent.format = 'json'"
+        )
     template = (repo_root / run_cfg.agent.system_prompt).read_text(encoding="utf-8")
     return PromptBuilder(
         template,

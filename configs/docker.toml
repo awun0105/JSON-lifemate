@@ -19,6 +19,8 @@ deadline_s = 29.0
 max_result_chars = 4000
 system_prompt = "configs/prompts/system_v1.md"
 guards = ["allowed_tool", "schema", "duplicate_write"]
+format = "chatml"                      # "chatml": tool calling của Qwen, giống dữ liệu SFT của lead (lifemate/agent/chatml.py) | "json": định dạng cũ {"action": ...}
+compact_tools = false                  # true: rút gọn schema tool ngay từ đầu (như compact_schema của lead)
 
 [asr]
 backend = "asr"

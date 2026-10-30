@@ -32,7 +32,7 @@ import shutil
 import time
 import tomllib
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, fields
+from dataclasses import MISSING, dataclass, fields
 from pathlib import Path
 from types import ModuleType
 from typing import Any, TypeVar
@@ -379,8 +379,10 @@ def build_section(cls: type[_T], section: str, raw: Any) -> _T:
     for key in raw:
         if key not in names:
             raise ConfigError(f"unknown key {section}.{key}")
-    # Báo khoá thiếu đầu tiên theo thứ tự chữ cái, để thông báo lỗi luôn giống nhau.
-    for name in sorted(names - set(raw)):
+    # Trường có giá trị mặc định thì được bỏ trống. Báo khoá thiếu đầu tiên theo thứ tự chữ cái, để thông báo lỗi luôn
+    # giống nhau.
+    required = {f.name for f in fields(cls) if f.default is MISSING and f.default_factory is MISSING}  # type: ignore[arg-type]
+    for name in sorted(required - set(raw)):
         raise ConfigError(f"missing key {section}.{name}")
     return cls(**raw)
 

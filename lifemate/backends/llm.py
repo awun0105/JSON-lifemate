@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import contextlib
 import importlib.metadata
+import json
 import os
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -30,12 +31,14 @@ from typing import Any
 
 import structlog
 
+from lifemate.core.chat import split_tools
 from lifemate.core.config import ConfigError, LLMConfig
 from lifemate.core.jsonutil import canonical_json
 from lifemate.core.types import Generation, Sample
 
-# Đầu ra mặc định khi hàng đợi của mẫu đã hết.
+# Đầu ra mặc định khi hàng đợi của mẫu đã hết (định dạng JSON cũ và định dạng ChatML; câu kết giống dữ liệu của lead).
 _DONE = canonical_json({"action": "done"})
+_CHATML_DONE = "Tôi đã thực hiện xong toàn bộ các thao tác bạn yêu cầu."
 
 
 class FakeLLM:
@@ -62,27 +65,37 @@ class FakeLLM:
         delay_s: float = 0.0,
         broken_outputs: Mapping[str, Sequence[str]] | None = None,
         clock: Callable[[], float] | None = None,
+        dialect: str = "json",
     ) -> None:
         self.delay_s = delay_s
         self.clock = clock
+        self.dialect = dialect
         self._queues: dict[str, list[str]] = {}
         broken = broken_outputs or {}
         for s in samples:
             calls = (s.label or {}).get("tool_calls") or []
-            replies = [
-                canonical_json({"action": "call", "name": c["name"], "arguments": c.get("arguments") or {}})
-                for c in calls
-            ]
+            replies = [self._call_text(c["name"], c.get("arguments") or {}) for c in calls]
             self._queues[s.id] = list(broken.get(s.id, ())) + replies
         # Mẫu chỉ có đầu ra hỏng (không có trong `samples`) vẫn được tạo hàng đợi riêng.
         for sid, raws in broken.items():
             self._queues.setdefault(sid, list(raws))
         self._cursor: dict[str, int] = {}
 
+    def _call_text(self, name: str, arguments: dict[str, Any]) -> str:
+        """Một lời gọi theo định dạng của `dialect`: JSON `{"action": "call", ...}` hoặc khối `<tool_call>` của Qwen."""
+        if self.dialect == "chatml":
+            body = json.dumps({"name": name, "arguments": arguments}, ensure_ascii=False)
+            return f"<tool_call>\n{body}\n</tool_call>"
+        return canonical_json({"action": "call", "name": name, "arguments": arguments})
+
+    def _done_text(self) -> str:
+        """Lượt kết thúc theo định dạng của `dialect`."""
+        return _CHATML_DONE if self.dialect == "chatml" else _DONE
+
     def generate(
         self,
         messages: list[dict[str, Any]],
-        schema: dict[str, Any],
+        schema: dict[str, Any] | None,
         *,
         sample_id: str,
         time_left_s: float | None = None,
@@ -103,7 +116,7 @@ class FakeLLM:
         """
         queue = self._queues.get(sample_id, [])
         i = self._cursor.get(sample_id, 0)
-        text = queue[i] if i < len(queue) else _DONE
+        text = queue[i] if i < len(queue) else self._done_text()
         self._cursor[sample_id] = i + 1
         timed_out = time_left_s is not None and self.delay_s > time_left_s
         spent = time_left_s if timed_out and time_left_s is not None else self.delay_s
@@ -242,26 +255,28 @@ class VLLMBackend:
             download_dir=hf_cache,
         )
 
-    def _sampling_params(self, schema: dict[str, Any]) -> Any:
-        """Tạo `SamplingParams` giải mã tham lam, giới hạn `max_tokens` và ràng buộc đầu ra theo `schema`."""
+    def _sampling_params(self, schema: dict[str, Any] | None) -> Any:
+        """Tạo `SamplingParams` giải mã tham lam, giới hạn `max_tokens`; ràng buộc đầu ra theo `schema` khi có."""
         from vllm import SamplingParams  # type: ignore[import-not-found,unused-ignore]
 
         return SamplingParams(
             temperature=0,
             max_tokens=self.cfg.max_tokens,
             seed=self.cfg.seed,
-            **_structured_kwargs(schema),
+            **(_structured_kwargs(schema) if schema is not None else {}),
         )
 
     def generate(
         self,
         messages: list[dict[str, Any]],
-        schema: dict[str, Any],
+        schema: dict[str, Any] | None,
         *,
         sample_id: str,
         time_left_s: float | None = None,
     ) -> Generation:
-        """Sinh văn bản một lần, có ràng buộc theo `schema`; `sample_id` không dùng tới.
+        """Sinh văn bản một lần, có ràng buộc theo `schema` khi có; `sample_id` không dùng tới.
+
+        Ở định dạng ChatML, danh sách tool nằm ở trường `tools` của tin `system`; hàm tách ra và đưa vào chat template.
 
         Khi có `time_left_s`, request chạy từng bước trên engine và bị huỷ khi hết giờ (`timed_out=True`), nên một mẫu
         không bao giờ chạy quá hạn giờ. Khi không có `time_left_s` hoặc engine thiếu API step/abort, hàm dùng
@@ -281,12 +296,14 @@ class VLLMBackend:
             AttributeError, TypeError: khi đường step/abort đã từng chạy được nhưng lần này lỗi.
         """
         params = self._sampling_params(schema)
+        messages, tools = split_tools(messages)
+        tool_kwargs: dict[str, Any] = {"tools": tools} if tools is not None else {}
         # Thời gian của lần thử step/abort thất bại, được cộng vào `seconds` của lần gọi `LLM.chat` thay thế.
         failed_s = 0.0
         if time_left_s is not None and self._abortable:
             t_try = time.perf_counter()
             try:
-                gen = self._generate_until(messages, params, time_left_s)
+                gen = self._generate_until(messages, params, time_left_s, tools)
             except (AttributeError, TypeError) as exc:  # API engine khác với điều mã này giả định
                 if self._abortable_verified:
                     raise
@@ -304,6 +321,7 @@ class VLLMBackend:
                     sampling_params=params,
                     use_tqdm=False,
                     chat_template_kwargs={"enable_thinking": False},
+                    **tool_kwargs,
                 )
             except TypeError as exc:
                 # vLLM cũ không nhận `chat_template_kwargs`: tắt hẳn cờ này và gọi lại không kèm tham số đó.
@@ -311,9 +329,9 @@ class VLLMBackend:
                 self._use_template_kwargs = False
                 # Đặt lại mốc thời gian để không tính lần gọi lỗi vừa rồi.
                 t0 = time.perf_counter()
-                outputs = self.engine.chat(messages, sampling_params=params, use_tqdm=False)
+                outputs = self.engine.chat(messages, sampling_params=params, use_tqdm=False, **tool_kwargs)
         else:
-            outputs = self.engine.chat(messages, sampling_params=params, use_tqdm=False)
+            outputs = self.engine.chat(messages, sampling_params=params, use_tqdm=False, **tool_kwargs)
         seconds = time.perf_counter() - t0 + failed_s
         out = outputs[0]
         completion = out.outputs[0]
@@ -324,15 +342,19 @@ class VLLMBackend:
             seconds=seconds,
         )
 
-    def _render(self, messages: list[dict[str, Any]]) -> str:
-        """Áp chat template đúng như `LLM.chat` (bật generation prompt, tắt thinking) và trả về chuỗi prompt."""
+    def _render(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None) -> str:
+        """Áp chat template đúng như `LLM.chat` (bật generation prompt, tắt thinking, kèm `tools`); trả chuỗi prompt."""
         tok = self.engine.get_tokenizer()
         kwargs: dict[str, Any] = {"tokenize": False, "add_generation_prompt": True}
+        if tools is not None:
+            kwargs["tools"] = tools
         if self._use_template_kwargs:
             kwargs["enable_thinking"] = False
         return str(tok.apply_chat_template(messages, **kwargs))
 
-    def _generate_until(self, messages: list[dict[str, Any]], params: Any, time_left_s: float) -> Generation:
+    def _generate_until(
+        self, messages: list[dict[str, Any]], params: Any, time_left_s: float, tools: list[dict[str, Any]] | None = None
+    ) -> Generation:
         """Thêm một request vào engine, chạy từng bước tới khi xong hoặc quá `time_left_s` thì huỷ request.
 
         Hạn giờ được kiểm tra giữa các bước, nên thời gian vượt hạn tối đa là một bước giải mã. Khi bị huỷ, văn bản trả
@@ -356,7 +378,7 @@ class VLLMBackend:
         self._next_request += 1
         # id request không trùng trong suốt vòng đời engine
         rid = f"lm-{self._next_request}"
-        engine.add_request(rid, self._render(messages), params)
+        engine.add_request(rid, self._render(messages, tools), params)
         final: Any = None
         latest: Any = None
         timed_out = False

@@ -370,6 +370,12 @@ Khi chạy đánh giá trên `val_seen` và `val_unseen` thì **không** áp d�
 
 ### 4.6. Dựng prompt (`lifemate/agent/prompt.py`)
 
+> **Từ 30/10/2026 (D50), mặc định là định dạng ChatML** (`[agent].format = "chatml"`): tin nhắn dựng bằng
+> `lifemate/agent/chatml.py`, giống hệt `build_messages` của repo lead (danh sách tool ở trường `tools` của tin `system`,
+> lời gọi `tool_calls`, kết quả ở vai `tool`, kết thúc bằng câu trả lời không có `<tool_call>`); vòng lặp
+> `lifemate/agent/chatml_agent.py`. Mục 4.6 và 4.7 dưới đây mô tả định dạng JSON cũ, vẫn dùng được với
+> `format = "json"` (`configs/v0_json.toml`). Chi tiết: `docs/code_guide.md` mục 3.
+
 ```python
 class PromptBuilder:
     def __init__(self, system_template: str, renderer: ToolDocRenderer): ...

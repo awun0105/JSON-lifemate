@@ -26,6 +26,8 @@ from typing import Any
 import structlog
 
 from lifemate.agent.agent import Agent
+from lifemate.agent.chatml import ChatMLPrompt
+from lifemate.agent.chatml_agent import ChatMLAgent
 from lifemate.agent.guards import build_guard_chain
 from lifemate.agent.prompt import PromptBuilder
 from lifemate.agent.tooldocs import CatalogIndex
@@ -47,7 +49,7 @@ class Built:
     """Mọi thứ một lần chạy cần, đã lắp ráp xong.
 
     Thuộc tính:
-        agent: agent sẵn sàng chạy.
+        agent: agent sẵn sàng chạy (`Agent` khi `[agent].format = "json"`, `ChatMLAgent` khi `"chatml"`).
         loader: bộ nạp `zaic_tools` của split.
         index: chỉ mục catalog tool.
         counter: bộ đếm token.
@@ -57,7 +59,7 @@ class Built:
         prompt_sha256: SHA-256 của file template system prompt.
     """
 
-    agent: Agent
+    agent: Agent | ChatMLAgent
     loader: ZaicLoader
     index: CatalogIndex
     counter: TokenCounter
@@ -71,7 +73,7 @@ def _fake_llm(config: Config, profile: EnvProfile, samples: Sequence[Sample], en
     """Tạo `FakeLLM`; cần split có nhãn vì `FakeLLM` phát lại lời gọi tool gốc."""
     if any(s.label is None for s in samples):
         raise ConfigError("llm.backend = 'fake' needs a labelled split")
-    return FakeLLM(samples)
+    return FakeLLM(samples, dialect=config.agent.format)
 
 
 def _vllm(config: Config, profile: EnvProfile, samples: Sequence[Sample], env_info: EnvInfo, dtype: str) -> Any:
@@ -121,8 +123,16 @@ def _template(config: Config, repo_root: Path) -> str:
 
 
 def prompt_sha256(config: Config, repo_root: Path) -> str:
-    """Trả về SHA-256 của file template system prompt; tính được trước khi nạp model, để CLI kiểm tra `--resume`."""
-    return hashlib.sha256(_template(config, repo_root).encode("utf-8")).hexdigest()
+    """Trả về SHA-256 của nguồn prompt; tính được trước khi nạp model, để CLI kiểm tra `--resume`.
+
+    `format = "json"`: file template system prompt. `format = "chatml"`: mã nguồn `lifemate/agent/chatml.py`, nơi chứa
+    lời dặn hệ thống và cách dựng tin nhắn (file `[agent].system_prompt` không dùng tới).
+    """
+    if config.agent.format == "chatml":
+        source = (repo_root / "lifemate" / "agent" / "chatml.py").read_text(encoding="utf-8")
+    else:
+        source = _template(config, repo_root)
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
 
 def build(
@@ -166,23 +176,34 @@ def build(
     dtype = resolve_dtype(config.llm.dtype, env_info)
     index = CatalogIndex(load_catalog(root, split))
     counter = _counter(config)
-    template = _template(config, repo_root)
-    prompts = PromptBuilder(
-        template,
-        index,
-        counter,
-        max_model_len=config.llm.max_model_len,
-        max_tokens=config.llm.max_tokens,
-        max_result_chars=config.agent.max_result_chars,
-        held_out_apps=_held_out(repo_root),
-    )
     guards = build_guard_chain(config.agent.guards)
     fake_samples = samples
     if config.llm.backend == "fake" and fake_samples is None:
         fake_samples = load_split(root, split)
     llm = TimedLLM(llm_factory(config, profile, fake_samples or (), env_info, dtype))
     timed = TimedTranscriber(transcriber if transcriber is not None else asr_factory(config, root, split))
-    agent = Agent(llm, timed, prompts, guards, index, config.agent, config.llm, observer=observer)
+    agent: Agent | ChatMLAgent
+    if config.agent.format == "chatml":
+        chatml = ChatMLPrompt(
+            index,
+            counter,
+            max_model_len=config.llm.max_model_len,
+            max_tokens=config.llm.max_tokens,
+            compact=config.agent.compact_tools,
+            held_out_apps=_held_out(repo_root),
+        )
+        agent = ChatMLAgent(llm, timed, chatml, guards, index, counter, config.agent, config.llm, observer=observer)
+    else:
+        prompts = PromptBuilder(
+            _template(config, repo_root),
+            index,
+            counter,
+            max_model_len=config.llm.max_model_len,
+            max_tokens=config.llm.max_tokens,
+            max_result_chars=config.agent.max_result_chars,
+            held_out_apps=_held_out(repo_root),
+        )
+        agent = Agent(llm, timed, prompts, guards, index, config.agent, config.llm, observer=observer)
     return Built(
         agent=agent,
         loader=ZaicLoader(root, split),

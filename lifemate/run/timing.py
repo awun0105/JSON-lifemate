@@ -50,7 +50,7 @@ class TimedLLM:
     def generate(
         self,
         messages: list[dict[str, Any]],
-        schema: dict[str, Any],
+        schema: dict[str, Any] | None,
         *,
         sample_id: str,
         time_left_s: float | None = None,

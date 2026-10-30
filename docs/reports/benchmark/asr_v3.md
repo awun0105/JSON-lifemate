@@ -1783,6 +1783,11 @@ cải thiện ASR chỉ thêm vài phần mười điểm; phần lớn điểm 
 
 ### 9.10. Giới hạn
 
+- **Định dạng hội thoại cũ.** Phiên K4 chạy agent ở định dạng JSON `{"action": ...}` (`[agent].format = "json"`). Từ
+  30/10/2026 hệ thống chạy thi dùng định dạng ChatML giống dữ liệu huấn luyện của lead (`docs/decisions.md` D50), nên điểm
+  tuyệt đối ở đây không áp dụng cho hệ thống hiện tại; phép so giữa các nguồn chữ vẫn có giá trị vì mọi nguồn chạy cùng
+  định dạng. Chạy tiếp J ở định dạng cũ: dùng `configs/v0_json.toml`, `--resume` trên các thư mục `k4/`.
+
 - **Chỉ đo độ chính xác, không đo thời gian thật.** ASR không chạy cùng lúc, máy là T4 chứ không phải A30. Thời gian thật
   của cả hệ thống đo ở lần chạy hệ thống sau lần 3.
 - **LLM chưa fine-tune.** Điểm và thứ hạng giữa các nguồn có thể đổi sau khi fine-tune LLM.

@@ -127,6 +127,21 @@ eval, train  ─────►  dùng lại agent, backends, io, core (eval và
 
 ## 3. Hành trình của một mẫu, từng bước
 
+**Hai định dạng hội thoại với LLM** (`[agent].format`, quyết định D50 ngày 30/10/2026):
+
+| | `chatml` (mặc định trong `configs/v0.toml`) | `json` (`configs/v0_json.toml`, định dạng cũ) |
+|---|---|---|
+| Vòng lặp | `agent/chatml_agent.py › ChatMLAgent` | `agent/agent.py › Agent` |
+| Dựng tin nhắn | `agent/chatml.py`, giống hệt `build_messages` của repo lead | `agent/prompt.py › PromptBuilder` + `configs/prompts/system_v1.md` |
+| Danh sách tool | Trường `tools` của tin `system` (JSON schema); chat template của Qwen chèn vào khối `<tools>` | Văn bản gọn trong nội dung tin `system` (`render_tools`) |
+| Lời gọi tool | Tin `assistant` có `tool_calls`; mô hình sinh `<tool_call>{"name": ..., "arguments": ...}</tool_call>` | Nội dung tin `assistant` là JSON `{"action":"call",...}`, ép theo schema |
+| Kết quả tool, lỗi guard | Tin vai `tool`; lỗi guard là `{"ok": false, "error": ...}` | Tin `user` `KẾT QUẢ: ...` hoặc `LỖI (chưa gọi tool): ...` |
+| Kết thúc | Câu trả lời bằng lời (không có `<tool_call>`) | `{"action":"done"}` |
+| Dữ liệu huấn luyện | `src/preprocessing/dataset/builder.py` của repo lead | `lifemate/train/sft_data.py` |
+
+Hai vòng lặp có cùng ngân sách, guard, hạn giờ, cách ghi kết quả. Các bước dưới mô tả định dạng `json` (nơi mã được
+viết trước); bước 3 và 4 có ghi chú phần khác của `chatml`. Thử nghiệm J của benchmark ASR lần 3 chạy ở định dạng `json`.
+
 Phần này đi theo đúng thứ tự mã chạy khi gõ:
 
 ```
@@ -234,6 +249,9 @@ Ba điểm cần biết:
 - **Bảng lịch 15 ngày** (`render_calendar`): LLM hay tính sai "thứ sáu", "mai", "chủ nhật này". Bảng tính sẵn giúp LLM
 chỉ cần tra.
 - **`installed_apps` không in ra**: danh sách tool trong `system` đã chỉ gồm tool được phép.
+- **Định dạng `chatml`** dựng khác (`agent/chatml.py › build_messages`): tin `system` là lời dặn ngắn của lead kèm thời
+  gian, hồ sơ, vị trí, và trường `tools`; lịch sử thành các tin `user`, `assistant` (`tool_calls`), `tool` riêng; không có
+  bảng lịch. Rút gọn hai mức: schema rút gọn (`compact_tool_schema`), rồi bỏ dần lượt lịch sử cũ.
 - **Rút gọn khi quá dài**: nếu prompt cộng `max_tokens` vượt `max_model_len`, thử lần lượt bốn mức: 0 giữ nguyên; 1 cắt
 kết quả tool trong lịch sử còn 1/4; 2 bỏ thêm mô tả tham số; 3 bỏ dần các cặp lượt lịch sử cũ nhất (giữ ít nhất 2
 lượt). Mức đã dùng được ghi vào trace (`prompt_shrink_level`).
@@ -254,6 +272,10 @@ parse                → Action (call / done) hoặc ParseError
                          └─ PASS/WARN → env.call ; nối "KẾT QUẢ: {...}"
                                          nếu là sys.ask_missing_info → dừng (StopReason.ASKED)
 ```
+
+**Ở định dạng `chatml`**, LLM sinh không ép schema; `chatml.parse_reply` đọc các khối `<tool_call>`, không có khối nào
+là câu kết (dừng `DONE`). Lời gọi bị guard chặn thành tin `tool` `{"ok": false, "error": "<lý do>"}`, đúng dạng lượt "phục
+hồi lỗi" trong dữ liệu của lead. Phần dưới mô tả định dạng `json`.
 
 **Định dạng đầu ra** (`agent/protocol.py`): mỗi lượt LLM trả đúng một JSON:
 
@@ -748,25 +770,12 @@ cho ASR, nên LLM chỉ còn khoảng 15 giây. Hết giờ thì bước LLM đa
 
 ## 15. Câu hỏi hay gặp khi giải thích cho team
 
-**Có dùng ChatML không? Vì sao LLM trả JSON chứ không dùng tool calling có sẵn của Qwen?**
-Có dùng ChatML. Hội thoại vẫn là danh sách tin nhắn `system` / `user` / `assistant`, và vLLM áp chat template của Qwen
-(`<|im_start|>system ... <|im_end|>`) như mọi mô hình chat. Chỗ khác là **cách biểu diễn tool bên trong ChatML**:
-
-| | Tool calling có sẵn của Qwen (cách của `builder.py` bên repo lead) | Cách của repo này |
-|---|---|---|
-| Danh sách tool | Trường `tools` của tin `system`, dạng JSON schema; template của Qwen tự chèn vào khối `<tools>` | Văn bản gọn do `render_tools` sinh, nằm trong nội dung tin `system` |
-| Lời gọi tool | Tin `assistant` có trường `tool_calls`; template in thành `<tool_call>{...}</tool_call>` | Nội dung tin `assistant` là đúng một JSON `{"action":"call",...}` |
-| Kết quả tool | Tin vai `tool` | Tin `user` bắt đầu bằng `KẾT QUẢ: ` |
-| Kết thúc | Tin `assistant` bằng lời ("Tôi đã thực hiện xong…") | `{"action":"done"}` |
-
-Lý do chọn cách này: mỗi lượt LLM chỉ sinh một JSON, nên vLLM ép được đầu ra theo schema của từng mẫu (chỉ chọn được
-tool đã cài, luôn đúng cấu trúc, không có câu chữ thừa), không phụ thuộc cách từng phiên bản mô hình hay vLLM xử lý thẻ
-`<tool_call>`. Văn bản trợ lý trong dữ liệu huấn luyện cũng chính là JSON này (`call_text`), nên huấn luyện và chạy khớp
-nhau.
-
-Hệ quả khi gộp với phần fine-tune của lead: hai định dạng **không dùng lẫn được**. Mô hình fine-tune bằng dữ liệu ChatML
-có `tools`/`tool_calls`/vai `tool` sẽ quen sinh `<tool_call>`, trong khi agent ở repo này chờ JSON `{"action":...}`, và
-ngược lại. Cả team phải chọn một định dạng cho cả dữ liệu huấn luyện lẫn lúc chạy thi.
+**Hệ thống dùng định dạng nào?**
+Từ 30/10/2026 (D50), mặc định là `chatml`: tool calling gốc của Qwen, tin nhắn giống hệt `build_messages` của repo lead,
+nên mô hình fine-tune bằng dữ liệu của lead chạy được ngay trong hệ thống này. `tests/test_chatml.py` so tin nhắn với bản
+chép nguyên văn hàm của lead trên cả 1 545 mẫu train. Định dạng `json` cũ (mỗi lượt một JSON `{"action": ...}` ép theo
+schema) giữ lại sau `format = "json"` để tái lập các lần chạy trước. Cái giá của `chatml`: đầu ra không còn bị ép theo
+schema (guard vẫn chặn tên tool lạ và tham số sai trước khi tới env), và prompt dài hơn.
 
 **Guard khác gì với `env.validate`?**
 Guard `schema` gọi chính `env.validate` của BTC. Khác ở chỗ: nếu không có guard, lời gọi sai vẫn tới `env.call`, bị ghi

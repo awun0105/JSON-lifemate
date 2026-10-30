@@ -280,7 +280,7 @@ def test_eval_choose_register_stages_with_fake_runner(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     ctx = llm_pipeline.PipelineContext(tmp_path, CFG, ctx.cfg, "local", ctx.name, tmp_path / "work", 30)
     (tmp_path / "configs").mkdir()
-    (tmp_path / "configs" / "v0.toml").write_bytes((REPO_ROOT / "configs" / "v0.toml").read_bytes())
+    (tmp_path / "configs" / "v0_json.toml").write_bytes((REPO_ROOT / "configs" / "v0_json.toml").read_bytes())
     scores = {"m1": {"val_seen": 70.0, "val_unseen": 60.0}, "m2": {"val_seen": 65.0, "val_unseen": 61.0}}
     calls: list[list[str]] = []
 

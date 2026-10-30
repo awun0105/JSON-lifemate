@@ -15,7 +15,10 @@ Lưu ý:
 
 from __future__ import annotations
 
+import json
 from typing import Any
+
+from lifemate.core.chat import split_tools
 
 # Nội dung mẫu ngắn, dùng để đo số token mà template chèn thêm quanh mỗi tin nhắn.
 _PROBE = "xin chào"
@@ -52,7 +55,11 @@ class HFTokenCounter:
         Trả về:
             Số token của prompt.
         """
-        ids: Any = self._tok.apply_chat_template(messages, tokenize=True, add_generation_prompt=True)
+        # Định dạng ChatML (`lifemate.agent.chatml`) để danh sách tool trong trường `tools` của tin `system`; chat
+        # template nhận danh sách này qua tham số `tools`.
+        msgs, tools = split_tools(messages)
+        kwargs: dict[str, Any] = {"tools": tools} if tools is not None else {}
+        ids: Any = self._tok.apply_chat_template(msgs, tokenize=True, add_generation_prompt=True, **kwargs)
         # Tuỳ phiên bản `transformers`, kết quả là list id hoặc `BatchEncoding`/dict có khoá `input_ids`.
         if isinstance(ids, dict) or hasattr(ids, "input_ids"):
             ids = ids["input_ids"]
@@ -94,4 +101,9 @@ class SimpleTokenCounter:
 
     def count(self, messages: list[dict[str, Any]]) -> int:
         """Trả về số token ước lượng của `messages`."""
-        return sum(len(str(m.get("content") or "").split()) + 4 for m in messages)
+        tools = messages[0].get("tools") if messages else None
+        extra = len(json.dumps(tools, ensure_ascii=False).split()) if tools else 0
+        calls = sum(
+            len(json.dumps(m["tool_calls"], ensure_ascii=False).split()) for m in messages if m.get("tool_calls")
+        )
+        return sum(len(str(m.get("content") or "").split()) + 4 for m in messages) + extra + calls

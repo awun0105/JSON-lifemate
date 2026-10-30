@@ -74,8 +74,14 @@ class AgentConfig:
         max_retries: số lần thử lại tối đa khi đầu ra LLM sai định dạng hoặc bị guard từ chối.
         deadline_s: hạn giờ của một mẫu, tính bằng giây từ lúc bắt đầu mẫu (gồm cả ASR).
         max_result_chars: số ký tự tối đa của kết quả tool trước khi đưa lại vào prompt.
-        system_prompt: đường dẫn file system prompt.
+        system_prompt: đường dẫn file system prompt (chỉ dùng ở `format = "json"`).
         guards: tên các guard được bật, chạy theo thứ tự trong list.
+        format: định dạng hội thoại với LLM. `"chatml"`: tool calling có sẵn của Qwen (danh sách tool ở trường `tools`,
+            lời gọi `<tool_call>`, kết quả ở vai `tool`), giống hệt `build_messages` của repo lead
+            (`lifemate.agent.chatml`). `"json"`: định dạng cũ, mỗi lượt một JSON `{"action": ...}`
+            (`lifemate.agent.agent`), giữ để tái lập các lần chạy trước. Tuỳ chọn, mặc định `"json"`.
+        compact_tools: `True` thì rút gọn schema tool ngay từ đầu (bỏ mô tả tham số con, như `compact_schema` của lead);
+            chỉ dùng ở `format = "chatml"`. Tuỳ chọn, mặc định `False`.
     """
 
     max_steps: int
@@ -84,6 +90,8 @@ class AgentConfig:
     max_result_chars: int
     system_prompt: str
     guards: list[str]
+    format: str = "json"
+    compact_tools: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +137,10 @@ ASR_ENGINE_NAMES = frozenset({"faster_whisper", "hf_seq2seq", "chunkformer", "ne
 ASR_DTYPES = frozenset({"auto", "float32", "float16", "bfloat16"})
 # Phải khớp với các trường có giá trị mặc định của `ASRConfig`; thiếu tên nào thì `_build` sẽ bắt buộc khoá đó
 # trong TOML.
+# Định dạng hội thoại với LLM (`[agent].format`) và các khoá `[agent]` được phép bỏ trống.
+AGENT_FORMATS = ("chatml", "json")
+_AGENT_OPTIONAL = frozenset({"format", "compact_tools"})
+
 _ASR_OPTIONAL = frozenset(
     {
         "engine",
@@ -309,12 +321,14 @@ def load_config(path: Path, overrides: Sequence[str] = ()) -> Config:
     for key in ("llm", "agent", "asr"):
         _check(key in raw, f"missing key {key}")
     llm = _build(LLMConfig, "llm", raw["llm"])
-    agent = _build(AgentConfig, "agent", raw["agent"])
+    agent = _build(AgentConfig, "agent", raw["agent"], optional=_AGENT_OPTIONAL)
     asr = _build(ASRConfig, "asr", raw["asr"], optional=_ASR_OPTIONAL)
     # Kiểm tra giá trị. Backend `fake` và `gold` dùng cho test nên không cần tên model.
     _check(llm.backend in {"vllm", "fake"}, f"llm.backend: {llm.backend!r} not in vllm|fake")
     _check(not (llm.backend == "vllm" and llm.model == ""), "llm.model: required when llm.backend = 'vllm'")
     _check(llm.dtype in {"auto", "float16", "bfloat16"}, f"llm.dtype: {llm.dtype!r} not in auto|float16|bfloat16")
+    _check(agent.format in AGENT_FORMATS, f"agent.format: {agent.format!r} not in {'|'.join(AGENT_FORMATS)}")
+    _check(isinstance(agent.compact_tools, bool), "agent.compact_tools: must be true or false")
     _check(asr.backend in {"gold", "asr"}, f"asr.backend: {asr.backend!r} not in gold|asr")
     _check(asr.engine in ASR_ENGINE_NAMES, f"asr.engine: {asr.engine!r} not in {'|'.join(sorted(ASR_ENGINE_NAMES))}")
     _check(asr.dtype in ASR_DTYPES, f"asr.dtype: {asr.dtype!r} not in {'|'.join(sorted(ASR_DTYPES))}")

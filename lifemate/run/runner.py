@@ -39,6 +39,7 @@ from typing import Any, Protocol
 import structlog
 
 from lifemate.agent.agent import Agent, transcript_source
+from lifemate.agent.chatml_agent import ChatMLAgent
 from lifemate.core.types import ErrorCode, Sample, SampleResult, StopReason, ToolEnvLike
 from lifemate.io.check_submission import check_submission
 from lifemate.io.store import RunStore, append_index
@@ -112,7 +113,7 @@ class Runner:
     """Chạy mỗi mẫu một lần, cô lập lỗi theo từng mẫu và ghi thư mục run; không chứa logic agent.
 
     Tham số:
-        agent: agent đã lắp ráp.
+        agent: agent đã lắp ráp (`Agent` hoặc `ChatMLAgent`, cùng giao diện).
         loader: bộ nạp env của split.
         store: thư mục run để ghi kết quả.
         repo_root: thư mục gốc repo, dùng làm thư mục làm việc khi chạy `score.py`.
@@ -123,7 +124,7 @@ class Runner:
 
     def __init__(
         self,
-        agent: Agent,
+        agent: Agent | ChatMLAgent,
         loader: EnvLoader,
         store: RunStore,
         *,
