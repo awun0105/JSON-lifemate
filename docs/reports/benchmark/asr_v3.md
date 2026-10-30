@@ -148,7 +148,7 @@ train.jsonl (1 545 mẫu, dữ liệu gốc của BTC)
      │                               └─ phần 1–4 ► train.txt (1 093)
      │                                              · không dùng trực tiếp; được chia tiếp ở bước 5
      │
-     4. Rút từ val_seen ─────────────► smoke.txt (30)
+     4. Rút từ train ────────────────► smoke.txt (30)
      │                                  · chạy thử nhanh để bắt lỗi, không dùng để chấm
      │
      5. Rút từ train ───────────────► asr_tune.txt (300) = tập dò
@@ -186,7 +186,7 @@ Giải thích từng bước:
    (64 nhóm, 174 mẫu; các mẫu khác không thuộc nhóm nào). Đây là bước trung gian cho bước 3 nên không ghi file danh sách.
 3. **Chia 5 phần** (`stratified_group_folds`): xếp nguyên cả nhóm vào một phần, sao cho các phần có cùng tỉ lệ số lời
    gọi tool và tỉ lệ câu hỏi lại. Nhờ vậy hai câu gần giống nhau không nằm ở hai tập khác nhau.
-4. **`smoke`** (`--smoke 30`): 30 mẫu của `val_seen`, phân tầng theo loại câu trả lời và có/không lịch sử.
+4. **`smoke`** (`--smoke 30`): 30 mẫu của `train`, phân tầng theo loại câu trả lời và có/không lịch sử.
 5. **`asr_tune`** (`--asr-tune 300`): 300 mẫu của `train`, cùng cách phân tầng; phần `train` còn lại ghi ra
    [`configs/splits/asr_learn.txt`](../../../configs/splits/asr_learn.txt).
 6. **`*_en_mixed`** (`--en-mixed`, hàm `en_mixed_ids`): giữ mẫu có ít nhất một câu người dùng chêm từ tiếng Anh, theo

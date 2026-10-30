@@ -649,7 +649,7 @@ uv run python -m lifemate.run.cli --config configs/v0.toml --env kaggle --root /
   3. Phân bố: tỉ lệ `[]`, tỉ lệ có `sys.ask_missing_info`, số call trung bình, so với train (7%, 14%, 2,3). Lệch quá 2 lần thì in cảnh báo, không chặn.
   4. Phát lại các call qua `zaic_tools` và đếm `ok: false`; khác 0 thì in cảnh báo kèm id.
 - `runs/public_submissions.csv` (ghi tay sau mỗi lần nộp public): `date, run, public_score, val_seen, val_unseen, note`. Dùng để xem điểm val và public có tăng giảm cùng chiều không.
-- **Bộ smoke cố định:** `configs/splits/smoke.txt` gồm 30 id lấy phân tầng từ `val_seen` (theo loại đáp án và có/không history), tạo bởi `make_splits.py --smoke 30`. Dùng cho chạy thử sau mỗi lần sửa; `--limit N` chỉ dành cho kiểm tra cài đặt.
+- **Bộ smoke cố định:** `configs/splits/smoke.txt` gồm 30 id lấy phân tầng từ `train` (theo loại đáp án và có/không history), tạo bởi `make_splits.py --smoke 30`. Dùng cho chạy thử sau mỗi lần sửa; `--limit N` chỉ dành cho kiểm tra cài đặt.
 
 ### 4.12. Thư mục một lần chạy
 
@@ -878,7 +878,7 @@ Mỗi test ghi rõ ba ý: **bảo vệ** điều gì, **bắt lỗi** khi nào, 
 | T23 | `test_no_token_leak`: đặt token giả, chạy `--limit 2` với FakeLLM | Token không xuất hiện trong `config.json`, `trace.jsonl`, `summary.json` | Xuất hiện | |
 | T24 | `test_prompt_shrink_levels`: `WhitespaceTokenCounter` với `max_model_len` nhỏ dần, một mẫu có history dài | Mỗi mức giảm được áp dụng đúng thứ tự 1 → 2 → 3, dừng ở mức đầu tiên vừa; mức 3 luôn giữ lượt user cuối; phần quy tắc của system không đổi ở mọi mức; không vừa sau mức 3 thì `CONTEXT_OVERFLOW` | Sai thứ tự, mất lượt cuối, hoặc phần quy tắc thay đổi | Số token thật của tokenizer model |
 | T25 | `test_check_submission`: file nộp giả thiếu id, trùng id, có call sai schema | `check.txt` nêu đúng từng lỗi; file hợp lệ thì không cảnh báo | Bỏ sót một loại lỗi | Cách BTC validate khác với `zaic_tools --validate` |
-| T26 | `test_smoke_split`: `make_splits.py --smoke 30` | `smoke.txt` có 30 id, đều thuộc `val_seen`, có đủ 3 loại đáp án, cố định theo seed | Thiếu loại, id ngoài `val_seen`, hoặc đổi giữa hai lần chạy | |
+| T26 | `test_smoke_split`: `make_splits.py --smoke 30` | `smoke.txt` có 30 id, đều thuộc `train`, không trùng `val_seen`, có đủ 3 loại đáp án, cố định theo seed | Thiếu loại, id ngoài `train` hoặc trùng `val_seen`, hoặc đổi giữa hai lần chạy | |
 
 ---
 
@@ -1330,7 +1330,7 @@ Cách chia theo team lead (ThanhDanh1510/ZaloAI2026, `split.py`@7033c9f), có s�
 | `val_unseen` | 178 | Tách ra **đầu tiên**: mọi mẫu có đáp án gọi tới 6 app giữ lại, cộng 5 mẫu gold `[]` mà yêu cầu nói về các app đó (gắn tay trong `UNSEEN_OUT_OF_SCOPE`) | Khả năng gặp app lạ, gần với điểm private |
 | `val_seen` | 274 | Fold 0 trong 5 fold của phần còn lại | Khả năng với app quen |
 | `train` | 1.093 | Fold 1 đến 4 của phần còn lại | Dùng để học, lấy ví dụ mẫu cho prompt |
-| `smoke` | 30 | Lấy phân tầng từ `val_seen` | Chạy thử nhanh sau mỗi lần sửa |
+| `smoke` | 30 | Lấy phân tầng từ `train` | Chạy thử nhanh sau mỗi lần sửa |
 
 - **6 app giữ lại:** medication, fitness, flights, bike_rental, library, subscriptions (đại diện các nhóm sức khỏe, du lịch, di chuyển, cá nhân, tài chính).
 - **5 fold:** câu gần trùng (giống nhau từ 85% theo difflib) được gom thành cụm và cả cụm nằm chung một fold, để `val_seen` không có câu gần giống `train`. Các fold được cân bằng theo số lời gọi (0, 1, 2-3, từ 4) và có hay không `sys.ask_missing_info`.

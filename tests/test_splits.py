@@ -1,4 +1,4 @@
-"""T26: test các split do `make_splits` sinh ra, gồm `configs/splits/smoke.txt` (30 id `val_seen`, đủ loại, ổn định).
+"""T26: test các split do `make_splits` sinh ra, gồm `configs/splits/smoke.txt` (30 id `train`, đủ loại, ổn định).
 
 Nội dung chính:
 - `smoke.txt` đúng kích thước, đủ loại và ổn định giữa các lần chạy.
@@ -48,11 +48,12 @@ def _category(calls: list[dict]) -> str:
 
 @pytest.mark.data
 def test_smoke_split(data_root):
-    """`smoke.txt` có đúng 30 id khác nhau, đều thuộc `val_seen`, và phủ cả ba loại câu trả lời."""
+    """`smoke.txt` có đúng 30 id khác nhau, đều thuộc `train`, không trùng `val_seen`, và phủ cả ba loại câu trả lời."""
     smoke = _ids(SPLITS / "smoke.txt")
     assert len(smoke) == 30
     assert len(set(smoke)) == 30
-    assert set(smoke) <= set(_ids(SPLITS / "val_seen.txt"))
+    assert set(smoke) <= set(_ids(SPLITS / "train.txt"))
+    assert not set(smoke) & set(_ids(SPLITS / "val_seen.txt"))
     with open(data_root / "train" / "train.jsonl", encoding="utf-8") as f:
         labels = {it["id"]: it["label"]["tool_calls"] for it in map(json.loads, f) if it}
     assert {_category(labels[i]) for i in smoke} == {"execute", "ask_missing_info", "out_of_scope"}

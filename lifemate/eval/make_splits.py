@@ -32,7 +32,8 @@ Cách hoạt động:
 3. Stratified group k-fold: gán nguyên cụm vào fold bằng thuật toán tham lam, cân bằng kích thước fold và nhãn
    chính của cụm (nhóm số lời gọi, thêm hậu tố "_ask"). Nhãn hiếm và cụm lớn được xếp trước.
 4. Kiểm tra rò rỉ: `meta.json` ghi số id trùng giữa train và hai tập val (phải bằng 0).
-5. Tuỳ chọn `--smoke`: lấy N id của `val_seen`, phân tầng theo (loại câu trả lời, có lịch sử hay không).
+5. Tuỳ chọn `--smoke`: lấy N id của train, phân tầng theo (loại câu trả lời, có lịch sử hay không), để chạy thử
+   không bao giờ đụng dữ liệu val.
    Tuỳ chọn `--asr-tune`: lấy N id của train theo cùng cách phân tầng, làm tập dò config ASR.
    Với `--asr-tune`, ghi thêm `asr_learn.txt`: các mẫu train ngoài `asr_tune.txt` (tập học của benchmark ASR lần 3).
    Tuỳ chọn `--en-mixed`: ghi `{asr_tune,val_seen,val_unseen}_en_mixed.txt`, gồm các mẫu của tập tương ứng có ít nhất
@@ -144,14 +145,14 @@ def gold_apps(item: dict) -> set[str]:
     return {c["name"].split(".", 1)[0] for c in item["label"]["tool_calls"]} - {"sys"}
 
 
-def smoke_sample(val_seen: list[dict], n: int, seed: int) -> list[str]:
-    """Lấy n id của `val_seen`, phân tầng theo (loại câu trả lời, có lịch sử hay không), cố định theo seed.
+def smoke_sample(items: list[dict], n: int, seed: int) -> list[str]:
+    """Lấy n id của `items`, phân tầng theo (loại câu trả lời, có lịch sử hay không), cố định theo seed.
 
     Hàm dùng bộ sinh số ngẫu nhiên riêng nên không ảnh hưởng các split chính. Mỗi tầng nhận phần tỉ lệ với kích
     thước của tầng (phương pháp phần dư lớn nhất), và ít nhất một mẫu khi n đủ lớn.
 
     Tham số:
-        val_seen: các mẫu thô để lấy (cũng dùng cho tập train khi tạo `asr_tune.txt`).
+        items: các mẫu thô để lấy (tập train, cho cả `smoke.txt` và `asr_tune.txt`).
         n: số id cần lấy.
         seed: seed của bộ sinh số ngẫu nhiên.
 
@@ -159,11 +160,11 @@ def smoke_sample(val_seen: list[dict], n: int, seed: int) -> list[str]:
         Danh sách id đã sắp xếp.
     """
     strata = collections.defaultdict(list)
-    for it in sorted(val_seen, key=lambda x: x["id"]):
+    for it in sorted(items, key=lambda x: x["id"]):
         strata[(category(it["label"]["tool_calls"]), bool(it["history"]))].append(it["id"])
     keys = sorted(strata)
-    n = min(n, len(val_seen))
-    total = len(val_seen)
+    n = min(n, len(items))
+    total = len(items)
     # Phần nguyên của hạn mức theo tỉ lệ; tối thiểu 1 khi n không nhỏ hơn số tầng; không vượt kích thước tầng.
     quota = {k: min(len(strata[k]), max(1 if n >= len(keys) else 0, n * len(strata[k]) // total)) for k in keys}
     # Còn thiếu thì cộng thêm cho tầng có phần dư lớn nhất trước.
@@ -212,7 +213,7 @@ def main() -> None:
         type=int,
         default=0,
         metavar="N",
-        help="also write smoke.txt: N val_seen ids stratified by (answer type, has history); 0 = skip",
+        help="also write smoke.txt: N train ids stratified by (answer type, has history); 0 = skip",
     )
     ap.add_argument(
         "--asr-tune",
@@ -269,7 +270,7 @@ def main() -> None:
         (fold_dir / f"fold_{i}.txt").write_text("".join(f"{x}\n" for x in fold))
 
     if args.smoke:
-        smoke = smoke_sample(val_seen, args.smoke, args.seed)
+        smoke = smoke_sample(train, args.smoke, args.seed)
         (args.out / "smoke.txt").write_text("".join(f"{i}\n" for i in smoke))
         print(f"  smoke      {len(smoke):>5}  -> {args.out / 'smoke.txt'}")
     # Tập dò config ASR: lấy từ train (ASR không học trên train nên không bị lộ đáp án); split chính không đổi.

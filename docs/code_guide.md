@@ -712,7 +712,7 @@ Ghi danh sách mã mẫu vào [`configs/splits/`](../configs/splits/), không ch
 2. Gom câu gần trùng thành nhóm.
 3. Chia 5 phần cân bằng số lời gọi và tỉ lệ câu hỏi lại: phần 0 là `val_seen` (274 mẫu), phần 1–4 là `train` (1 093
  mẫu).
-4. Rút thêm các tập phụ: `smoke` (30 mẫu chạy thử), `asr_tune` (300), `asr_learn` (793), `*_en_mixed`.
+4. Rút thêm các tập phụ: `smoke` (30 mẫu của `train`, chạy thử), `asr_tune` (300), `asr_learn` (793), `*_en_mixed`.
 
 Chi tiết và sơ đồ: [`docs/reports/benchmark/asr_v3.md`](reports/benchmark/asr_v3.md), mục "Dữ liệu cần chuẩn bị".
 

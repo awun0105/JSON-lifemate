@@ -27,6 +27,10 @@ Hard rules (competition and safety):
 - Split id lists in `configs/splits/` are git-ignored; run `make splits` after cloning (needs the data package).
 - Data for SFT comes only from `configs/splits/train.txt` (plus synthetic data built from the train catalog);
   never from `val_*` or `public_test`.
+- `val_unseen` bị khoá: chỉ đo một lần cho cấu hình sắp nộp. Việc chọn cấu hình và phân tích giữa chừng dùng
+  `asr_tune` hoặc cross-validation trên `train`, và nếu cần chỉ được xem thêm `val_seen`.
+- Public test: chỉ nộp một lần cho mỗi mốc lớn, với cấu hình đã cố định trên val; mỗi lần nộp ghi cặp (điểm val,
+  điểm public) vào `docs/experiments.md`.
 
 - Labels derived from the data (hand-checked word lists, id lists) may be kept as positions only
   (sample id, turn, word index, label), never as copied text, and stay git-ignored like `configs/splits/`.
