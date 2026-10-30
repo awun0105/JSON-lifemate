@@ -5,7 +5,7 @@ Vòng lặp xử lý một mẫu. Chỉ dùng `core`: không mở file, không b
 | File | Chức năng |
 |---|---|
 | `__init__.py` | Đánh dấu gói. |
-| `chatml.py` | Định dạng ChatML (tool calling gốc của Qwen), mặc định từ D50: dựng tin nhắn giống hệt `build_messages` của repo lead (danh sách tool ở trường `tools` của tin `system`, lời gọi `tool_calls`, kết quả ở vai `tool`), đọc khối `<tool_call>` của mô hình, `ChatMLPrompt` rút gọn khi quá dài. |
+| `chatml.py` | Định dạng ChatML (tool calling gốc của Qwen), mặc định từ D50: dựng tin nhắn giống hệt `build_messages` của repo lead (danh sách tool ở trường `tools` của tin `system`, lời gọi `tool_calls`, kết quả ở vai `tool`), đọc khối `<tool_call>` của mô hình, luật ép đầu ra `tool_call_constraint` (structural tag: sau `<tool_call>` chỉ viết được tool đã cài, tham số đúng tên/kiểu/enum), `ChatMLPrompt` rút gọn khi quá dài. |
 | `chatml_agent.py` | Lớp `ChatMLAgent`: vòng lặp như `Agent` (ngân sách, guard, hạn giờ) cho định dạng ChatML; lời gọi bị guard chặn thành tin `tool` `{"ok": false, "error": ...}`. Dùng khi `[agent].format = "chatml"`. |
 | `agent.py` | Lớp `Agent` (định dạng JSON cũ, `[agent].format = "json"`): chuyển âm thanh thành chữ, dựng prompt, rồi lặp hỏi LLM → đọc JSON → qua guard → `validate` rồi `call` trình mô phỏng → thêm kết quả vào hội thoại, tới khi LLM báo xong hoặc hết giờ. Trả về `SampleResult`. |
 | `budget.py` | Giới hạn mỗi mẫu: số bước, số lần thử lại, độ dài ngữ cảnh, và hạn thật 29 giây (bước đang chạy bị ngắt khi tới hạn). |

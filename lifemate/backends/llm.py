@@ -154,18 +154,25 @@ _WARMUP_SCHEMA: dict[str, Any] = {
 }
 
 
-def _structured_kwargs(schema: dict[str, Any]) -> dict[str, Any]:
-    """Tạo tham số `SamplingParams` để ràng buộc đầu ra theo JSON schema, chạy được trên nhiều phiên bản vLLM.
+def is_structural_tag(schema: dict[str, Any] | None) -> bool:
+    """`True` khi `schema` là luật ép dạng structural tag (`lifemate.agent.chatml.tool_call_constraint`)."""
+    return schema is not None and schema.get("type") == "structural_tag"
 
-    vLLM mới dùng `StructuredOutputsParams` (khoá `structured_outputs`); bản cũ dùng `GuidedDecodingParams` (khoá
-    `guided_decoding`).
+
+def _structured_kwargs(schema: dict[str, Any]) -> dict[str, Any]:
+    """Tạo tham số `SamplingParams` để ràng buộc đầu ra, chạy được trên nhiều phiên bản vLLM.
+
+    `schema` là JSON schema (định dạng JSON cũ: cả đầu ra phải là một JSON) hoặc structural tag (định dạng ChatML: chỉ
+    phần sau `<tool_call>` bị ép, xem `is_structural_tag`). vLLM mới dùng `StructuredOutputsParams` (khoá
+    `structured_outputs`); bản cũ dùng `GuidedDecodingParams` (khoá `guided_decoding`).
 
     Tham số:
-        schema: JSON schema của đầu ra.
+        schema: JSON schema hoặc structural tag.
 
     Trả về:
         Dict một khoá, truyền thẳng vào `SamplingParams(**...)`.
     """
+    kind = {"structural_tag": json.dumps(schema, ensure_ascii=False)} if is_structural_tag(schema) else {"json": schema}
     try:
         from vllm.sampling_params import (
             StructuredOutputsParams,  # type: ignore[import-not-found,attr-defined,unused-ignore]
@@ -175,8 +182,8 @@ def _structured_kwargs(schema: dict[str, Any]) -> dict[str, Any]:
             GuidedDecodingParams,  # type: ignore[import-not-found,attr-defined,unused-ignore]
         )
 
-        return {"guided_decoding": GuidedDecodingParams(json=schema)}
-    return {"structured_outputs": StructuredOutputsParams(json=schema)}
+        return {"guided_decoding": GuidedDecodingParams(**kind)}
+    return {"structured_outputs": StructuredOutputsParams(**kind)}
 
 
 class VLLMBackend:
@@ -219,6 +226,10 @@ class VLLMBackend:
         self._abortable = True  # đặt False (và ghi log) khi engine thiếu API step/abort
         # True sau lần đầu đường step/abort chạy trọn vẹn: từ đó lỗi trên đường này là bug thật, không phải thiếu API.
         self._abortable_verified = False
+        # Luật ép structural tag (định dạng ChatML): tắt nếu engine từ chối ở lần đầu; đã chạy được thì lỗi sau đó là
+        # lỗi thật.
+        self._structural_ok = True
+        self._structural_verified = False
         self._next_request = 0
         if cfg.batch_invariant:
             if compute_capability is not None and compute_capability < _MIN_BATCH_INVARIANT_CC:
@@ -274,7 +285,39 @@ class VLLMBackend:
         sample_id: str,
         time_left_s: float | None = None,
     ) -> Generation:
-        """Sinh văn bản một lần, có ràng buộc theo `schema` khi có; `sample_id` không dùng tới.
+        """Sinh văn bản một lần; ràng buộc theo `schema` (JSON schema hoặc structural tag) khi có.
+
+        Với structural tag: nếu engine từ chối luật (`ValueError`) ngay ở lần đầu dùng, ghi log lỗi, tắt hẳn việc ép cho
+        phần còn lại của run và sinh lại không ép, để một luật không được hỗ trợ không làm hỏng cả run. Luật đã chạy
+        được ít nhất một lần thì lỗi sau đó được ném ra.
+
+        Tham số và giá trị trả về: như `_generate`.
+        """
+        if is_structural_tag(schema):
+            if not self._structural_ok:
+                schema = None
+            else:
+                try:
+                    gen = self._generate(messages, schema, time_left_s=time_left_s)
+                except ValueError as exc:
+                    if self._structural_verified:
+                        raise
+                    _log.error("vllm_structural_tag_unsupported", error=str(exc))
+                    self._structural_ok = False
+                    schema = None
+                else:
+                    self._structural_verified = True
+                    return gen
+        return self._generate(messages, schema, time_left_s=time_left_s)
+
+    def _generate(
+        self,
+        messages: list[dict[str, Any]],
+        schema: dict[str, Any] | None,
+        *,
+        time_left_s: float | None = None,
+    ) -> Generation:
+        """Sinh văn bản một lần, có ràng buộc theo `schema` khi có.
 
         Ở định dạng ChatML, danh sách tool nằm ở trường `tools` của tin `system`; hàm tách ra và đưa vào chat template.
 
@@ -285,8 +328,7 @@ class VLLMBackend:
 
         Tham số:
             messages: các tin nhắn của prompt.
-            schema: JSON schema của đầu ra.
-            sample_id: mã mẫu; không dùng.
+            schema: JSON schema hoặc structural tag của đầu ra; `None` là không ràng buộc.
             time_left_s: số giây còn lại của mẫu; `None` là không giới hạn.
 
         Trả về:
@@ -294,6 +336,7 @@ class VLLMBackend:
 
         Lỗi:
             AttributeError, TypeError: khi đường step/abort đã từng chạy được nhưng lần này lỗi.
+            ValueError: khi engine từ chối luật ràng buộc (xử lý ở `generate`).
         """
         params = self._sampling_params(schema)
         messages, tools = split_tools(messages)

@@ -273,8 +273,9 @@ parse                → Action (call / done) hoặc ParseError
                                          nếu là sys.ask_missing_info → dừng (StopReason.ASKED)
 ```
 
-**Ở định dạng `chatml`**, LLM sinh không ép schema; `chatml.parse_reply` đọc các khối `<tool_call>`, không có khối nào
-là câu kết (dừng `DONE`). Lời gọi bị guard chặn thành tin `tool` `{"ok": false, "error": "<lý do>"}`, đúng dạng lượt "phục
+**Ở định dạng `chatml`**, khi `constrain_tools` bật, vLLM ép phần sau `<tool_call>` theo luật
+`chatml.tool_call_constraint` (tool đã cài, tham số đúng tên, kiểu, `enum`); `chatml.parse_reply` đọc các khối
+`<tool_call>`, không có khối nào là câu kết (dừng `DONE`). Lời gọi bị guard chặn thành tin `tool` `{"ok": false, "error": "<lý do>"}`, đúng dạng lượt "phục
 hồi lỗi" trong dữ liệu của lead. Phần dưới mô tả định dạng `json`.
 
 **Định dạng đầu ra** (`agent/protocol.py`): mỗi lượt LLM trả đúng một JSON:
@@ -774,8 +775,11 @@ cho ASR, nên LLM chỉ còn khoảng 15 giây. Hết giờ thì bước LLM đa
 Từ 30/10/2026 (D50), mặc định là `chatml`: tool calling gốc của Qwen, tin nhắn giống hệt `build_messages` của repo lead,
 nên mô hình fine-tune bằng dữ liệu của lead chạy được ngay trong hệ thống này. `tests/test_chatml.py` so tin nhắn với bản
 chép nguyên văn hàm của lead trên cả 1 545 mẫu train. Định dạng `json` cũ (mỗi lượt một JSON `{"action": ...}` ép theo
-schema) giữ lại sau `format = "json"` để tái lập các lần chạy trước. Cái giá của `chatml`: đầu ra không còn bị ép theo
-schema (guard vẫn chặn tên tool lạ và tham số sai trước khi tới env), và prompt dài hơn.
+schema) giữ lại sau `format = "json"` để tái lập các lần chạy trước. Ở `chatml`, đầu ra vẫn được ép (D51,
+`[agent].constrain_tools`): khi mô hình viết `<tool_call>`, phần sau chỉ được là tên một tool đã cài và tham số đúng tên,
+kiểu, `enum` (`chatml.tool_call_constraint`, structural tag của vLLM); câu kết bằng lời tự do; tham số bắt buộc không ép
+để guard chặn rồi mô hình hỏi lại. Cái giá còn lại: prompt dài hơn, và tham số bị buộc theo thứ tự khai báo trong schema
+(không ảnh hưởng điểm).
 
 **Guard khác gì với `env.validate`?**
 Guard `schema` gọi chính `env.validate` của BTC. Khác ở chỗ: nếu không có guard, lời gọi sai vẫn tới `env.call`, bị ghi

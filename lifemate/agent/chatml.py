@@ -5,6 +5,8 @@ Nội dung chính:
   tin nhắn của một mẫu, từng tin giống `src/utils/prompt_utils.py` › `build_messages` của repo lead.
 - `tool_content`, `arguments_text`: cách viết kết quả tool và tham số lời gọi, như lead.
 - `parse_reply`: đọc lượt trả lời của mô hình: các khối `<tool_call>…</tool_call>`, hoặc câu kết bằng lời.
+- `tool_call_constraint`: luật ép đầu ra (structural tag của vLLM/xgrammar): sau `<tool_call>` mô hình chỉ viết được
+  `{"name": <tool đã cài>, "arguments": <đúng tên, kiểu, enum của tham số>}`; câu kết bằng lời vẫn tự do.
 - `ChatMLPrompt`: dựng hội thoại đầu tiên của mẫu và rút gọn khi quá dài.
 
 Cách hoạt động (định dạng):
@@ -31,7 +33,7 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from lifemate.agent.prompt import HeldOutLeak
@@ -252,6 +254,54 @@ def parse_reply(text: str) -> list[Action] | ParseError | None:
             return ParseError(message="tool_call arguments must be an object", raw=text)
         actions.append(Action(kind="call", name=obj["name"], arguments=args))
     return actions
+
+
+# Khoá JSON schema giữ lại trong luật ép. `required`, `format`, giới hạn số và khoá riêng của BTC (`x-ref`, `x-match`,
+# `x-one-of`) bị bỏ: guard (`env.validate`) vẫn kiểm tra các phần này. Không ép `required` vì mô hình đã mở lời gọi mà
+# thiếu thông tin thì sẽ phải bịa giá trị, trong khi đáp án đúng là bị guard chặn rồi hỏi lại (`sys.ask_missing_info`).
+_SCHEMA_KEYS = ("type", "enum", "items", "properties")
+TOOL_CALL_BEGIN = "<tool_call>"
+
+
+def _constraint_schema(schema: Any) -> Any:
+    """Bản JSON schema dùng để ép: chỉ giữ `_SCHEMA_KEYS`; object có `properties` thì cấm khoá ngoài danh sách."""
+    if not isinstance(schema, dict):
+        return schema
+    out: dict[str, Any] = {k: schema[k] for k in _SCHEMA_KEYS if k in schema}
+    if isinstance(out.get("items"), dict):
+        out["items"] = _constraint_schema(out["items"])
+    if isinstance(out.get("properties"), dict):
+        out["properties"] = {name: _constraint_schema(p) for name, p in out["properties"].items()}
+        out["additionalProperties"] = False
+    elif out.get("type") == "object":
+        out.setdefault("properties", {})
+        out["additionalProperties"] = False
+    return out
+
+
+def tool_call_constraint(tools: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Luật ép đầu ra dạng structural tag cho một danh sách tool (trường `tools` của tin `system`).
+
+    Mỗi tool một cấu trúc: mở bằng đúng chuỗi mà chat template của Qwen in cho lời gọi
+    (`<tool_call>\n{"name": "<tên>", "arguments": `), giữa là JSON tham số theo `_constraint_schema`, đóng bằng
+    `}\n</tool_call>`. Luật chỉ bật khi mô hình viết `<tool_call>` (trigger); ngoài khối đó mô hình viết tự do.
+
+    Trả về:
+        Dict theo định dạng `structural_tag` của vLLM:
+        `{"type": "structural_tag", "structures": [...], "triggers": [...]}`.
+    """
+    structures = []
+    for tool in tools:
+        fn = tool.get("function", {})
+        params = fn.get("parameters") or {"type": "object", "properties": {}}
+        structures.append(
+            {
+                "begin": f'{TOOL_CALL_BEGIN}\n{{"name": "{fn["name"]}", "arguments": ',
+                "schema": _constraint_schema(params),
+                "end": "}\n</tool_call>",
+            }
+        )
+    return {"type": "structural_tag", "structures": structures, "triggers": [TOOL_CALL_BEGIN]}
 
 
 class ChatMLPrompt:

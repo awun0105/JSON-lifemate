@@ -21,6 +21,7 @@ system_prompt = "configs/prompts/system_v1.md"
 guards = ["allowed_tool", "schema", "duplicate_write"]
 format = "chatml"                      # "chatml": tool calling của Qwen, giống dữ liệu SFT của lead (lifemate/agent/chatml.py) | "json": định dạng cũ {"action": ...}
 compact_tools = false                  # true: rút gọn schema tool ngay từ đầu (như compact_schema của lead)
+constrain_tools = true                 # ép đầu ra: sau <tool_call> chỉ viết được tool đã cài, tham số đúng tên/kiểu/enum (lifemate/agent/chatml.py)
 
 [asr]
 backend = "asr"

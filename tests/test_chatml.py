@@ -18,12 +18,12 @@ from typing import Any
 
 import pytest
 
-from lifemate.agent.chatml import ChatMLPrompt, build_messages, parse_reply
+from lifemate.agent.chatml import ChatMLPrompt, build_messages, parse_reply, tool_call_constraint
 from lifemate.agent.chatml_agent import ChatMLAgent
 from lifemate.agent.guards import build_guard_chain
 from lifemate.agent.tooldocs import CatalogIndex
 from lifemate.backends.asr import GoldTranscriber
-from lifemate.backends.llm import FakeLLM
+from lifemate.backends.llm import FakeLLM, is_structural_tag
 from lifemate.core.types import Action, ErrorCode, ParseError, Sample, StopReason, Transcript
 from lifemate.io.data import load_split
 from tests import lead_reference as lead
@@ -140,7 +140,7 @@ def test_agent_messages_follow_lead_format() -> None:
 
     def spy(messages: list[dict[str, Any]], schema: Any, **kw: Any) -> Any:
         seen.append([dict(m) for m in messages])
-        assert schema is None
+        assert schema is not None and schema["type"] == "structural_tag"
         return inner(messages, schema, **kw)
 
     agent.llm.generate = spy  # type: ignore[method-assign]
@@ -214,3 +214,67 @@ def test_qwen_template_renders_calls_that_parse_back() -> None:
     reply = text.rsplit("<|im_start|>assistant\n", 1)[1].split("<|im_end|>", 1)[0]
     assert parse_reply(reply) == [Action(kind="call", name="alarm.delete", arguments={"alarm_id": "a1"})]
     assert "<tools>" in text and '"name": "alarm.delete"' in text
+
+
+def test_tool_call_constraint_shape() -> None:
+    """Luật ép: mỗi tool một cấu trúc mở đúng chuỗi template của Qwen; bỏ `required`, mô tả, khoá `x-*`; cấm khoá lạ."""
+    msgs = build_messages(_sample(), INDEX, GoldTranscriber().transcribe(_sample()))
+    tag = tool_call_constraint(msgs[0]["tools"])
+    assert is_structural_tag(tag) and tag["triggers"] == ["<tool_call>"]
+    names = [t["function"]["name"] for t in msgs[0]["tools"]]
+    assert [s["begin"] for s in tag["structures"]] == [f'<tool_call>\n{{"name": "{n}", "arguments": ' for n in names]
+    assert all(s["end"] == "}\n</tool_call>" for s in tag["structures"])
+    delete = tag["structures"][names.index("alarm.delete")]["schema"]
+    assert delete["additionalProperties"] is False and "required" not in delete
+    assert all(
+        set(p) <= {"type", "enum", "items", "properties", "additionalProperties"} for p in delete["properties"].values()
+    )
+
+
+def test_constrain_tools_off_sends_no_constraint() -> None:
+    """`constrain_tools = false`: agent gọi LLM không ràng buộc."""
+    agent, _ = _agent([_call("alarm.list"), "Xong."], cfg=dataclasses.replace(CFG, constrain_tools=False))
+    schemas: list[Any] = []
+    inner = agent.llm.generate
+
+    def spy(messages: list[dict[str, Any]], schema: Any, **kw: Any) -> Any:
+        schemas.append(schema)
+        return inner(messages, schema, **kw)
+
+    agent.llm.generate = spy  # type: ignore[method-assign]
+    agent.run(_sample(), make_env(), clock=FakeClock())
+    assert schemas == [None, None]
+
+
+@pytest.mark.tokenizer
+def test_constraint_compiles_and_matches_with_xgrammar() -> None:
+    """Biên dịch luật bằng xgrammar như vLLM: lời gọi đúng và câu kết qua; tool lạ, tham số lạ, sai thứ tự khoá bị chặn.
+
+    Chạy khi máy có `xgrammar` và tokenizer Qwen trong cache (máy GPU có vLLM). Thứ tự khoá: xgrammar buộc tham số theo
+    thứ tự khai báo trong schema; bộ chấm không xét thứ tự khoá nên không ảnh hưởng điểm.
+    """
+    xgr = pytest.importorskip("xgrammar")
+    transformers = pytest.importorskip("transformers")
+    try:
+        tok = transformers.AutoTokenizer.from_pretrained(
+            "Qwen/Qwen3-4B-Instruct-2507", revision="cdbee75f17c01a7cc42f958dc650907174af0554", local_files_only=True
+        )
+    except OSError:
+        pytest.skip("Qwen tokenizer not in the local cache")
+    msgs = build_messages(_sample(), INDEX, GoldTranscriber().transcribe(_sample()))
+    tag = tool_call_constraint(msgs[0]["tools"])
+    items = [
+        xgr.StructuralTagItem(begin=s["begin"], schema=json.dumps(s["schema"]), end=s["end"]) for s in tag["structures"]
+    ]
+    compiled = xgr.GrammarCompiler(xgr.TokenizerInfo.from_huggingface(tok)).compile_structural_tag(
+        items, tag["triggers"]
+    )
+
+    def ok(text: str) -> bool:
+        return bool(xgr.GrammarMatcher(compiled).accept_string(text))
+
+    assert ok(_call("alarm.delete", alarm_id="a1"))
+    assert ok("Tôi đã thực hiện xong toàn bộ các thao tác bạn yêu cầu.")
+    assert ok(_call("alarm.delete"))  # thiếu tham số bắt buộc vẫn qua: để guard chặn rồi mô hình hỏi lại
+    assert not ok(_call("alarm.set", alarm_id="a1"))
+    assert not ok(_call("alarm.delete", alarm_id="a1", bia=1))

@@ -6,7 +6,8 @@ Nội dung chính:
 
 Cách hoạt động (mỗi bước):
 1. `Budget.before_step` kiểm tra số bước, độ dài context, hạn giờ.
-2. Gọi LLM không ép schema (`schema=None`); danh sách tool đi kèm qua chat template.
+2. Gọi LLM; danh sách tool đi kèm qua chat template. Khi `[agent].constrain_tools` bật, đầu ra bị ép bằng luật
+   `chatml.tool_call_constraint`: sau `<tool_call>` chỉ viết được tool đã cài với tham số đúng tên, kiểu, enum.
 3. `parse_reply`:
    - không có `<tool_call>`: mô hình trả lời bằng lời, mẫu kết thúc (`DONE`);
    - có lời gọi: nối một tin `assistant` có `tool_calls` (tham số viết lại bằng `json.dumps` như dữ liệu của lead),
@@ -30,7 +31,7 @@ from typing import Any
 
 from lifemate.agent.agent import PARSE_ERROR_MSG, transcript_source
 from lifemate.agent.budget import Budget
-from lifemate.agent.chatml import ChatMLPrompt, arguments_text, parse_reply, tool_content
+from lifemate.agent.chatml import ChatMLPrompt, arguments_text, parse_reply, tool_call_constraint, tool_content
 from lifemate.agent.guards import GuardChain
 from lifemate.agent.observers import NullObserver
 from lifemate.agent.tooldocs import ASK_TOOL, CatalogIndex
@@ -218,6 +219,8 @@ class ChatMLAgent:
         allowed = frozenset(self.prompts.allowed_tools(sample, train_mode))
         self.observer.on_sample_start(sample, transcript)
         run = _Run(env=env, allowed=allowed, messages=messages, budget=budget, clock=clock)
+        # Danh sách tool của mẫu không đổi giữa các bước, nên luật ép dựng một lần cho cả mẫu.
+        constraint = tool_call_constraint(messages[0].get("tools") or []) if self.cfg.constrain_tools else None
         llm_s = 0.0
         max_prompt = completion_total = 0
         stop: StopReason | None = None
@@ -227,7 +230,7 @@ class ChatMLAgent:
             stop = budget.before_step(prompt_tokens)
             if stop is not None:
                 break
-            gen = self.llm.generate(run.messages, None, sample_id=sample.id, time_left_s=budget.remaining)
+            gen = self.llm.generate(run.messages, constraint, sample_id=sample.id, time_left_s=budget.remaining)
             budget.after_step(gen.seconds)
             run.n_steps += 1
             llm_s += gen.seconds

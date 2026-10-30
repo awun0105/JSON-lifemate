@@ -82,6 +82,9 @@ class AgentConfig:
             (`lifemate.agent.agent`), giữ để tái lập các lần chạy trước. Tuỳ chọn, mặc định `"json"`.
         compact_tools: `True` thì rút gọn schema tool ngay từ đầu (bỏ mô tả tham số con, như `compact_schema` của lead);
             chỉ dùng ở `format = "chatml"`. Tuỳ chọn, mặc định `False`.
+        constrain_tools: `True` thì ép đầu ra ở `format = "chatml"`: sau `<tool_call>` mô hình chỉ viết được tên tool
+            đã cài và tham số đúng tên, kiểu, enum (`lifemate.agent.chatml.tool_call_constraint`); câu kết bằng lời vẫn
+            tự do. Tuỳ chọn, mặc định `True`.
     """
 
     max_steps: int
@@ -92,6 +95,7 @@ class AgentConfig:
     guards: list[str]
     format: str = "json"
     compact_tools: bool = False
+    constrain_tools: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,7 +143,7 @@ ASR_DTYPES = frozenset({"auto", "float32", "float16", "bfloat16"})
 # trong TOML.
 # Định dạng hội thoại với LLM (`[agent].format`) và các khoá `[agent]` được phép bỏ trống.
 AGENT_FORMATS = ("chatml", "json")
-_AGENT_OPTIONAL = frozenset({"format", "compact_tools"})
+_AGENT_OPTIONAL = frozenset({"format", "compact_tools", "constrain_tools"})
 
 _ASR_OPTIONAL = frozenset(
     {
@@ -329,6 +333,7 @@ def load_config(path: Path, overrides: Sequence[str] = ()) -> Config:
     _check(llm.dtype in {"auto", "float16", "bfloat16"}, f"llm.dtype: {llm.dtype!r} not in auto|float16|bfloat16")
     _check(agent.format in AGENT_FORMATS, f"agent.format: {agent.format!r} not in {'|'.join(AGENT_FORMATS)}")
     _check(isinstance(agent.compact_tools, bool), "agent.compact_tools: must be true or false")
+    _check(isinstance(agent.constrain_tools, bool), "agent.constrain_tools: must be true or false")
     _check(asr.backend in {"gold", "asr"}, f"asr.backend: {asr.backend!r} not in gold|asr")
     _check(asr.engine in ASR_ENGINE_NAMES, f"asr.engine: {asr.engine!r} not in {'|'.join(sorted(ASR_ENGINE_NAMES))}")
     _check(asr.dtype in ASR_DTYPES, f"asr.dtype: {asr.dtype!r} not in {'|'.join(sorted(ASR_DTYPES))}")
