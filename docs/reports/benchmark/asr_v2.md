@@ -49,7 +49,7 @@ chất lượng chung trên mọi câu: WER, tỉ lệ bỏ sót tên riêng, s�
 | whisper-large-v3, không câu mồi | 30,6% / 30,2% | 31,2% / 57,4% | 12 / 5 | 7,9–8,2 s |
 | Parakeet | 31,6% / 31,1% | 50,5% / 77,8% | 0 / 0 | 2,0 s |
 
-*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; bỏ sót giá trị tham số: 1 − recall các giá trị tham số của đáp án (tên, số, giờ) trong chữ ASR; p50, p95: phân vị thời gian mỗi mẫu (50%, 95% số mẫu nhanh hơn).*
+*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa; bỏ sót giá trị tham số: 1 − recall các giá trị tham số của đáp án (tên, số, giờ) trong chữ ASR; dùng vì điểm thi chấm đúng các giá trị này; p50, p95: phân vị thời gian mỗi mẫu (50%, 95% số mẫu nhanh hơn); dùng p95 và tối đa vì luật giới hạn 30 giây cho từng mẫu, mẫu chậm nhất mới quyết định.*
 
 Kết luận của lần 1: chọn **ChunkFormer RNNT** làm ASR chính, giữ PhoWhisper + câu mồi ngắn làm dự phòng, bỏ Parakeet.
 
@@ -229,7 +229,7 @@ Kết quả trên tập dò, dòng tốt nhất của mỗi câu mồi:
 | `en_top20_v1` + g4 | 66,0% | 29,2% | 29 | **37,6%** |
 | **`en_full_v1` + g4** | **70,6%** | 29,5% | 26 | 34,5% |
 
-*Chỉ số: chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án.*
+*Chỉ số: chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; dùng recall vì từ bị bỏ sót thì LLM không thể gọi đúng tool, còn từ thừa đã đo riêng bằng WER câu thuần Việt.*
 
 "Chèn từ không được nói" đếm số câu mà ASR viết ra một từ của câu mồi trong khi người dùng không nói từ đó (ví dụ "Mai"
 thành "Mail").
@@ -275,7 +275,7 @@ tốt). "Tỉ lệ lỗi từ" (WER) là số từ sai chia cho số từ của 
 | Ghép RNNT + whisper-large-v3 có câu mồi, không lọc | 72,5% / 63,9% | 22,8% / 22,8% |
 | **Ghép RNNT + whisper-large-v3 có câu mồi, có bộ lọc ngữ cảnh** | **72,2% / 63,1%** | **22,1% / 22,8%** |
 
-*Chỉ số: chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án.*
+*Chỉ số: chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; dùng recall vì từ bị bỏ sót thì LLM không thể gọi đúng tool, còn từ thừa đã đo riêng bằng WER câu thuần Việt.*
 
 Đọc bảng:
 
@@ -355,7 +355,7 @@ nhận như cũ.
 | Ghép không lọc | 72,5% / 63,9% | 18,8% / 18,2% | 20,1% / 19,8% |
 | **Ghép có bộ lọc ngữ cảnh** | **72,2% / 63,1%** | **18,1% / 17,8%** | **19,4% / 19,5%** |
 
-*Chỉ số: chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án.*
+*Chỉ số: chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; dùng recall vì từ bị bỏ sót thì LLM không thể gọi đúng tool, còn từ thừa đã đo riêng bằng WER câu thuần Việt.*
 
 - So với ghép không lọc, bộ lọc ngữ cảnh giảm lỗi ở câu thuần Việt 0,7 điểm (seen) và 0,4 điểm (unseen), có ý nghĩa thống
   kê. Phần chép đúng từ tiếng Anh giảm 0,3 và 0,8 điểm, nhưng mức này nằm trong sai số (khoảng tin cậy chứa 0).
@@ -490,7 +490,7 @@ chỉ đo ASR, không chạy LLM và không chấm điểm thi.
 | Từ điển ngữ cảnh | Tập các từ đã chuẩn hoá có sẵn dạng chữ trong đầu vào của mẫu lúc thi: catalog của app đã cài, ngữ cảnh người dùng, lượt trợ lý trong lịch sử (mục 6.8) |
 | Oracle | Trần lý thuyết: với mỗi câu chọn bản tốt hơn trong hai bản, dựa vào đáp án. Không làm được lúc thi, chỉ để biết ghép tối đa được bao nhiêu |
 
-*Chỉ số: CI: khoảng tin cậy 95% bootstrap theo mẫu, 1 000 vòng.*
+*Chỉ số: CI: khoảng tin cậy 95% bootstrap theo mẫu, 1 000 vòng; dùng để biết chênh lệch có thật hay do may (CI chứa 0 là chưa chắc).*
 
 ### 0.4. Cách đọc các chỗ nhắc tới code
 
@@ -870,7 +870,7 @@ Tập câu chêm tiếng Anh. Số trong ngoặc là CI 95%.
 | large-v3 (tham khảo)      | seen   | **51,6** \[46,4; 56,7\] | **54,9**     | 32,8                    | 29,2               | 8,2           |
 |                           | unseen | **56,0** \[48,1; 63,4\] | **57,5**     | 33,9                    | 29,1               | 7,9           |
 
-*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; p50, p95: phân vị thời gian mỗi mẫu (50%, 95% số mẫu nhanh hơn).*
+*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; dùng recall vì từ bị bỏ sót thì LLM không thể gọi đúng tool, còn từ thừa đã đo riêng bằng WER câu thuần Việt; p50, p95: phân vị thời gian mỗi mẫu (50%, 95% số mẫu nhanh hơn); dùng p95 và tối đa vì luật giới hạn 30 giây cho từng mẫu, mẫu chậm nhất mới quyết định.*
 
 
 Theo nhóm từ (số từ chép đúng / tổng):
@@ -897,7 +897,7 @@ Chênh lệch so với RNNT (điểm %, CI 95% của chênh lệch), tập câu 
 | PhoWhisper | −13,7 \[−19,9; −7,1\]    | −15,1 \[−22,0; −8,7\] | +7,6 \[+5,7; +9,4\]  | +9,0 \[+7,1; +11,0\] |
 | large-v3   | +1,8 \[−4,5; +8,3\]      | +4,4 \[−2,8; +10,7\]  | +7,9 \[+5,4; +10,5\] | +9,8 \[+7,0; +12,6\] |
 
-*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án.*
+*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; dùng recall vì từ bị bỏ sót thì LLM không thể gọi đúng tool, còn từ thừa đã đo riêng bằng WER câu thuần Việt.*
 
 
 ### 3.6. Phân tích
@@ -1133,7 +1133,7 @@ câu mồi. Dấu hiệu dùng: rỗng, bộ lọc có cắt, trùng cụm 3 t�
 | câu mồi lead              | 48,6%     | 53,9%                             | 0                 |
 | câu mồi lead + bảo vệ     | 32,7%     | **55,7%**                         | 80/1 024          |
 
-*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án.*
+*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; dùng recall vì từ bị bỏ sót thì LLM không thể gọi đúng tool, còn từ thừa đã đo riêng bằng WER câu thuần Việt.*
 
 
 Câu mồi có bảo vệ tăng 5–9 điểm chép đúng từ ngoại, WER chỉ tăng 0,6–1,9 điểm, và phải chép lại 6–8% số câu. Đây là
@@ -1159,7 +1159,7 @@ Tập dò đầy đủ (300 mẫu, 1 024 câu, 394 từ ngoại). Số `prompt_i
 | **en\_top20** (± g3, g4) | **37,6**           | **40,4**     | 3               | 0        | 27,95     | **33,09**    | 25,35              | 3,0     |
 | en\_full (± g3, g4)      | 34,5               | 38,3         | 4               | 0        | 28,35     | 33,82        | 25,59              | 3,1     |
 
-*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; p50, p95: phân vị thời gian mỗi mẫu (50%, 95% số mẫu nhanh hơn).*
+*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; dùng recall vì từ bị bỏ sót thì LLM không thể gọi đúng tool, còn từ thừa đã đo riêng bằng WER câu thuần Việt; p50, p95: phân vị thời gian mỗi mẫu (50%, 95% số mẫu nhanh hơn); dùng p95 và tối đa vì luật giới hạn 30 giây cho từng mẫu, mẫu chậm nhất mới quyết định.*
 
 
 Ba mức bảo vệ của cùng một câu mồi dài cho chữ giống hệt nhau, nên gộp một dòng. Cấu hình thắng theo hàm mục tiêu
@@ -1175,7 +1175,7 @@ Chênh lệch so với không câu mồi trên tập con câu chêm của tập 
 | en\_top20 | **+6,6** \[+3,7; +9,7\] | −0,5 \[−1,0; 0,0\]  | +0,2 \[−0,4; +0,8\]     |
 | en\_full  | +3,5 \[+0,2; +6,4\]     | +0,2 \[−0,4; +0,7\] | **+0,8** \[+0,2; +1,4\] |
 
-*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án.*
+*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; dùng recall vì từ bị bỏ sót thì LLM không thể gọi đúng tool, còn từ thừa đã đo riêng bằng WER câu thuần Việt.*
 
 
 #### 4.7.2. PhoWhisper: cấu hình thắng trên val
@@ -1188,7 +1188,7 @@ So với PhoWhisper của lần 1 (câu mồi ngắn, cùng cách giải mã), t
 | val\_seen (245 câu chêm)   | 36,1 → 37,0                           | +0,9 \[−1,9; +3,6\] | +0,2 \[−0,3; +0,9\] | +0,1 \[−0,7; +1,0\]            | 4               |
 | val\_unseen (162 câu chêm) | 36,5 → 36,5                           | 0,0 \[−2,9; +2,8\]  | 0,0 \[−0,7; +0,7\]  | 0,0 \[−0,7; +0,8\]             | 0               |
 
-*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án.*
+*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; dùng recall vì từ bị bỏ sót thì LLM không thể gọi đúng tool, còn từ thừa đã đo riêng bằng WER câu thuần Việt.*
 
 
 Trên val đầy đủ: WER 28,1% (seen) và 28,0% (unseen), lần 1 là 27,9% và 27,9%. So với ChunkFormer RNNT, PhoWhisper
@@ -1261,7 +1261,7 @@ bằng nhau, các lựa chọn so với nhau ở phần sau.
 | en\_full + g3       | 70,6               | 74,9         | 26              | 3        | 29,70     | 30,10        | 29,50              | 1       | 42     | 7,32    |
 | **en\_full + g4**   | **70,6**           | **74,9**     | 26              | 2        | **29,68** | **30,03**    | 29,50              | **1**   | **42** | 7,31    |
 
-*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; bỏ sót giá trị tham số: 1 − recall các giá trị tham số của đáp án (tên, số, giờ) trong chữ ASR; p50, p95: phân vị thời gian mỗi mẫu (50%, 95% số mẫu nhanh hơn).*
+*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; dùng recall vì từ bị bỏ sót thì LLM không thể gọi đúng tool, còn từ thừa đã đo riêng bằng WER câu thuần Việt; bỏ sót giá trị tham số: 1 − recall các giá trị tham số của đáp án (tên, số, giờ) trong chữ ASR; dùng vì điểm thi chấm đúng các giá trị này; p50, p95: phân vị thời gian mỗi mẫu (50%, 95% số mẫu nhanh hơn); dùng p95 và tối đa vì luật giới hạn 30 giây cho từng mẫu, mẫu chậm nhất mới quyết định.*
 
 
 Cấu hình thắng: **en_full + g4** (câu mồi dài nhất, lớp bảo vệ cụm 4 từ). Chấm lại với cách đếm chèn đã sửa vẫn chọn
@@ -1283,7 +1283,7 @@ Tập con câu chêm tiếng Anh. Mốc "lần 1" là cấu hình nhiệt độ 
 |             | large-v3 lần 1         | 56,0 \[48,1; 63,4\]     | 33,9         | 29,1               | 3       | 0               |
 |             | large-v3 en\_full + g4 | **61,1** \[52,7; 69,3\] | 33,5         | 30,0               | 0       | 4               |
 
-*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án.*
+*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; dùng recall vì từ bị bỏ sót thì LLM không thể gọi đúng tool, còn từ thừa đã đo riêng bằng WER câu thuần Việt.*
 
 
 Chênh lệch của large-v3 en_full + g4 so với RNNT: chép đúng từ ngoại **+22,3** [+16,5; +28,6] (seen) và **+9,5**
@@ -1456,7 +1456,7 @@ Chênh lệch so với RNNT đứng riêng (điểm %, CI 95% của chênh lệc
 |                   | val\_unseen           | −2,0 \[−7,3; +3,2\]      | +0,2 \[0,0; +0,5\]  | +0,6                | 0,0                 |
 |                   | tập dò                | −2,3 \[−6,3; +1,4\]      | +0,2 \[0,0; +0,5\]  | +0,7                | 0,0                 |
 
-*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án.*
+*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; dùng recall vì từ bị bỏ sót thì LLM không thể gọi đúng tool, còn từ thừa đã đo riêng bằng WER câu thuần Việt.*
 
 
 Giá trị tuyệt đối trên tập câu chêm tiếng Anh: RNNT + large-v3 chép đúng **58,5%** (seen) và **61,5%** (unseen) từ
@@ -1474,7 +1474,7 @@ Số câu bị đổi:
 | RNNT + PhoWhisper | val\_seen             | 916 | 91     | 28      | 34     | 20,0     | 20,2     | 18,2   |
 |                   | val\_unseen           | 527 | 59     | 16      | 29     | 19,8     | 20,0     | 18,3   |
 
-*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập.*
+*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa.*
 
 
 "Tốt hơn" và "tệ hơn" đếm theo số lỗi từ của cả câu; một câu có thể tốt hơn ở từ tiếng Anh nhưng tệ hơn ở chỗ khác.
@@ -1510,7 +1510,7 @@ Chạy lại `asr_merge` trên chữ thật của phiên v5b, cùng quy tắc, k
 | val\_unseen đầy đủ    | +12,3 \[+7,0; +17,6\]      | 0,0 \[−0,4; +0,4\]  |                         | +0,6 \[+0,3; +1,0\] | −5,6 \[−13,0; 0,0\]    |
 | tập dò, câu chêm      | +23,4 \[+17,3; +29,0\]     | −0,2 \[−0,9; +0,5\] | −1,8 \[−2,9; −0,8\]     | +1,3 \[+0,6; +2,0\] | −4,1 \[−9,5; 0,0\]     |
 
-*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; bỏ sót giá trị tham số: 1 − recall các giá trị tham số của đáp án (tên, số, giờ) trong chữ ASR.*
+*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; dùng recall vì từ bị bỏ sót thì LLM không thể gọi đúng tool, còn từ thừa đã đo riêng bằng WER câu thuần Việt; bỏ sót giá trị tham số: 1 − recall các giá trị tham số của đáp án (tên, số, giờ) trong chữ ASR; dùng vì điểm thi chấm đúng các giá trị này.*
 
 
 Giá trị tuyệt đối, câu chêm tiếng Anh: chép đúng từ ngoại **72,5%** (seen) và **63,9%** (unseen), so với RNNT 49,9% và
@@ -1528,7 +1528,7 @@ Số câu bị đổi, tách câu chêm và câu thuần Việt:
 | tập dò, câu chêm            | 276 | 138    | 74      | 36     | 25,8     | 24,0     | 21,7   |
 | tập dò, câu thuần Việt      | 748 | 58     | **1**   | **48** | 17,5     | 18,8     | 16,0   |
 
-*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập.*
+*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa.*
 
 
 ### 6.6. Phân tích
@@ -1709,7 +1709,7 @@ cho 54 ở từ của câu mồi, 8 thay cho 27 ở từ ngoài câu mồi.
 | `context_prompt` | 20,6 | 24,4 | 18,7 | 70,1 |
 | **`context_other`** | **19,9** | 24,2 | 17,8 | 69,0 |
 
-*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án.*
+*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; dùng recall vì từ bị bỏ sót thì LLM không thể gọi đúng tool, còn từ thừa đã đo riêng bằng WER câu thuần Việt.*
 
 Chênh lệch so với bản ghép không lọc (CI 95%): `context_other` giảm WER câu thuần Việt [−1,5; −0,6] và giảm chép đúng từ tiếng
 Anh [−6,4; −0,5]; `context` giảm WER câu thuần Việt nhiều hơn một chút [−1,7; −0,8] nhưng mất nhiều tiếng Anh hơn [−9,9;
@@ -1735,7 +1735,7 @@ Ngoại lệ này cứu được 11 từ đúng nhưng nhận lại 41 từ sai,
 | | `all` | 19,8 | **22,8** | 18,2 | **63,9** |
 | | **`context_other`** | **19,5** | **22,8** | 17,8 | 63,1 |
 
-*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án.*
+*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; dùng recall vì từ bị bỏ sót thì LLM không thể gọi đúng tool, còn từ thừa đã đo riêng bằng WER câu thuần Việt.*
 
 Chênh lệch, CI 95%:
 
@@ -1746,7 +1746,7 @@ Chênh lệch, CI 95%:
 | val_unseen | `all` | [−0,5; 0,0] | [−0,8; +0,7] | [−0,7; −0,1] | [−4,4; +2,7] |
 | val_unseen | RNNT | [−0,5; 0,0] | [−1,9; −0,8] | [+0,1; +0,5] | [+7,9; +15,7] |
 
-*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án.*
+*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa; chép đúng từ tiếng Anh: recall, số từ tiếng Anh của đáp án có trong chữ ASR chia tổng số từ tiếng Anh của đáp án; dùng recall vì từ bị bỏ sót thì LLM không thể gọi đúng tool, còn từ thừa đã đo riêng bằng WER câu thuần Việt.*
 
 **Phân tích.**
 
@@ -1834,7 +1834,7 @@ Mọi đường dẫn tính từ thư mục gốc repo. "Từ điển" là kiể
 | [`lifemate/eval/asr_merge.py`](../../../lifemate/eval/asr_merge.py) › `english_filter` | cách lọc, từ điển ngữ cảnh, từ của câu mồi → hàm nhận/từ chối một từ | Bộ lọc bước 3 của phép ghép (mục 6.8) |
 | [`lifemate/eval/asr_merge.py`](../../../lifemate/eval/asr_merge.py) › `CONTEXT_POLICIES` | hằng, bộ tên | Bốn cách lọc: `all`, `context`, `context_prompt`, `context_other` |
 
-*Chỉ số: CI: khoảng tin cậy 95% bootstrap theo mẫu, 1 000 vòng.*
+*Chỉ số: CI: khoảng tin cậy 95% bootstrap theo mẫu, 1 000 vòng; dùng để biết chênh lệch có thật hay do may (CI chứa 0 là chưa chắc).*
 
 ### A.3. Câu mồi và lớp bảo vệ
 

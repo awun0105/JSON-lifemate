@@ -61,7 +61,7 @@ Cấu hình thắng của mỗi mô hình, đo một lần trên hai tập kiể
 | **ChunkFormer RNNT** | tham lam, mặc định | **20,0% / 19,8%** | 32,1% / **48,1%** | 0 / 0 | 0 / 0 | 2,5 / 2,5 | **17/19 / 5/6** |
 | Parakeet CTC | tham lam, mặc định (float32) | 31,6% / 31,1% | 50,5% / 77,8% | 0 / 0 | 0 / 0 | 2,0 / 1,9 | 5/19 / 0/6 |
 
-*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; bỏ sót giá trị tham số: 1 − recall các giá trị tham số của đáp án (tên, số, giờ) trong chữ ASR; p50, p95: phân vị thời gian mỗi mẫu (50%, 95% số mẫu nhanh hơn).*
+*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa; bỏ sót giá trị tham số: 1 − recall các giá trị tham số của đáp án (tên, số, giờ) trong chữ ASR; dùng vì điểm thi chấm đúng các giá trị này; p50, p95: phân vị thời gian mỗi mẫu (50%, 95% số mẫu nhanh hơn); dùng p95 và tối đa vì luật giới hạn 30 giây cho từng mẫu, mẫu chậm nhất mới quyết định.*
 
 Đọc bảng:
 
@@ -531,7 +531,7 @@ Lựa chọn được giữ in đậm.
 | ChunkFormer RNNT | (một cấu hình) | tham lam | 37,4% | 0 | 20,3% | 19,5% | 0 | 2,71 |
 | Parakeet (v4) | (một cấu hình) | tham lam | 59,3% | 0 | 31,4% | 31,7% | 0 | 2,04 |
 
-*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; bỏ sót giá trị tham số: 1 − recall các giá trị tham số của đáp án (tên, số, giờ) trong chữ ASR; p50, p95: phân vị thời gian mỗi mẫu (50%, 95% số mẫu nhanh hơn).*
+*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa; bỏ sót giá trị tham số: 1 − recall các giá trị tham số của đáp án (tên, số, giờ) trong chữ ASR; dùng vì điểm thi chấm đúng các giá trị này; p50, p95: phân vị thời gian mỗi mẫu (50%, 95% số mẫu nhanh hơn); dùng p95 và tối đa vì luật giới hạn 30 giây cho từng mẫu, mẫu chậm nhất mới quyết định.*
 
 Cách đọc: với large-v3, bước 1 chọn tham lam vì beam 5 cho nhiều câu rỗng hơn (31 so với 10). Ở bước 2, không câu mồi
 nào tốt hơn "không câu mồi". Bước 4 chọn nhiệt độ thử lại vì bỏ sót thấp nhất; mọi lựa chọn của large-v3 đều vượt 6 s
@@ -586,7 +586,7 @@ số câu viết đúng "Zalo" và "VTV" trên số câu đáp án có tên đó
 | Parakeet (v4) | val_seen | 50,5% | 0 | 31,6% | 32,0% | 0 | 2,00 | 5/19 | 1/13 |
 | | val_unseen | 77,8% | 0 | 31,1% | 31,8% | 0 | 1,92 | 0/6 | 1/1 |
 
-*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; bỏ sót giá trị tham số: 1 − recall các giá trị tham số của đáp án (tên, số, giờ) trong chữ ASR; p50, p95: phân vị thời gian mỗi mẫu (50%, 95% số mẫu nhanh hơn).*
+*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa; bỏ sót giá trị tham số: 1 − recall các giá trị tham số của đáp án (tên, số, giờ) trong chữ ASR; dùng vì điểm thi chấm đúng các giá trị này; p50, p95: phân vị thời gian mỗi mẫu (50%, 95% số mẫu nhanh hơn); dùng p95 và tối đa vì luật giới hạn 30 giây cho từng mẫu, mẫu chậm nhất mới quyết định.*
 
 Cách đọc bảng:
 
@@ -694,7 +694,7 @@ bốn cách:
 | float16, batch 1 | 69 | có (69 câu) | 55,8% | 4,00 |
 | float32, batch 1 | 0 | không | 28,9% | 0,64 |
 
-*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; p50, p95: phân vị thời gian mỗi mẫu (50%, 95% số mẫu nhanh hơn).*
+*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa; p50, p95: phân vị thời gian mỗi mẫu (50%, 95% số mẫu nhanh hơn); dùng p95 và tối đa vì luật giới hạn 30 giây cho từng mẫu, mẫu chậm nhất mới quyết định.*
 
 Kết luận: lỗi do **float16 tràn số**, không do đệm batch. Ở float16, phép tính trong mô hình vượt giới hạn của kiểu số
 16 bit, đầu ra thành NaN ("không phải số"), và bước chọn chữ rơi vào token số 0 là token không biết. Chạy float32 thì
@@ -717,7 +717,7 @@ val_unseen. Không còn câu `⁇` nào (`n_unk = 0`) và log không có cảnh 
 | v3 (float16, không hợp lệ) | val_unseen | 79,6% | 51 | 38,2% | 0,74 |
 | v4 (float32) | val_unseen | 77,8% | 0 | 31,1% | 1,92 |
 
-*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; bỏ sót giá trị tham số: 1 − recall các giá trị tham số của đáp án (tên, số, giờ) trong chữ ASR; p50, p95: phân vị thời gian mỗi mẫu (50%, 95% số mẫu nhanh hơn).*
+*Chỉ số: WER: khoảng cách Levenshtein theo từ (số từ thêm, xoá, thay) chia tổng số từ đáp án, cộng trên cả tập; dùng vì là thước đo chuẩn của ASR, phạt cả từ sai, thiếu lẫn thừa; bỏ sót giá trị tham số: 1 − recall các giá trị tham số của đáp án (tên, số, giờ) trong chữ ASR; dùng vì điểm thi chấm đúng các giá trị này; p50, p95: phân vị thời gian mỗi mẫu (50%, 95% số mẫu nhanh hơn); dùng p95 và tối đa vì luật giới hạn 30 giây cho từng mẫu, mẫu chậm nhất mới quyết định.*
 
 p95 của v4 cao hơn v3, vì ở v3 các câu hỏng kết thúc sớm (chỉ ra một token), và vì v4 chạy trong một phiên T4 khác.
 
