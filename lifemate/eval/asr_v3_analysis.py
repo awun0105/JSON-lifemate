@@ -366,6 +366,35 @@ def fold_of(sample_id: str, n_folds: int = N_FOLDS) -> int:
     return zlib.crc32(sample_id.encode("utf-8")) % n_folds
 
 
+def always_take_decider(_u: UtteranceRegions, _k: int, _region: Region) -> bool:
+    """ALL: lấy large-v3 ở mọi vùng cần quyết định (bản ghép không lọc của lần 2)."""
+    return True
+
+
+def fold_dispatch_decider(per_fold: Mapping[int, RegionDecider], n_folds: int = N_FOLDS) -> RegionDecider:
+    """Cách quyết định ngoài phần: vùng của mẫu thuộc phần f dùng `per_fold[f]` (học trên các phần còn lại)."""
+
+    def decide(u: UtteranceRegions, k: int, region: Region) -> bool:
+        return per_fold[fold_of(u.sample_id, n_folds)](u, k, region)
+
+    return decide
+
+
+def out_of_fold_deciders(
+    utterances: Sequence[UtteranceRegions],
+    fit: Callable[[Sequence[UtteranceRegions], int], Mapping[str, RegionDecider]],
+    n_folds: int = N_FOLDS,
+) -> dict[str, RegionDecider]:
+    """Ghép các cách quyết định ngoài phần: với mỗi phần f, `fit(câu của các phần khác, f)` trả về
+    tên -> cách quyết định; kết quả là tên -> cách quyết định gọi đúng bản của phần chứa mẫu."""
+    per_fold: dict[str, dict[int, RegionDecider]] = {}
+    for f in range(n_folds):
+        train = [u for u in utterances if fold_of(u.sample_id, n_folds) != f]
+        for name, decide in fit(train, f).items():
+            per_fold.setdefault(name, {})[f] = decide
+    return {name: fold_dispatch_decider(d, n_folds) for name, d in per_fold.items()}
+
+
 def h_decider(
     model: LogisticModel,
     context: Mapping[str, frozenset[str]],

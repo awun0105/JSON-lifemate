@@ -3,11 +3,14 @@
 Cách dùng (từ thư mục gốc repo):
   python -m lifemate.eval.asr_v3_report e --k1 <K1> --out <thư mục>
   python -m lifemate.eval.asr_v3_report select --k1 <K1> --k2 <K2> --k3 <K3> --winner E1 --out <thư mục>
+  python -m lifemate.eval.asr_v3_report select-cv --k1 <K1> --k2 <K2> --k3 <K3> --winner E2 --out <thư mục>
 
 Nội dung chính:
 - `stage_e`: thử nghiệm E: so ba biến thể câu mồi (bản ghép C0 và large-v3 đứng riêng) trên `asr_tune`, áp tiêu chí.
 - `stage_select`: thử nghiệm F, G, H và bảng chọn chung trên `asr_tune`; đo cách thắng một lần trên val; I1; ghi
   chữ của các nguồn J cho phiên K4.
+- `stage_select_cv`: làm lại bảng chọn chung bằng kiểm định chéo 5 phần trên cả `asr_tune` và `asr_learn` (1 093 mẫu
+  train), thêm ứng viên ALL (luôn lấy large-v3).
 
 Thư mục vào:
 - K1: `rnnt.hyps.jsonl`, `v3_E0|E1|E2.hyps.jsonl`, `timing.jsonl`, `summary.json` (tập dò).
@@ -404,8 +407,243 @@ def stage_select(args: argparse.Namespace) -> dict[str, Any]:
     return result
 
 
+# Thứ tự ứng viên của bảng chọn kiểm định chéo, từ đơn giản tới phức tạp; ALL (luôn lấy large-v3) đơn giản nhất.
+CV_ORDER = ("ALL", "C0", "F", "G", "H")
+
+
+def choose_theta(
+    utts: Sequence[A.UtteranceRegions], context: Mapping[str, frozenset[str]], prompt_words: frozenset[str]
+) -> tuple[float, dict[str, float]]:
+    """θ của F bằng kiểm định chéo bên trong `utts` (các phần theo `fold_of` có mặt trong `utts`), như `stage_select`.
+
+    Trả về:
+        Cặp (θ chọn, θ -> độ chính xác quyết định ngoài phần); hoà thì lấy θ gần 0,5 hơn.
+    """
+    present = sorted({A.fold_of(u.sample_id) for u in utts})
+    by_fold = {f: [u for u in utts if A.fold_of(u.sample_id) == f] for f in present}
+    rel_without = {
+        f: A.reliability(A.count_prompt_words([u for u in utts if A.fold_of(u.sample_id) != f], prompt_words))
+        for f in present
+    }
+    acc: dict[str, float] = {}
+    for theta in A.THETAS:
+        rows = []
+        for f in present:
+            rows += A.decisions(by_fold[f], A.f_decider(context, prompt_words, rel_without[f], theta))
+        acc[str(theta)] = A.decision_accuracy(rows)
+    return max(A.THETAS, key=lambda t: (acc[str(t)], -abs(t - 0.5))), acc
+
+
+def fit_h(
+    utts: Sequence[A.UtteranceRegions], context: Mapping[str, frozenset[str]], prompt_words: frozenset[str]
+) -> tuple[A.LogisticModel, float, dict[str, float]]:
+    """Mô hình H học trên `utts`; hệ số phạt chọn bằng kiểm định chéo bên trong như `stage_select` (đặc trưng độ tin
+    cậy dùng bảng đếm ngoài phần).
+
+    Trả về:
+        (mô hình học trên mọi đoạn có nhãn của `utts`, hệ số phạt chọn, hệ số phạt -> độ chính xác ngoài phần).
+    """
+    present = sorted({A.fold_of(u.sample_id) for u in utts})
+    rel_without = {
+        f: A.reliability(A.count_prompt_words([u for u in utts if A.fold_of(u.sample_id) != f], prompt_words))
+        for f in present
+    }
+    x, y, sids = [], [], []
+    for u in utts:
+        for k, label in zip(u.candidates, u.labels, strict=True):
+            region = u.parts[k]
+            assert isinstance(region, Region)
+            if label is None:
+                continue
+            ctx = context.get(u.sample_id, frozenset())
+            x.append(A.region_features(u, region, k, ctx, prompt_words, rel_without[A.fold_of(u.sample_id)]))
+            y.append(label)
+            sids.append(u.sample_id)
+    acc: dict[str, float] = {}
+    for l2 in A.L2_GRID:
+        hit = tot = 0
+        for f in present:
+            tr = [i for i, s in enumerate(sids) if A.fold_of(s) != f]
+            te = [i for i, s in enumerate(sids) if A.fold_of(s) == f]
+            if not tr or not te:
+                continue
+            m = A.fit_logistic([x[i] for i in tr], [y[i] for i in tr], l2)
+            hit += sum((A.predict(m, x[i]) >= 0.5) == bool(y[i]) for i in te)
+            tot += len(te)
+        acc[str(l2)] = hit / tot if tot else 0.0
+    best_l2 = max(A.L2_GRID, key=lambda v: (acc[str(v)], v))
+    return A.fit_logistic(x, y, best_l2), best_l2, acc
+
+
+def select_by_rule(
+    metrics: Mapping[str, Mapping[str, Any]],
+    decision_rows: Mapping[str, Sequence[tuple[str, int | None, bool]]],
+    sample_ids: Sequence[str],
+    order: Sequence[str],
+    baseline: str = "C0",
+) -> tuple[str, list[str], dict[str, list[float]]]:
+    """Quy tắc chọn đặt trước của mục 7 (asr_v3.md) trên các chỉ số đã tính.
+
+    Tham số:
+        metrics: tên -> `{"en_word_recall": {"diff_ci"}, "vi_only_wer": {"diff_ci"}, "decision_accuracy":
+            {"accuracy"}, "extra_p95_s"}`; chênh lệch so với `baseline`.
+        order: thứ tự từ đơn giản tới phức tạp.
+
+    Trả về:
+        (ứng viên chọn, các ứng viên qua điều kiện chặn, cặp "thắng-đơn giản hơn" -> CI chênh lệch độ chính xác).
+    """
+    eligible = [
+        n
+        for n in order
+        if n == baseline
+        or (
+            metrics[n]["en_word_recall"]["diff_ci"][1] >= 0
+            and metrics[n]["vi_only_wer"]["diff_ci"][0] <= 0
+            and metrics[n]["extra_p95_s"] <= 1.0
+        )
+    ]
+    best = max(eligible, key=lambda n: metrics[n]["decision_accuracy"]["accuracy"])
+    pairwise: dict[str, list[float]] = {}
+    for simpler in [n for n in order[: order.index(best)] if n in eligible]:
+        b = A.bootstrap_accuracy({best: decision_rows[best], simpler: decision_rows[simpler]}, sample_ids, simpler)
+        pairwise[f"{best}-{simpler}"] = b[best]["diff_ci"]
+        if b[best]["diff_ci"][0] <= 0:
+            best = simpler
+            break
+    return best, eligible, pairwise
+
+
+def stage_select_cv(args: argparse.Namespace) -> dict[str, Any]:
+    """Bảng chọn chung bằng kiểm định chéo 5 phần theo mẫu trên 1 093 mẫu train (`asr_tune` + `asr_learn`).
+
+    Mỗi phần f: θ của F và hệ số phạt của H chọn bằng kiểm định chéo bên trong bốn phần còn lại (bốn phần đó làm các
+    phần bên trong), bảng độ tin cậy và mô hình H học trên cả bốn phần; quyết định trên phần f. Các chỉ số tính trên
+    mọi quyết định ngoài phần gộp lại, chênh lệch so với C0, rồi áp quy tắc chọn của mục 7 với thứ tự `CV_ORDER`.
+    """
+    w = args.winner
+    prompt_text, prompt_words = _fixed_prompt()
+    parts = {
+        "asr_tune": (args.k1, args.k3 / "scores_asr_tune"),
+        "asr_learn": (args.k2 / "k2_asr_learn", args.k3 / "scores_asr_learn"),
+    }
+    samples: list[Sample] = []
+    context: dict[str, frozenset[str]] = {}
+    rnnt: list[dict[str, Any]] = []
+    utts: list[A.UtteranceRegions] = []
+    score_seconds: list[float] = []
+    sizes: dict[str, int] = {}
+    for name, (hdir, sprefix) in parts.items():
+        part_samples, catalog = _data(f"configs/splits/{name}.txt")
+        part_rnnt = _rows(hdir / "rnnt.hyps.jsonl")
+        v3 = _rows(hdir / f"v3_{w}.hyps.jsonl")
+        utts += A.utterance_regions(part_rnnt, v3, _rows(Path(f"{sprefix}.jsonl")))
+        score_seconds += [t["score_s"] for t in _rows(Path(f"{sprefix}.timing.jsonl"))]
+        context |= A.context_words_by_sample(part_samples, catalog)
+        samples += part_samples
+        rnnt += part_rnnt
+        sizes[name] = len(part_samples)
+    sample_ids = [s.id for s in samples]
+    if len(set(sample_ids)) != len(sample_ids):
+        raise ValueError("asr_tune và asr_learn có mẫu trùng")
+    if len(sample_ids) != 1093:
+        raise ValueError(f"cần 1 093 mẫu, có {len(sample_ids)}")
+
+    per_fold: dict[str, Any] = {}
+
+    def fit(train: Sequence[A.UtteranceRegions], f: int) -> dict[str, A.RegionDecider]:
+        """Các cách quyết định của phần f, học trên `train` (bốn phần còn lại)."""
+        theta, theta_acc = choose_theta(train, context, prompt_words)
+        rel = A.reliability(A.count_prompt_words(train, prompt_words))
+        model, l2, l2_acc = fit_h(train, context, prompt_words)
+        per_fold[str(f)] = {"theta": theta, "theta_cv": theta_acc, "l2": l2, "l2_cv": l2_acc}
+        c0 = A.c0_decider(context, prompt_words)
+        f_dec = A.f_decider(context, prompt_words, rel, theta)
+        return {
+            "ALL": A.always_take_decider,
+            "C0": c0,
+            "F": f_dec,
+            "G": A.g_decider(f_dec),
+            "H": A.h_decider(model, context, prompt_words, rel),
+        }
+
+    decs = A.out_of_fold_deciders(utts, fit)
+    order = list(CV_ORDER)
+    dec_rows = {n: A.decisions(utts, decs[n]) for n in order}
+    # `compare` tính chênh lệch so với hệ thống đầu tiên, nên C0 đứng đầu.
+    systems = {n: (A.apply_decider(rnnt, utts, decs[n]), prompt_text) for n in ["C0", *(m for m in order if m != "C0")]}
+    cmp = compare(samples, {**systems, "RNNT": (rnnt, prompt_text)})
+    acc = A.bootstrap_accuracy(dec_rows, sample_ids, "C0")
+    score_p95 = percentile(score_seconds, 95) if score_seconds else 0.0
+    table: dict[str, Any] = {
+        n: {
+            **_brief(cmp[n]),
+            "decision_accuracy": acc[n],
+            "word_errors": merge_word_errors(utts, decs[n], prompt_words),
+            "extra_p95_s": score_p95 if n in ("G", "H") else 0.0,
+            "fold_accuracy": [
+                A.decision_accuracy([r for r in dec_rows[n] if A.fold_of(r[0]) == f]) for f in range(A.N_FOLDS)
+            ],
+        }
+        for n in order
+    }
+    table["RNNT"] = _brief(cmp["RNNT"])
+    selected, eligible, pairwise = select_by_rule(table, dec_rows, sample_ids, order)
+    return {
+        "winner_prompt": w,
+        "samples": sizes | {"total": len(sample_ids)},
+        "fold_sizes": [sum(A.fold_of(s) == f for s in sample_ids) for f in range(A.N_FOLDS)],
+        "regions": {
+            "utterances": len(utts),
+            "regions": sum(len(u.candidates) for u in utts),
+            "labelled": sum(lab is not None for u in utts for lab in u.labels),
+            "ties": sum(lab is None for u in utts for lab in u.labels),
+            "labelled_per_fold": [
+                sum(lab is not None for u in utts if A.fold_of(u.sample_id) == f for lab in u.labels)
+                for f in range(A.N_FOLDS)
+            ],
+        },
+        "per_fold": per_fold,
+        "table": table,
+        "eligible": eligible,
+        "pairwise": pairwise,
+        "selected_cv": selected,
+    }
+
+
+def _cv_markdown(res: Mapping[str, Any]) -> str:
+    """Bảng Markdown ngắn của `stage_select_cv`."""
+
+    def ci(pair: Sequence[float], scale: float) -> str:
+        return f"[{pair[0] * scale:+.2f}; {pair[1] * scale:+.2f}]"
+
+    lines = [
+        "| Ứng viên | Độ chính xác (CI) | Chênh với C0 | Recall EN (chênh CI) | WER thuần Việt (chênh CI)"
+        " | WER (chênh CI) | Lấy nhầm câu mồi/ngoài | Bỏ sót câu mồi/ngoài | Độ chính xác theo phần |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
+    for n in CV_ORDER:
+        t = res["table"][n]
+        a = t["decision_accuracy"]
+        we = t["word_errors"]
+        lines.append(
+            f"| {n} | {a['accuracy'] * 100:.1f}% {ci(a['ci'], 100)} | {ci(a['diff_ci'], 100)}"
+            f" | {t['en_word_recall']['value'] * 100:.1f}% {ci(t['en_word_recall']['diff_ci'], 100)}"
+            f" | {t['vi_only_wer']['value'] * 100:.2f}% {ci(t['vi_only_wer']['diff_ci'], 100)}"
+            f" | {t['wer']['value'] * 100:.2f}% {ci(t['wer']['diff_ci'], 100)}"
+            f" | {we['wrong_prompt']}/{we['wrong_other']} | {we['missed_prompt']}/{we['missed_other']}"
+            f" | {' '.join(f'{x * 100:.1f}' for x in t['fold_accuracy'])} |"
+        )
+    folds = ", ".join(f"{f}: θ={v['theta']} l2={v['l2']}" for f, v in res["per_fold"].items())
+    lines += [
+        "",
+        f"Đoạn: {res['regions']}; phần: {res['fold_sizes']}; {folds}",
+        f"eligible={res['eligible']} pairwise={res['pairwise']} selected_cv={res['selected_cv']}",
+    ]
+    return "\n".join(lines)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    """CLI: lệnh `e` hoặc `select`, ghi kết quả JSON vào `--out`."""
+    """CLI: lệnh `e`, `select` hoặc `select-cv`, ghi kết quả JSON vào `--out`."""
     ap = argparse.ArgumentParser(prog="lifemate.eval.asr_v3_report", description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
     pe = sub.add_parser("e")
@@ -416,12 +654,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         ps.add_argument(k, type=Path, required=True)
     ps.add_argument("--winner", required=True)
     ps.add_argument("--out", type=Path, required=True)
+    pc = sub.add_parser("select-cv")
+    for k in ("--k1", "--k2", "--k3"):
+        pc.add_argument(k, type=Path, required=True)
+    pc.add_argument("--winner", required=True)
+    pc.add_argument("--out", type=Path, required=True)
     args = ap.parse_args(argv)
     args.out.mkdir(parents=True, exist_ok=True)
     if args.cmd == "e":
         res = stage_e(args)
         (args.out / "e.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
         print(json.dumps({"winner": res["winner"], "merged": res["merged"]}, ensure_ascii=False, indent=1))
+    elif args.cmd == "select-cv":
+        res = stage_select_cv(args)
+        (args.out / "select_cv.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
+        print(_cv_markdown(res))
     else:
         clean = stage_select(args)
         (args.out / "select.json").write_text(json.dumps(clean, ensure_ascii=False, indent=1), encoding="utf-8")

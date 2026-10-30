@@ -61,3 +61,32 @@ def test_alternatives_format_and_counts() -> None:
     texts, counts = analysis.alternatives(utts, lambda u, k, r: False, lambda u, k, r: True)
     assert texts[("s", "final")] == "nhắn {giá lô | Zalo} cho mẹ"
     assert counts["uncertain"] == 1 and counts["rescuable"] == 1
+
+
+def test_always_take_decider_takes_large_v3() -> None:
+    """ALL lấy large-v3 ở mọi vùng cần quyết định, kể cả vùng có nhãn 0."""
+    utts = analysis.utterance_regions(_rows("mai đi khám", "mai đi khám"), _rows("Mail đi khám.", "mai đi khám"))
+    rows = analysis.decisions(utts, analysis.always_take_decider)
+    assert rows == [("s", 0, True)] and analysis.decision_accuracy(rows) == 0.0
+
+
+def test_out_of_fold_deciders_use_model_learned_without_own_fold() -> None:
+    """Mẫu của phần f được quyết định bằng bản học trên các phần khác, không bao giờ thấy mẫu của chính phần f."""
+    utts = []
+    for i in range(20):
+        sid = f"s{i}"
+        rows = [{**r, "id": sid} for r in _rows("mai đi khám", "mai đi khám")]
+        v3 = [{**r, "id": sid} for r in _rows("Mail đi khám.", "mai đi khám")]
+        utts += analysis.utterance_regions(rows, v3)
+    seen: dict[int, set[str]] = {}
+
+    def fit(train, fold):  # type: ignore[no-untyped-def]
+        seen[fold] = {u.sample_id for u in train}
+        return {"own_fold_even": lambda u, k, r, fold=fold: fold % 2 == 0}
+
+    decide = analysis.out_of_fold_deciders(utts, fit, n_folds=3)["own_fold_even"]
+    for u in utts:
+        fold = analysis.fold_of(u.sample_id, 3)
+        assert u.sample_id not in seen[fold]
+        assert decide(u, u.candidates[0], u.parts[u.candidates[0]]) == (fold % 2 == 0)  # type: ignore[arg-type]
+    assert sorted(seen) == [0, 1, 2]
