@@ -921,6 +921,68 @@ Mỗi test ghi rõ ba ý: **bảo vệ** điều gì, **bắt lỗi** khi nào, 
   - p95 thời gian ASR mỗi mẫu được ghi trong `summary.json`.
   - Chạy ASR hai lần trên 30 mẫu cho ra chữ giống hệt nhau.
 
+### 6.1.1. Quy trình benchmark ASR: dữ liệu, thước đo, cách so sánh
+
+Phần này là chuẩn chung cho mọi lần benchmark ASR (đã áp dụng ở `docs/reports/benchmark/asr_v1.md`, `asr_v2.md`, `asr_v3.md`;
+siết thêm ở D53). Mỗi báo cáo benchmark phải ghi rõ dùng tập nào cho việc gì, và không được dùng một tập cho hai vai trò.
+
+**Dữ liệu và vai trò** (`lifemate/eval/make_splits.py`, seed 42, chỉ ghi danh sách mã mẫu):
+
+| Tập | Số mẫu | Vai trò | Luật dùng |
+|---|---|---|---|
+| `asr_learn` (`train` ngoài `asr_tune`) | 793 | **Học**: đếm từ để viết câu mồi, bảng độ tin cậy từng từ, trọng số bộ phân loại | Mọi tham số học từ dữ liệu chỉ được học ở đây |
+| `asr_tune` (rút phân tầng từ `train`) | 300 | **Dò**: chọn giữa các cấu hình hoặc cách làm đã cố định tham số | Mỗi bước chọn dùng tập dò một lần; tập dò dùng lại qua nhiều bước thì số trên tập dò lạc quan, phải ghi rõ |
+| `train` (= `asr_learn` + `asr_tune`) | 1 093 | **Kiểm định chéo** 5 phần theo mẫu (`fold_of`) cho bước chọn nào chấm offline được | Ưu tiên cách này thay cho tập dò 300 mẫu khi so các cách quyết định (lọc, ghép, bộ phân loại): số đoạn có nhãn gấp ba, CI hẹp hơn |
+| `val_seen` | 274 | **Đo** cấu hình thắng, app đã gặp | Đo sau khi đã chọn; được xem khi phân tích giữa chừng, nhưng không chọn gì theo số của tập này |
+| `val_unseen` | 178 | **Đo cuối**, app chưa gặp (giả lập private test) | **Khoá**: chỉ đo một lần cho cấu hình sắp nộp (D53) |
+| `*_en_mixed` | 165 / 152 / 95 | Lát cắt có câu chêm tiếng Anh của `asr_tune`, `val_seen`, `val_unseen` | Không phải tập riêng: mô hình chép cả tập gốc, chỉ chấm thêm các chỉ số tiếng Anh trên lát cắt |
+| `smoke` | 30 (từ `train`) | Chạy thử bắt lỗi | Không dùng để chấm hay chọn |
+| `public_test` | 634 | Đo ngoài, một con số tổng | Nộp một lần mỗi mốc lớn với cấu hình đã chốt trên val; ghi cặp (val, public) vào `docs/experiments.md`; không dò tham số trên public |
+
+Quy tắc chung: tập nào đã dùng để **viết** một thứ (câu mồi, bảng từ) thì không được dùng để **chọn** thứ đó; tập nào dùng để chọn thì
+không được dùng để báo kết quả. Tiêu chí chọn ghi vào báo cáo **trước khi đo**; chọn ngoài tiêu chí thì ghi rõ là ngoài tiêu chí và
+không viện số val làm lý do (bài học D42).
+
+**Thước đo** (`lifemate/eval/eval_asr.py`, tính trên mọi câu người dùng của mẫu: lượt cuối và các lượt trong lịch sử):
+
+| Nhóm | Chỉ số | Dùng khi |
+|---|---|---|
+| Độ đúng chữ | WER, CER, `wer_nonum` (bỏ số, vì đáp án và Whisper viết số khác cách) | Mọi kịch bản |
+| Thực thể | `entity_miss_rate`: giá trị tham số của lời gọi đúng không có trong chữ ASR | Mọi kịch bản; đây là hàm mục tiêu khi dò (cùng với tỉ lệ câu rỗng) |
+| Câu hỏng | `n_empty` (câu rỗng), `n_hallucinated` (câu bịa trước khi lọc), `n_unk` (toàn `⁇`), `n_prompt_retries` (chép lại do lớp bảo vệ) | Mọi kịch bản; bắt buộc khi thử câu mồi, guard, sanitizer |
+| Tiếng Anh | `en_word_recall` (và bản nới lỏng), theo nhóm từ (`en_groups`), theo có/không trong câu mồi (`en_prompt`) và trong ngữ cảnh (`en_context`); `en_mixed_wer`, `vi_only_wer`; `prompt_insertions` (từ câu mồi chèn vào khi không nói) | Kịch bản chêm tiếng Anh, câu mồi, ghép |
+| Ghép | `merge_decision_accuracy` (đoạn chọn đúng phía ít lỗi hơn), `merge_wrong_english`, `merge_missed_english` | Kịch bản ghép, so cách quyết định |
+| Thời gian, bộ nhớ | p50/p95/max giây mỗi **mẫu** (không phải mỗi câu), RTF, `load_s`, `gpu_peak_mb` | Mọi phiên GPU, đo kèm, cùng máy cho mọi ứng viên |
+| Điểm thi | Điểm agent trên chữ ASR đã lưu (`--transcripts replay`), chênh so với chữ chuẩn (`gold`) | Kịch bản chọn pipeline cuối |
+
+Quy tắc tìm từ tiếng Anh (`foreign_words.py`) đã rà tay; đổi quy tắc thì rà lại và ghi độ chính xác.
+
+**Cách so sánh và kết luận:**
+
+- Hai hệ thống khác nhau khi CI 95% của **chênh lệch** không chứa 0, bằng bootstrap **ghép cặp theo mẫu** (1 000 vòng, seed 0,
+  `asr_compare.compare`); không so hai CI riêng lẻ, không bootstrap theo câu.
+- Trước khi so, ước lượng độ nhạy: với khoảng 400 từ tiếng Anh, chênh 10 từ đã là 2,5 điểm. So sánh "không có ý nghĩa thống kê" chỉ
+  có nghĩa là chưa đo được, không phải "không hơn"; báo cáo phải ghi cả hai cách hiểu và nêu cần thêm bao nhiêu dữ liệu.
+- Nhiều ứng viên cho cùng một câu hỏi thì so trong **một bảng chung**, một lần, một quy tắc chọn; không chọn nối tiếp.
+- Hoà thì chọn ứng viên **đơn giản hơn** (ít tham số, ít thời gian chạy, không cần mô hình thêm).
+- Kiểm tra tất định: chạy lại ít nhất 50 mẫu, chữ phải giống hệt; cấu hình không tất định (nhiệt độ thử lại) bị loại.
+- Mọi phiên GPU lưu `hyps.jsonl` (chữ từng câu, câu mồi đã dùng, điểm tin cậy) để chấm lại offline bằng `rescore_asr`; kết quả thô ở
+  `artifacts/`, không lên git; báo cáo chỉ trích vài câu ngắn làm ví dụ.
+
+**Kịch bản benchmark và cách áp dụng:**
+
+| Kịch bản | Dữ liệu | Thước đo chính | Cách kết luận |
+|---|---|---|---|
+| 1. Chạy mô hình gốc, lấy chỉ số nền | `val_seen`, `val_unseen` một lần, cấu hình mặc định của mô hình | WER, `entity_miss_rate`, câu hỏng, p95 | Chỉ làm mốc; không chọn gì |
+| 2. Dò cấu hình tốt nhất của một mô hình (`asr_tune.py`) | `asr_tune`; đo thắng trên val | Hàm mục tiêu: `entity_miss_rate` + tỉ lệ câu rỗng, hoà thì `wer_nonum`; p95 vượt ngưỡng thì xếp sau | Dò từng bước theo thứ tự cố định (giải mã, VAD, câu mồi, chống lặp), mỗi bước giữ lựa chọn tốt nhất; cùng công sức dò cho mọi mô hình |
+| 3. So các mô hình bằng cấu hình thắng của từng mô hình | val một lần | Như 2, cộng thời gian và giấy phép | Chọn mô hình chính và mô hình dự phòng; chưa đổi config hệ thống nếu chưa có điểm thi |
+| 4. Câu tiếng Việt chêm tiếng Anh | Lát cắt `*_en_mixed` của các tập đã có; chấm lại chữ đã lưu | `en_word_recall` tách theo nhóm, `en_mixed_wer`, `vi_only_wer` | Báo cả hai mặt: tiếng Anh được bao nhiêu, tiếng Việt mất bao nhiêu |
+| 5. Câu mồi (`initial_prompt`) | Từ chọn trên `asr_learn`; cách dùng chọn trên `asr_tune`; đo trên val | `en_word_recall`, `prompt_insertions`, `n_prompt_retries`, `vi_only_wer`, p95 | Câu mồi tự viết, không chép câu dữ liệu; dò câu mồi cùng lớp bảo vệ; điều kiện: câu thuần Việt không tệ hơn |
+| 6. Guard (câu bịa, câu rỗng, chép lại câu mồi) và sanitizer | Như 5; thêm rà tay trên câu đáp án (bộ lọc không được cắt câu thật) | `n_hallucinated`, `n_empty`, `n_prompt_retries`, số câu đúng bị báo nhầm | Lớp bảo vệ không được báo nhầm quá 0,5% câu đáp án; dấu hiệu hỏng phải không cần đáp án |
+| 7. Ghép hai mô hình và cách quyết định từng đoạn | Tham số học trên `asr_learn`; chọn cách quyết định bằng kiểm định chéo trên `train` (1 093 mẫu), tập dò chỉ để đối chiếu; đo thắng trên val | `merge_decision_accuracy` (chỉ số chọn), `merge_wrong_english`, `merge_missed_english`, `vi_only_wer`, thời gian chấm thêm | Điều kiện chặn: không tệ hơn mốc có ý nghĩa ở tiếng Anh và câu thuần Việt, thời gian thêm ≤ 1 s p95; hoà thì chọn cách đơn giản hơn |
+| 8. Chọn pipeline cuối bằng điểm thi | Chữ đã lưu của từng ứng viên, chạy agent trên val (`--transcripts replay`), kèm chữ chuẩn làm trần | Điểm thi, CI chênh so với mốc, loại lỗi, số mẫu hết giờ | Đưa vào config nộp bài khi không thấp hơn mốc có ý nghĩa; chỉ chạy lại mẫu có chữ khác mốc (agent tất định); nộp public test một lần |
+| 9. Thời gian cả hệ thống | Hai tập val, GPU giống máy chấm (24 GB), ASR và LLM chạy cùng | p95/max giây mỗi mẫu, số mẫu quá 30 s, bộ nhớ đỉnh | Làm trước khi đóng Docker; không đổi cấu hình theo val ở bước này |
+
 ### 6.2. Fine-tune LLM (C1, C2, C4)
 
 Phần này chia hai nhóm:
