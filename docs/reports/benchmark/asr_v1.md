@@ -1,10 +1,104 @@
-# Báo cáo so sánh mô hình và cấu hình ASR
+# Báo cáo benchmark ASR lần 1: so sánh năm mô hình và cấu hình ASR
 
-Ngày: 28/10/2026, cập nhật 29/10/2026. Trạng thái: **xong** (kernel Kaggle `quanlam/lifemate-asr-tune`: lần chạy v3
+Ngày: 28/10/2026, cập nhật 29/10/2026 và 30/10/2026. Trạng thái: **xong** (kernel Kaggle `quanlam/lifemate-asr-tune`: lần chạy v3
 cho bốn mô hình, lần chạy v4 chạy lại riêng Parakeet sau khi sửa lỗi engine, xem mục 6.5).
 
 Báo cáo trả lời câu hỏi: trong năm mô hình nhận dạng giọng nói tiếng Việt, mô hình nào, với cấu hình nào, chép lời
 người dùng tốt nhất cho bài thi LifeMate. Phần 0 giải thích bối cảnh và thuật ngữ cho người đọc chưa theo dõi dự án.
+
+## Tóm tắt cho cả team
+
+Phần này đọc riêng được, không cần đọc các mục sau. Thuật ngữ được giải thích ngay tại chỗ; định nghĩa đầy đủ ở mục 0.
+
+### Pipeline của hệ thống
+
+Mỗi mẫu thi gồm file âm thanh của câu cuối (yêu cầu cần thực hiện), các lượt hội thoại trước đó, danh sách app đã cài,
+catalog tool của các app đó và ngữ cảnh người dùng (giờ, vị trí, hồ sơ). Lượt người dùng trong lịch sử **chỉ có âm
+thanh**, nên cũng phải chép. Hệ thống chạy hai bước, trong giới hạn 30 giây mỗi mẫu và tổng tham số không quá 6B:
+
+```
+âm thanh (câu cuối + các câu người dùng trong lịch sử, tới 13 file)
+  → ASR: mô hình chép thành chữ → bộ lọc ảo giác cắt câu phụ đề bịa
+  → LLM (Qwen3-4B): đọc chữ của cả hội thoại, chọn tool và tham số
+  → lời gọi tool, ví dụ alarm.create(time="…05:30…")
+```
+
+Điểm thi chấm lời gọi tool, không chấm chữ. Nhưng chữ ASR sai thì LLM không sửa được: nghe "Zalo" thành "cho lô" thì LLM
+không biết phải mở Zalo. Báo cáo này chỉ đo bước ASR.
+
+### Vì sao có lần đo này
+
+Cấu hình ASR lúc đó (whisper-large-v3, beam 5, VAD, câu mồi dài liệt kê tên riêng, bật chống lặp) có ba vấn đề:
+
+| Vấn đề | Số đo trước lần 1 (`val_seen`) |
+|---|---|
+| Nhiều câu rỗng: Whisper bịa câu phụ đề YouTube ("Hãy đăng ký kênh…") rồi bộ lọc xoá mất | WER 44,0%; 190/916 câu rỗng; 160/185 câu rỗng là câu bịa |
+| Bỏ câu mồi thì giảm câu rỗng nhưng sai tên app | Không câu mồi: WER 29,7%, nhưng "Zalo" chỉ đúng 2/19 câu (có câu mồi: 13/19) |
+| Các lần so trước không công bằng | PhoWhisper chạy tham lam, không VAD, tắt bộ lọc; large-v3 chạy beam 5, có VAD, bật bộ lọc |
+
+### Đã làm gì
+
+- **Năm mô hình:** whisper-large-v3 (1,55B), PhoWhisper-medium (0,77B, Whisper học thêm tiếng Việt), ChunkFormer CTC và
+  ChunkFormer RNNT (0,11B, mô hình tiếng Việt kiểu khác Whisper), Parakeet CTC (0,6B).
+- **So công bằng:** mọi mô hình chạy trên cùng GPU T4, cùng bộ lọc, cùng cách chấm, giải mã tất định. Phần khác nhau
+  (cách giải mã, câu mồi, chống lặp, VAD) được dò riêng cho từng mô hình, cùng một cách: vặn lần lượt từng "núm", giữ
+  lựa chọn tốt nhất rồi sang núm tiếp theo.
+- **Dữ liệu:** dò trên tập dò `asr_tune` (300 mẫu train, 1 024 câu); đo cấu hình thắng của mỗi mô hình **đúng một lần**
+  trên hai tập kiểm tra `val_seen` (274 mẫu, app đã biết) và `val_unseen` (178 mẫu, 6 app chưa gặp). Chấm **mọi câu
+  người dùng**, cả câu cuối lẫn lịch sử, vì LLM đọc tất cả.
+- **Thước đo chính:** tỉ lệ bỏ sót tên riêng (giá trị tham số mà người dùng nói ra, như tên người, tên kênh, số tiền),
+  số câu rỗng, WER (tỉ lệ từ sai), số câu bịa, p95 (95% số mẫu chép xong trong số giây này).
+
+### Kết quả chính
+
+Cấu hình thắng của mỗi mô hình, đo một lần trên hai tập kiểm tra (`val_seen` / `val_unseen`):
+
+| Mô hình | Cấu hình thắng | WER | Bỏ sót tên riêng | Câu rỗng | Câu bịa | p95 (s) | "Zalo" viết đúng |
+|---|---|---|---|---|---|---|---|
+| whisper-large-v3 | tham lam, không câu mồi, nhiệt độ thử lại | 30,6% / 30,2% | 31,2% / 57,4% | 4 / 3 | 12 / 5 | 8,2 / 7,9 | 1/19 / 0/6 |
+| PhoWhisper-medium | tham lam, câu mồi ngắn | 27,9% / 27,9% | 38,5% / 48,1% | 0 / 0 | 0 / 0 | 3,0 / 3,0 | 16/19 / 1/6 |
+| ChunkFormer CTC | tham lam, mặc định | 21,3% / 21,0% | **23,9%** / 55,6% | 0 / 0 | 0 / 0 | 2,7 / 2,3 | 5/19 / 0/6 |
+| **ChunkFormer RNNT** | tham lam, mặc định | **20,0% / 19,8%** | 32,1% / **48,1%** | 0 / 0 | 0 / 0 | 2,5 / 2,5 | **17/19 / 5/6** |
+| Parakeet CTC | tham lam, mặc định (float32) | 31,6% / 31,1% | 50,5% / 77,8% | 0 / 0 | 0 / 0 | 2,0 / 1,9 | 5/19 / 0/6 |
+
+Đọc bảng:
+
+1. **ChunkFormer RNNT tốt nhất xét tổng thể:** WER thấp nhất, khoảng 20% (large-v3 khoảng 30%); không câu rỗng, không
+   câu bịa; p95 2,5 giây; viết đúng "Zalo" nhiều nhất; giấy phép CC-BY-4.0 cho phép dùng.
+2. **Với large-v3, mọi câu mồi đều làm kết quả kém đi.** Câu mồi dài dạng liệt kê tăng WER từ 30,8% lên 48,6% và câu
+   rỗng từ 10 lên 22 trên tập dò, vì Whisper coi câu mồi như mô tả video rồi viết tiếp kiểu phụ đề. `hotwords` (danh
+   sách từ khoá) còn kém hơn. Chống lặp và beam 5 cũng không giúp mô hình nào.
+3. **ChunkFormer CTC** bỏ sót ít nhất trên `val_seen` nhưng kém trên `val_unseen` và gần như luôn sai tên app; giấy phép
+   phi thương mại. **Parakeet** kém nhất về tên riêng, kể cả sau khi sửa lỗi float16 (mục 6.5).
+4. **Ví dụ:** câu "Số điện thoại của Sếp Dũng là số nào ấy em?" được large-v3 chép thành "Hãy xem video này và hãy đăng
+   ký kênh để ủng hộ kênh của mình nhé."; ChunkFormer RNNT chép đúng hoàn toàn (mục 6.4).
+
+### Kết luận
+
+- Chọn **ChunkFormer RNNT large** (`khanhld/chunkformer-rnnt-large-vie`, giải mã tham lam, tham số mặc định) làm ASR
+  chính. Giữ PhoWhisper kèm câu mồi ngắn làm dự phòng. Bỏ Parakeet.
+- Chưa đổi `configs/v0.toml`: chỉ số ASR chỉ dùng để rút gọn danh sách, lựa chọn cuối phải dựa trên điểm thi của cả hệ
+  thống.
+
+### Sau lần 1
+
+Lần 1 để lại bốn điểm: chưa đo riêng từ tiếng Anh chêm trong câu (tên app, tên dịch vụ); mọi câu mồi đều làm large-v3
+kém đi; cấu hình thắng của large-v3 (nhiệt độ thử lại) không tất định; mới chọn một mô hình, chưa thử kết hợp.
+
+- **Lần 2** (`docs/reports/benchmark/asr_v2.md`) đo riêng các câu chêm tiếng Anh, viết câu mồi mới dạng câu nói tự
+  nhiên kèm lớp bảo vệ (large-v3 chép đúng từ tiếng Anh từ 52% lên 72%), và ghép chữ RNNT với chữ large-v3.
+- **Lần 3** (`docs/reports/benchmark/asr_v3.md`) dựng câu mồi riêng cho từng câu từ tên app đã cài và lời trợ lý liền
+  trước, thử các cách quyết định khi ghép, và đo điểm thi bằng cách chạy agent trên chữ ASR.
+
+### Đọc tiếp ở đâu
+
+| Muốn biết | Đọc |
+|---|---|
+| Thuật ngữ | Mục 0 |
+| Dữ liệu và cách chia tập | Mục 2 |
+| Bộ cấu hình chung và cách dò từng mô hình | Mục 3, 4 |
+| Kết quả đầy đủ, ví dụ, lỗi Parakeet | Mục 6 |
+| Phân tích và kết luận | Mục 7, 8 |
 
 **Kết quả thô.** Nằm trong `artifacts/runs/kaggle/asr/10-28_tune_v3/` (không có trên git), mỗi mô hình một thư mục
 con: `large-v3/`, `phowhisper/`, `chunkformer/`, `chunkformer-rnnt/`, `parakeet/`. Kết quả Parakeet trong thư mục này
@@ -14,8 +108,8 @@ là lần chạy v3, **không hợp lệ** (mục 6.5). Kết quả Parakeet dù
 
 | File (trong `<mô hình>/`) | Chứa gì | Dùng ở mục |
 |---|---|---|
-| `summary.json` | Toàn bộ kết quả của mô hình: `path` (lựa chọn giữ lại ở từng bước), `best_generate_kwargs` (cấu hình thắng), `runs` (chỉ số mọi lần đo trên tập chỉnh), `report` (chỉ số cấu hình thắng trên val_seen và val_unseen) | 6.1, 6.2, 6.3 |
-| `<mô hình>__<bước>_<lựa chọn>.toml` | Config đầy đủ của một lần đo trên tập chỉnh, ví dụ `large-v3__prompt_lead.toml` | 4 |
+| `summary.json` | Toàn bộ kết quả của mô hình: `path` (lựa chọn giữ lại ở từng bước), `best_generate_kwargs` (cấu hình thắng), `runs` (chỉ số mọi lần đo trên tập dò), `report` (chỉ số cấu hình thắng trên val_seen và val_unseen) | 6.1, 6.2, 6.3 |
+| `<mô hình>__<bước>_<lựa chọn>.toml` | Config đầy đủ của một lần đo trên tập dò, ví dụ `large-v3__prompt_lead.toml` | 4 |
 | `<mô hình>__<bước>_<lựa chọn>.json` | Chỉ số của lần đo đó: WER, WER bỏ số, CER, bỏ sót tên riêng (kèm danh sách tên bị sót từng mẫu), câu rỗng, câu bịa, số lần đúng từng tên app, thời gian p50/p95/max | 6.1 |
 | `<mô hình>__<bước>_<lựa chọn>.hyps.jsonl` | Chữ chép từng câu, mỗi dòng một câu: `id` (mẫu), `turn` (số lượt hoặc `final`), `ref` (đáp án của BTC), `hyp` (chữ sau bộ lọc), `raw` (chữ trước bộ lọc) | 6.4 |
 | `<mô hình>__report_val_seen.{toml,json,hyps.jsonl}`, `<mô hình>__report_val_unseen.{…}` | Ba loại file trên cho cấu hình thắng, đo trên hai tập kiểm tra | 6.3, 6.4 |
@@ -24,8 +118,10 @@ Ngoài ra, `lifemate-asr-tune.log` ở thư mục gốc là log đầy đủ c�
 mục 6.4 được trích nguyên văn từ các file `hyps.jsonl`. Cách xếp thư mục của mọi lần chạy xem
 `artifacts/runs/README.md`.
 
+
 ## Mục lục
 
+- [Tóm tắt cho cả team](#tóm-tắt-cho-cả-team)
 - [0. Bối cảnh và thuật ngữ](#0-bối-cảnh-và-thuật-ngữ)
 - [1. Vấn đề](#1-vấn-đề)
 - [2. Dữ liệu dùng cho benchmark](#2-dữ-liệu-dùng-cho-benchmark)
@@ -39,7 +135,7 @@ mục 6.4 được trích nguyên văn từ các file `hyps.jsonl`. Cách xếp 
   - [4.3. Điều chỉnh kỹ thuật theo engine](#43-điều-chỉnh-kỹ-thuật-theo-engine)
 - [5. Phương pháp thử nghiệm](#5-phương-pháp-thử-nghiệm)
 - [6. Kết quả](#6-kết-quả)
-  - [6.1. Đường dò trên tập chỉnh (300 mẫu, 1 024 câu, 123 tên riêng)](#61-đường-dò-trên-tập-chỉnh-300-mẫu-1-024-câu-123-tên-riêng)
+  - [6.1. Đường dò trên tập dò (300 mẫu, 1 024 câu, 123 tên riêng)](#61-đường-dò-trên-tập-chỉnh-300-mẫu-1-024-câu-123-tên-riêng)
   - [6.2. Cấu hình thắng của mỗi mô hình](#62-cấu-hình-thắng-của-mỗi-mô-hình)
   - [6.3. Đo trên tập kiểm tra](#63-đo-trên-tập-kiểm-tra)
   - [6.4. Ví dụ từ lần chạy](#64-ví-dụ-từ-lần-chạy)
@@ -81,6 +177,7 @@ bước 1.
 | Bộ lọc (sanitizer) | Code của dự án (`lifemate/backends/asr_sanitizer.py`) cắt các cụm phụ đề bịa đã biết khỏi chữ ASR |
 | WER | Word Error Rate: số từ phải sửa (thêm, xóa, thay) để chữ ASR thành đáp án, chia cho số từ đáp án. 20% nghĩa là cứ 10 từ sai khoảng 2 |
 | p95 | 95% số mẫu chép xong trong thời gian này (giây). Đo trên GPU T4 |
+| Tập dò | Tập `asr_tune` (300 mẫu train) dùng để dò và chọn cấu hình; khác với hai tập kiểm tra chỉ dùng để đo một lần |
 | Sweep v1, sweep v2 | Hai lần thử ASR trước lần này, ghi trong `docs/experiments.md` |
 | Cấu hình của lead | Cấu hình ban đầu do trưởng nhóm đề xuất: large-v3, beam 5, VAD, câu mồi dài, bật chống lặp |
 | BTC | Ban tổ chức cuộc thi |
@@ -153,7 +250,9 @@ dùng lại, không sửa. `asr_tune` là tập duy nhất tạo thêm, và khô
 tập chung của dự án, bước 4 tạo tập riêng cho benchmark:
 
 1. **Tách app lạ trước.** Mọi mẫu dùng một trong 6 app (medication, fitness, flights, bike_rental, library,
-   subscriptions) vào `val_unseen`. Lý do: bộ thi riêng của BTC có app chưa từng thấy, nên cần một tập mô phỏng điều đó.
+   subscriptions), cộng 5 mẫu "ngoài phạm vi" liên quan tới các app đó được gắn tay (đáp án không gọi tool nào nên không
+   tự nhận ra app), vào `val_unseen`. Lý do: bộ thi riêng của BTC có app chưa từng thấy, nên cần một tập mô phỏng điều
+   đó. Sơ đồ đầy đủ các bước chia và tập nào dùng cho thử nghiệm nào ở `asr_v3.md`, phần "Dữ liệu cần chuẩn bị".
 2. **Gom cụm câu gần trùng.** Các mẫu có `audio_text` giống nhau từ 85% trở lên được gom thành một cụm và luôn nằm cùng
    một tập. Lý do: nếu hai câu gần giống nhau nằm ở hai tập, kết quả kiểm tra sẽ đẹp hơn thực tế.
 3. **Chia 5 fold phân tầng.** 1 367 mẫu còn lại chia thành 5 phần có cùng tỉ lệ số lời gọi tool và tỉ lệ câu phải hỏi
@@ -183,7 +282,7 @@ về chữ thường và bỏ dấu câu.
 | **WER bỏ số** (`wer_nonum`) | WER sau khi bỏ chữ số và từ đọc số ở cả hai phía | Đáp án viết "5 giờ", ChunkFormer viết "năm giờ": WER thường phạt cách viết chứ không phải lỗi nghe (ví dụ 5 ở mục 6.4) |
 | Câu bịa | Chữ trước bộ lọc khớp mẫu phụ đề bịa | Đo mức ảo giác |
 | Tên riêng cụ thể | Số câu viết đúng Zalo, VTV, HTV, voucher… trên số câu đáp án có tên đó | Tên app quyết định gọi tool của app nào |
-| p95 | Như mục 0 | Hạn mỗi mẫu 29 s, phần lớn dành cho LLM |
+| p95 | Như mục 0 | Thể lệ cho 30 giây mỗi mẫu cho cả ASR lẫn LLM, phần lớn dành cho LLM |
 
 **Hàm mục tiêu** (để xếp hạng lựa chọn, nhỏ hơn là tốt hơn), giống nhau cho mọi mô hình:
 
@@ -374,7 +473,7 @@ Giải thích thêm từng giai đoạn:
 2. **Dò cấu hình.** Script `lifemate/eval/asr_tune.py` làm theo cách ở mục 4.2. Với mỗi lựa chọn, script ghi một file
    config, gọi `lifemate/eval/eval_asr.py` để chép toàn bộ 300 mẫu và tính chỉ số, rồi dùng hàm mục tiêu để chọn. Một
    cấu hình đã đo thì không đo lại: lựa chọn "giữ nguyên" ở bước sau chính là cấu hình thắng ở bước trước. Tổng cộng có
-   16 lần đo trên tập chỉnh: large-v3 8 lần, PhoWhisper 5 lần, ba mô hình còn lại mỗi mô hình 1 lần.
+   16 lần đo trên tập dò: large-v3 8 lần, PhoWhisper 5 lần, ba mô hình còn lại mỗi mô hình 1 lần.
 3. **Đo cấu hình thắng.** Cấu hình thắng của mỗi mô hình được chạy đúng một lần trên val_seen và một lần trên
    val_unseen, tổng 10 lần đo. Không có lựa chọn nào được đổi sau khi xem kết quả trên hai tập này.
 
@@ -391,11 +490,11 @@ NvidiaTeslaT4`, hoặc trên máy có GPU: `python -m lifemate.eval.asr_tune --e
 Một phiên T4, khoảng 4 giờ. Mọi mô hình chạy hết, không lần đo nào lỗi. Log có một cảnh báo hết bộ nhớ GPU ở lựa chọn
 beam 5 của PhoWhisper, nhưng lần đo đó vẫn hoàn tất.
 
-### 6.1. Đường dò trên tập chỉnh (300 mẫu, 1 024 câu, 123 tên riêng)
+### 6.1. Đường dò trên tập dò (300 mẫu, 1 024 câu, 123 tên riêng)
 
-Bảng này là "nhật ký" của giai đoạn dò: mọi lần đo trên tập chỉnh, theo đúng thứ tự các bước ở mục 4.2. Mỗi dòng là
+Bảng này là "nhật ký" của giai đoạn dò: mọi lần đo trên tập dò, theo đúng thứ tự các bước ở mục 4.2. Mỗi dòng là
 một lần đo với cấu hình gồm lựa chọn ở dòng đó cộng các lựa chọn đã giữ ở các bước trước. Các cột:
-- **Bỏ sót:** tỉ lệ tên riêng bị chép sai, trên 123 tên riêng của tập chỉnh. Càng thấp càng tốt.
+- **Bỏ sót:** tỉ lệ tên riêng bị chép sai, trên 123 tên riêng của tập dò. Càng thấp càng tốt.
 - **Rỗng:** số câu (trên 1 024) mà mô hình không ra chữ nào sau bộ lọc.
 - **WER, WER bỏ số:** tỉ lệ từ sai, như mục 2.3.
 - **Bịa:** số câu có cụm phụ đề bịa bị bộ lọc phát hiện.
@@ -451,7 +550,7 @@ Giải thích chi tiết hơn:
   thiện này nhỏ, nhưng là lựa chọn tốt nhất theo hàm mục tiêu nên được giữ.
 - **Chống lặp:** không giúp mô hình nào, còn làm WER của PhoWhisper tăng 1,5 điểm.
 - **Ba mô hình CTC/RNNT** chỉ có một dòng vì không có tham số nào để dò (mục 4.2). Hai ChunkFormer đã tốt hơn mọi cấu
-  hình của hai mô hình Whisper ngay trên tập chỉnh: bỏ sót 37–39% so với 41–59%, WER 20–21% so với 28–49%.
+  hình của hai mô hình Whisper ngay trên tập dò: bỏ sót 37–39% so với 41–59%, WER 20–21% so với 28–49%.
 
 ### 6.2. Cấu hình thắng của mỗi mô hình
 
@@ -489,7 +588,7 @@ Cách đọc bảng:
   (chênh dưới 1 điểm), nghĩa là độ khó âm thanh của hai tập tương đương. Nhưng bỏ sót trên val_unseen cao hơn hẳn (ví
   dụ ChunkFormer CTC: 23,9% lên 55,6%). Lý do: val_unseen dùng 6 app không có trong train, nên tên riêng ở đó là tên
   thuốc, chuyến bay, sách… lạ hơn và khó nghe đúng hơn.
-- **So với tập chỉnh,** bỏ sót trên val_seen thấp hơn ở hầu hết mô hình (large-v3: 40,7% xuống 31,2%). Tập chỉnh có tỉ
+- **So với tập dò,** bỏ sót trên val_seen thấp hơn ở hầu hết mô hình (large-v3: 40,7% xuống 31,2%). Tập dò có tỉ
   lệ tên riêng khác nên con số giữa hai tập không so trực tiếp được. Thứ hạng giữa các mô hình mới là thứ cần so.
 - **Số câu chứa tên app rất ít,** nhất là trên val_unseen (Zalo 6 câu, VTV 1 câu). Một câu đúng hay sai đã đổi tỉ lệ
   đáng kể, nên hai cột này chỉ để tham khảo.
@@ -525,7 +624,7 @@ hình CTC/RNNT có 0.
 
 Trường hợp này bộ lọc cứu được, vì phần bịa nằm riêng sau câu đúng.
 
-**Ví dụ 3. Câu mồi của lead làm mất trắng câu nói** (tập chỉnh, large-v3 với câu mồi của lead).
+**Ví dụ 3. Câu mồi của lead làm mất trắng câu nói** (tập dò, large-v3 với câu mồi của lead).
 
 | | Chữ |
 |---|---|
@@ -534,7 +633,7 @@ Trường hợp này bộ lọc cứu được, vì phần bịa nằm riêng sa
 | large-v3, sau lọc | (rỗng) |
 
 Câu mồi dài, dạng liệt kê, trông giống phần mô tả video, nên Whisper tiếp tục theo kiểu phụ đề YouTube. Bộ lọc xóa
-hết, lượt đó mất trắng. Câu mồi của lead làm câu rỗng tăng từ 10 lên 22 trên tập chỉnh.
+hết, lượt đó mất trắng. Câu mồi của lead làm câu rỗng tăng từ 10 lên 22 trên tập dò.
 
 **Ví dụ 4. Tên app "Zalo".**
 
@@ -576,7 +675,7 @@ Sau khi sửa, Parakeet vẫn hay dính hoặc mất chữ, ví dụ "Tài kho�
 
 ### 6.5. Sửa lỗi Parakeet và chạy lại
 
-**Triệu chứng (lần chạy v3).** 70/1 024 câu của tập chỉnh, 37/916 câu của val_seen và 51/527 câu của val_unseen chỉ ra
+**Triệu chứng (lần chạy v3).** 70/1 024 câu của tập dò, 37/916 câu của val_seen và 51/527 câu của val_unseen chỉ ra
 ký tự `⁇`. Các câu này rải rác ở mọi độ dài và mọi kiểu câu.
 
 **Chẩn đoán** (kernel `quanlam/lifemate-asr-diag`, 29/10). Lấy 42 mẫu có câu hỏng (216 câu) ở lần v3, chạy lại với
@@ -600,7 +699,7 @@ Parakeet):
   `asr_nonfinite_output` trong log.
 - `eval_asr` có thêm chỉ số `n_unk` (số câu chỉ gồm `⁇`), để lỗi kiểu này không lẫn vào "câu rỗng" nữa.
 
-**Chạy lại (lần v4).** Cùng quy trình như mục 5: cùng tập chỉnh, cùng các bước dò, rồi đo một lần trên val_seen và
+**Chạy lại (lần v4).** Cùng quy trình như mục 5: cùng tập dò, cùng các bước dò, rồi đo một lần trên val_seen và
 val_unseen. Không còn câu `⁇` nào (`n_unk = 0`) và log không có cảnh báo NaN. Bốn mô hình còn lại không chạy lại.
 
 | Parakeet | Tập | Bỏ sót | Rỗng | WER | p95 (s) |
@@ -642,7 +741,7 @@ p95 của v4 cao hơn v3, vì ở v3 các câu hỏng kết thúc sớm (chỉ r
 2. Giữ **PhoWhisper medium + câu mồi ngắn** làm ứng viên dự phòng: không bịa, p95 3 s, viết đúng tên app trên val_seen.
 3. Chưa đổi `configs/v0.toml`. Chỉ số ASR chỉ dùng để rút gọn danh sách; chọn cuối cùng phải dựa trên điểm thi của cả
    hệ thống (ASR + LLM, chấm bằng `score.py`) trên GPU từ 24 GB, so ChunkFormer RNNT với large-v3 hiện tại, có thể thêm
-   PhoWhisper.
+   PhoWhisper. Lần 2 và lần 3 tiếp tục từ kết luận này (phần "Sau lần 1" ở đầu báo cáo).
 4. Bỏ Parakeet: đã chạy lại sau khi sửa lỗi float16 (mục 6.5), vẫn kém hai ChunkFormer ở mọi chỉ số chính xác.
    ChunkFormer CTC chỉ xét lại nếu BTC cho dùng giấy phép phi thương mại
    và điểm thi cho thấy lợi thế trên val_seen là thật.
@@ -650,6 +749,6 @@ p95 của v4 cao hơn v3, vì ở v3 các câu hỏng kết thúc sớm (chỉ r
 ## Giới hạn đã biết
 
 - Thời gian đo trên T4, chưa phải GPU A30 lúc chấm.
-- Tập chỉnh có ít câu chứa từng tên riêng, nên chênh vài câu đã là khác biệt lớn.
+- Tập dò có ít câu chứa từng tên riêng, nên chênh vài câu đã là khác biệt lớn.
 - Bỏ sót tên riêng so không dấu và khớp nguyên từ: "zalo" và "Zalo" được tính là đúng, nhưng "dalo" bị tính là sai.
 - Nếu sau này fine-tune ASR trên train, phải loại `asr_tune.txt` khỏi dữ liệu train ASR.
