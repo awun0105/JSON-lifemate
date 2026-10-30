@@ -193,7 +193,7 @@ Giải thích từng bước:
    `lifemate/eval/foreign_words.py › has_foreign_word` (câu → có từ ngoại hay không). Luật nhận từ ngoại: từ không dấu mà
    không ghép được thành âm tiết tiếng Việt, từ viết hoa toàn bộ, hoặc có chữ f, j, w, z; kèm hai danh sách viết sẵn cho
    trường hợp khó (từ mượn viết kiểu Việt như "tivi"; từ tiếng Anh trông giống âm tiết Việt như "chat"). Việc lọc do
-   script làm; luật đã được rà tay ở lần 2. Mỗi file `_en_mixed` nằm trọn trong tập gốc của nó.
+   script làm; luật đã được rà tay ở lần 2. Mỗi file `_en_mixed` nằm trọn trong tập gốc tương ứng.
 7. **`meta.json`**: số mẫu từng tập, tỉ lệ nhãn từng phần, số nhóm gần trùng, và số mẫu trùng giữa `train` với hai tập
    kiểm tra (đều bằng 0).
 
