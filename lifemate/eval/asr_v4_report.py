@@ -10,6 +10,9 @@ Nội dung chính:
 - `merged_rows`: chữ ghép H của một tập (RNNT làm nền, large-v3 câu mồi thắng ở các đoạn H chọn).
 - `stage_l1`: thử nghiệm L1: áp `asr_numbers.digitize` lên chữ RNNT và chữ ghép H, so bốn hệ thống bằng `compare`
   (bootstrap ghép cặp theo mẫu) với mốc là ghép H; thêm số câu có chữ số và số chữ số đổi sai.
+- `stage_l2`: thử nghiệm L2: áp `asr_entities.correct` (danh sách ứng viên của từng mẫu tại từng lượt) lên chữ ghép
+  H + L1, so với mốc H + L1; đếm số lần thay và số lần thay đúng (tên thay có trong đáp án), và tỉ lệ từ tiếng Anh bị
+  mất mà có trong danh sách ứng viên (trần của L2).
 
 Thư mục vào: như `asr_v3_report` (K1: tập dò; K2: `k2_<tập>/`; K3: `scores_<tập>.jsonl`). `--split train` gộp
 `asr_tune` và `asr_learn` (tập phát triển); `val_seen` đo một lần; `val_unseen` khoá theo D53.
@@ -18,12 +21,14 @@ Thư mục vào: như `asr_v3_report` (K1: tập dò; K2: `k2_<tập>/`; K3: `sc
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from lifemate.backends.asr_entities import correct, sample_candidates
 from lifemate.backends.asr_numbers import digitize
 from lifemate.eval import asr_v3_analysis as A  # noqa: N812
 from lifemate.eval.asr_compare import compare
@@ -158,6 +163,78 @@ def stage_l1(args: argparse.Namespace) -> dict[str, Any]:
     return {"split": args.split, "n_samples": len(data["samples"]), "h": h_info, "table": table}
 
 
+def entity_corrected(
+    rows: Sequence[Mapping[str, Any]], samples: Sequence[Any], catalog: Mapping[str, Any]
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Chữ sau L2 và các số đếm: số lần thay, số lần thay đúng (dạng chuẩn hoá của tên thay có trong đáp án)."""
+    from lifemate.eval.foreign_words import fold_text
+
+    by_id = {s.id: s for s in samples}
+    out: list[dict[str, Any]] = []
+    stats: dict[str, Any] = {"replacements": 0, "correct": 0, "examples": []}
+    for r in rows:
+        cands = sample_candidates(by_id[str(r["id"])], catalog, str(r["turn"]))
+        new, reps = correct(str(r["hyp"]), cands)
+        out.append({**r, "hyp": new, "raw": new})
+        for x in reps:
+            ok = fold_text(x.target) in fold_text(str(r["ref"]))
+            stats["replacements"] += 1
+            stats["correct"] += ok
+            if len(stats["examples"]) < 40:
+                stats["examples"].append({"id": r["id"], "turn": r["turn"], "ok": ok, **dataclasses.asdict(x)})
+    return out, stats
+
+
+def stage_l2(args: argparse.Namespace) -> dict[str, Any]:
+    """Thử nghiệm L2 trên `args.split`: ghép H + L1 (mốc) và ghép H + L1 + L2; trần: từ tiếng Anh của đáp án không có
+    ở cả RNNT lẫn large-v3 mà có trong danh sách ứng viên của mẫu."""
+    from lifemate.eval.foreign_words import find_foreign_words, fold_text, match_words_in_transcript
+
+    prompt_text, _ = _fixed_prompt()
+    make_h, h_info = h_full_train(args)
+    data = load_parts(args, SPLIT_PARTS[args.split])
+    parts = SPLIT_PARTS[args.split]
+    catalog: dict[str, Any] = {}
+    for part in parts:
+        catalog |= _data(f"configs/splits/{part}.txt")[1]
+    base = digitized(A.apply_decider(data["rnnt"], data["utts"], make_h(data["context"])))
+    fixed, stats = entity_corrected(base, data["samples"], catalog)
+    cmp = compare(data["samples"], {"H+L1": (base, prompt_text), "H+L1+L2": (fixed, prompt_text)})
+    table = {
+        n: {k: {"value": cmp[n]["report"][k], "diff_ci": cmp[n]["diff_ci"][k]} for k in METRIC_KEYS}
+        for n in ("H+L1", "H+L1+L2")
+    }
+    # Trần: từ tiếng Anh của đáp án không có trong chữ mốc, có / không có trong danh sách ứng viên.
+    by_id = {s.id: s for s in data["samples"]}
+    v3 = {}
+    for part in parts:
+        hdir, _ = _part_dirs(args, part)
+        v3 |= {(str(r["id"]), str(r["turn"])): str(r["hyp"]) for r in _rows(hdir / f"v3_{args.winner}.hyps.jsonl")}
+    missing = in_pool = 0
+    for r in base:
+        words = find_foreign_words(str(r["ref"]))
+        if not words:
+            continue
+        in_a = match_words_in_transcript(words, str(r["hyp"]))
+        in_b = match_words_in_transcript(words, v3.get((str(r["id"]), str(r["turn"])), ""))
+        cands = None
+        for w, x, y in zip(words, in_a, in_b, strict=True):
+            if x or y:
+                continue
+            missing += 1
+            if cands is None:
+                cands = sample_candidates(by_id[str(r["id"])], catalog, str(r["turn"]))
+            in_pool += any(fold_text(w.text) in c.folded for c in cands)
+    return {
+        "split": args.split,
+        "n_samples": len(data["samples"]),
+        "h": h_info,
+        "table": table,
+        "replacements": stats,
+        "ceiling": {"missing_english_words": missing, "in_candidate_pool": in_pool},
+    }
+
+
 def l1_markdown(res: Mapping[str, Any]) -> str:
     """Bảng Markdown ngắn của `stage_l1`."""
 
@@ -187,7 +264,7 @@ def l1_markdown(res: Mapping[str, Any]) -> str:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """CLI: lệnh `l1`, ghi `l1_<tập>.json` vào `--out` và in bảng Markdown."""
+    """CLI: lệnh `l1` hoặc `l2`, ghi `l<n>_<tập>.json` vào `--out` và in tóm tắt."""
     ap = argparse.ArgumentParser(prog="lifemate.eval.asr_v4_report", description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p1 = sub.add_parser("l1")
@@ -196,10 +273,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     p1.add_argument("--winner", default="E2")
     p1.add_argument("--split", choices=sorted(SPLIT_PARTS), default="train")
     p1.add_argument("--out", type=Path, required=True)
+    p2 = sub.add_parser("l2")
+    for k in ("--k1", "--k2", "--k3"):
+        p2.add_argument(k, type=Path, required=True)
+    p2.add_argument("--winner", default="E2")
+    p2.add_argument("--split", choices=sorted(SPLIT_PARTS), default="train")
+    p2.add_argument("--out", type=Path, required=True)
     args = ap.parse_args(argv)
     args.out.mkdir(parents=True, exist_ok=True)
     if args.split == "val_unseen":
         raise SystemExit("val_unseen bị khoá (D53): chỉ đo khi chốt cấu hình nộp bài")
+    if args.cmd == "l2":
+        res2 = stage_l2(args)
+        path2 = args.out / f"l2_{args.split}.json"
+        path2.write_text(json.dumps(res2, ensure_ascii=False, indent=1), encoding="utf-8")
+        brief = {k: v for k, v in res2.items() if k != "replacements"} | {
+            "replacements": {k: v for k, v in res2["replacements"].items() if k != "examples"}
+        }
+        print(json.dumps(brief, ensure_ascii=False, indent=1))
+        return 0
     res = stage_l1(args)
     (args.out / f"l1_{args.split}.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
     print(l1_markdown(res))

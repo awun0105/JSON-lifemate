@@ -1,7 +1,7 @@
 # Báo cáo benchmark ASR lần 4: giá trị tham số trong chữ ASR (đổi số, sửa tên, dữ liệu fine-tune từ chữ ASR)
 
-Ngày lập kế hoạch: 31/10/2026. Trạng thái: **L1 đã đo trên chữ đã lưu (mục 3.4); L2, L3a đang làm; L0, L3b và các việc
-cần GPU chưa chạy**. Phần không cần GPU (L1, L2, L3a) làm trước trên máy dev; phần cần GPU ghi rõ và chờ phiên GPU.
+Ngày lập kế hoạch: 31/10/2026. Trạng thái: **L1 đã đo và nhận (mục 3.4); L2 đã đo và loại (mục 4.4); L3a đang làm;
+L0, L3b và các việc cần GPU chưa chạy**. Phần không cần GPU (L1, L2, L3a) làm trước trên máy dev; phần cần GPU ghi rõ và chờ phiên GPU.
 
 Lần 3 ([`asr_v3.md`](asr_v3.md), mục "Nghiệm thu lần 3") kết thúc với ba số đếm trên `val_seen`:
 
@@ -30,7 +30,7 @@ Ba hướng, theo thứ tự rẻ và chắc:
 | Hướng | Làm gì | Cần GPU | Đo bằng |
 |---|---|---|---|
 | L1 đổi số | Luật xác định đổi "năm rưỡi sáng", "ba mươi phần trăm", "không chín không một…" thành `5 rưỡi sáng`, `30%`, `0901…` trên chữ RNNT | Không | `entity_miss_rate`, WER, số câu có chữ số, so với lời chuẩn trên chữ đã lưu |
-| L2 sửa tên | So từng cụm chữ ASR với danh sách tên của mẫu (app đã cài, enum trong catalog tool, kết quả tool) bằng khoảng cách chuỗi không dấu; thay khi đủ gần và không có ứng viên thứ hai | Không | `entity_miss_rate`, độ phủ từ tiếng Anh, số lần sửa nhầm, WER câu thuần Việt |
+| L2 sửa tên | So từng cụm chữ ASR với danh sách tên của mẫu (app đã cài, enum trong catalog tool, kết quả tool) bằng khoảng cách chuỗi không dấu; thay khi đủ gần và không có ứng viên thứ hai. **Đã đo, loại**: 69% tên bị mất không có trong mẫu; 15 lần thay trên 3 593 câu, 6 sai (mục 4) | Không | `entity_miss_rate`, độ phủ từ tiếng Anh, số lần sửa nhầm, WER câu thuần Việt |
 | L3 dữ liệu SFT từ chữ ASR | Dựng dòng SFT với câu người dùng là chữ ASR thật của train (đã có từ phiên K2), lời gọi đáp án giữ nguyên | Dựng: không; fine-tune: có (lead) | Điểm thi của mô hình fine-tune trên `val_seen` |
 
 Trước khi chạy agent với bất kỳ hướng nào, cần **L0**: điểm thi với chữ chuẩn trên `val_seen` (J0 của lần 3). Nếu
@@ -173,11 +173,43 @@ phải âm tiết Việt, hoặc là từ mà RNNT và large-v3 bất đồng. M
 
 ### 4.3. Cách đo
 
-Như L1, thêm: độ phủ từ tiếng Anh, số lần sửa nhầm, và tách riêng nhóm tên có trong mẫu / chỉ có trong catalog, để biết
-phần nào đóng góp. Tiêu chí đặt trước: `entity_miss_rate` giảm có ý nghĩa, số sửa nhầm dưới 1 trên 10 lần sửa, WER câu
-thuần Việt không tăng có ý nghĩa.
+Như L1, thêm: độ phủ từ tiếng Anh, số lần sửa nhầm, và **trần của L2**: trong các từ tiếng Anh của đáp án không có ở
+cả RNNT lẫn large-v3, bao nhiêu từ có mặt trong danh sách ứng viên của mẫu (L2 chỉ sửa được những từ này). Tiêu chí
+đặt trước: `entity_miss_rate` giảm có ý nghĩa, số sửa nhầm dưới 1 trên 10 lần sửa, WER câu thuần Việt không tăng có ý
+nghĩa. Lệnh: `python -m lifemate.eval.asr_v4_report l2` ([`lifemate/eval/asr_v4_report.py › stage_l2`](../../../lifemate/eval/asr_v4_report.py));
+mốc là ghép H + L1.
 
-Trạng thái: chưa làm.
+### 4.4. Kết quả (train, 1 093 mẫu, 3 593 câu)
+
+| | H + L1 (mốc) | H + L1 + L2 |
+|---|---|---|
+| Giá trị tham số thiếu | 24,8% | 24,8% (không đổi) |
+| Độ phủ từ tiếng Anh | 75,7% | 76,0% [0; +0,7] |
+| WER, WER bỏ số, WER thuần Việt | 21,22% / 19,33% / 20,68% | như mốc (chênh dưới 0,02 điểm) |
+| Số lần thay | | **15** trên 3 593 câu: 9 đúng, 6 sai |
+| Trần: từ tiếng Anh mất ở cả hai mô hình có trong danh sách ứng viên | | **91 / 294 (31%)** |
+
+Chín lần sửa đúng đều là tên gần đúng về âm ("Priya Shahma" thành Priya Sharma, "liam potter" thành Liam Porter,
+"Luminar studio" thành Lumina Studio, "euro" thành EUR). Sáu lần sai cùng một kiểu: cụm ba từ "… nhắn sms" ("đi nhắn
+sms", "viên nhận sms") bị thay bằng tên app "Tin nhắn SMS" ở khoảng cách 2. Danh sách ứng viên mỗi lượt có trung vị 161
+tên, tối đa 262. Trên `val_seen` (chạy thử trước khi đo chính thức): 3 lần thay, 1 đúng; không đo chính thức vì L2 không
+được chốt. Kết quả thô: `artifacts/runs/colab/asr/10-30_v3/analysis/l2_train.json`.
+
+### 4.5. Phân tích và kết luận
+
+- **Giả định "tên đúng có sẵn trong mẫu" sai với phần lớn trường hợp.** 69% từ tiếng Anh mà cả hai mô hình đều không
+  chép ra **không có** trong app đã cài, catalog tool, ngữ cảnh hay kết quả tool của mẫu: tên khách sạn, tên thuốc,
+  kênh truyền hình, thương hiệu vàng, món ăn chỉ xuất hiện trong lời nói. Không danh sách nào sinh từ mẫu khôi phục
+  được chúng; từ điển tay thì học từ train (mục 4.2 đã loại).
+- Với 31% còn lại, so chuỗi theo khoảng cách sửa chỉ tìm được 9 chỗ trên 3 593 câu, và cứ 3 lần sửa thì 2 lần đúng,
+  không đạt tiêu chí "dưới 1 sai trên 10". Siết ngưỡng về khoảng cách 1 còn 8 đúng, 1 sai, vẫn quá ít để đo được.
+- Điểm có ích rút ra: nhiều từ mất là từ ngắn ba chữ cái ("SJC", "RON", "VTV") mà hai mô hình chép thành cụm gần âm
+  ("scg", "non", "vê tê vi"); khoảng cách ký tự không bắt được kiểu lệch theo âm này.
+
+**Kết luận.** L2 **không đưa vào pipeline**. Code giữ lại ([`lifemate/backends/asr_entities.py`](../../../lifemate/backends/asr_entities.py),
+test `tests/test_asr_entities.py`) để dùng lại nếu sau này ngữ cảnh mẫu có danh bạ hay danh sách thiết bị ngay từ lượt
+đầu; khi đó trần sẽ khác. Phần việc còn lại cho tên riêng chuyển sang L3 (LLM học chịu lỗi ASR) và, nếu cần, sang bước
+ASR (câu mồi theo mẫu đã làm ở lần 3 là cách duy nhất đưa tên vào mô hình mà không cần từ điển).
 
 ## 5. Thử nghiệm L3: dữ liệu fine-tune từ chữ ASR thật
 
@@ -209,7 +241,7 @@ Trạng thái: chưa làm.
 | Bước | Việc | Cần GPU | Trạng thái |
 |---|---|---|---|
 | 1 | L1: bộ đổi số, test, đo trên chữ đã lưu (train, `val_seen` một lần) | Không | Xong 31/10: đạt trên train, cùng chiều trên `val_seen` (mục 3.4) |
-| 2 | L2: danh sách ứng viên từ mẫu và catalog, bộ sửa tên, test, đo như L1 | Không | Chưa làm |
+| 2 | L2: danh sách ứng viên từ mẫu và catalog, bộ sửa tên, test, đo như L1 | Không | Xong 31/10: loại (15 lần thay trên 3 593 câu, 6 sai; trần 31%) |
 | 3 | L3a: dựng dữ liệu SFT từ chữ ASR của train | Không | Chưa làm |
 | 4 | `MergedASR` với H, L1, L2 (phần code và test không cần GPU) | Không | Chưa làm |
 | 5 | L0 và chạy lại J ở ChatML (J0, J1, ghép H, ghép H + L1 + L2) trên `val_seen` | Có | Chờ GPU |
