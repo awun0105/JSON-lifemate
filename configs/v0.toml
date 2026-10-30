@@ -22,17 +22,24 @@ compact_tools = false                  # true: rút gọn schema tool ngay từ 
 constrain_tools = true                 # ép đầu ra: sau <tool_call> chỉ viết được tool đã cài, tham số đúng tên/kiểu/enum (lifemate/agent/chatml.py)
 
 [asr]
+# Engine ghép hai mô hình (D59; benchmark ASR lần 3 mục 7.2 và lần 4 mục 3): [asr] là mô hình chính ChunkFormer RNNT
+# (tiếng Việt tốt, không bịa câu); [asr].secondary là whisper-large-v3 (tham lam, VAD) chép lại từng câu với câu mồi
+# theo mẫu E2 (en_full_v1 + tên app đã cài + lời trợ lý liền trước, lớp bảo vệ g4 so với phần cố định); ở mỗi vùng hai
+# bản khác nhau có từ tiếng Anh mới, large-v3 không câu mồi chấm điểm âm thanh và bộ phân loại H (merge_weights) chọn;
+# cuối cùng đổi số đọc thành chữ số. Đo trên val_seen: chép đúng từ tiếng Anh 76,7% (RNNT riêng 49,9%), WER 19,0%
+# (RNNT 20,0%); p95 khoảng 11 giây mỗi mẫu trên T4 chưa kể LLM.
 backend = "gold"                       # "gold" | "asr"; đổi sang "asr" khi chạy trên audio thật
-engine = "faster_whisper"              # "faster_whisper" (whisper-large-v3, mặc định) | "hf_seq2seq" (PhoWhisper) | "chunkformer" | "nemo_ctc" (Parakeet CTC)
-model = "Systran/faster-whisper-large-v3"   # whisper-large-v3 bản CTranslate2, 1,54B, MIT; quyết định của team lead (SPEC phụ lục E.5.1)
-revision = "edaa852ec7e145841d8ffdb056a99866b5f0a478"
-device = "auto"                        # "auto" | "cpu" | "cuda"
-dtype = "auto"                         # auto: bfloat16 trên sm80+ (A30), float16 trên T4, float32 trên CPU
-batch_size = 8                         # số file wav mỗi lần gọi transcribe_batch (faster_whisper vẫn giải mã từng file)
-# Giải mã: beam 5, nhiệt độ 0 (tất định), VAD bỏ khoảng lặng, không nối ngữ cảnh lượt trước (gốc từ team lead).
-# Bỏ initial_prompt, repetition_penalty, no_repeat_ngram_size: sweep val_seen (asr_sweep_v1) cho WER 44.0% -> 29.7%,
-# câu rỗng 190 -> 24, bỏ sót thực thể 52% -> 31%. Câu mồi làm Whisper bịa phụ đề YouTube trên audio bình thường
-# (160/185 câu rỗng là "subscribe"/"đăng ký kênh" bị sanitizer xóa); đổi lại, không mồi thì Zalo, VTV, HTV hay sai.
-generate_kwargs = { language = "vi", task = "transcribe", temperature = 0.0, beam_size = 5, best_of = 5, vad_filter = true, vad_parameters = { min_silence_duration_ms = 500 }, condition_on_previous_text = false }
-sample_rate = 16000                    # WAV 16 kHz mono 16-bit (data README 2.1)
-sanitize = true                        # lọc ảo giác kiểu phụ đề YouTube và vòng lặp (lifemate/backends/asr_sanitizer.py)
+engine = "chunkformer"
+model = "khanhld/chunkformer-rnnt-large-vie"   # ChunkFormer RNNT tiếng Việt, 0,11B, CC-BY-4.0
+revision = "9863592e00d6c02634c4ce2db8a4f3414f1ba7d6"
+device = "auto"
+dtype = "auto"
+batch_size = 8
+generate_kwargs = { language = "vi", task = "transcribe", temperature = 0.0, beam_size = 1, condition_on_previous_text = false }
+sample_rate = 16000
+sanitize = true
+merge_weights = "configs/asr_merge/h_v1.json"
+# Mô hình phụ: whisper-large-v3 bản CTranslate2, 1,54B, MIT. Câu mồi theo mẫu do engine ghép dựng cho từng câu, nên
+# không khai initial_prompt ở đây; bộ lọc câu bịa và lớp bảo vệ câu mồi chạy trong engine ghép.
+secondary = { engine = "faster_whisper", model = "Systran/faster-whisper-large-v3", revision = "edaa852ec7e145841d8ffdb056a99866b5f0a478", generate_kwargs = { language = "vi", task = "transcribe", temperature = 0.0, beam_size = 1, vad_filter = true, vad_parameters = { min_silence_duration_ms = 500 }, condition_on_previous_text = false } }
+

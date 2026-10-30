@@ -24,16 +24,24 @@ compact_tools = false                  # true: rút gọn schema tool ngay từ 
 constrain_tools = true                 # ép đầu ra: sau <tool_call> chỉ viết được tool đã cài, tham số đúng tên/kiểu/enum (lifemate/agent/chatml.py)
 
 [asr]
+# Engine ghép hai mô hình (D59; benchmark ASR lần 3 mục 7.2 và lần 4 mục 3): [asr] là mô hình chính ChunkFormer RNNT
+# (tiếng Việt tốt, không bịa câu); [asr].secondary là whisper-large-v3 (tham lam, VAD) chép lại từng câu với câu mồi
+# theo mẫu E2 (en_full_v1 + tên app đã cài + lời trợ lý liền trước, lớp bảo vệ g4 so với phần cố định); ở mỗi vùng hai
+# bản khác nhau có từ tiếng Anh mới, large-v3 không câu mồi chấm điểm âm thanh và bộ phân loại H (merge_weights) chọn;
+# cuối cùng đổi số đọc thành chữ số. Đo trên val_seen: chép đúng từ tiếng Anh 76,7% (RNNT riêng 49,9%), WER 19,0%
+# (RNNT 20,0%); p95 khoảng 11 giây mỗi mẫu trên T4 chưa kể LLM.
 backend = "asr"
-engine = "faster_whisper"
-model = "/app/models/asr"              # snapshot of [asr].model from configs/v0.toml (CTranslate2 files) or the fine-tune
+engine = "chunkformer"
+model = "/app/models/asr"              # snapshot của [asr].model trong configs/v0.toml (ChunkFormer RNNT)
 revision = ""
 device = "cuda"
 dtype = "auto"
 batch_size = 8
-# Bỏ initial_prompt, repetition_penalty, no_repeat_ngram_size: sweep val_seen (asr_sweep_v1) cho WER 44.0% -> 29.7%,
-# câu rỗng 190 -> 24, bỏ sót thực thể 52% -> 31%. Câu mồi làm Whisper bịa phụ đề YouTube trên audio bình thường
-# (160/185 câu rỗng là "subscribe"/"đăng ký kênh" bị sanitizer xóa); đổi lại, không mồi thì Zalo, VTV, HTV hay sai.
-generate_kwargs = { language = "vi", task = "transcribe", temperature = 0.0, beam_size = 5, best_of = 5, vad_filter = true, vad_parameters = { min_silence_duration_ms = 500 }, condition_on_previous_text = false }
+generate_kwargs = { language = "vi", task = "transcribe", temperature = 0.0, beam_size = 1, condition_on_previous_text = false }
 sample_rate = 16000
 sanitize = true
+merge_weights = "configs/asr_merge/h_v1.json"
+# Mô hình phụ: whisper-large-v3 bản CTranslate2, 1,54B, MIT. Câu mồi theo mẫu do engine ghép dựng cho từng câu, nên
+# không khai initial_prompt ở đây; bộ lọc câu bịa và lớp bảo vệ câu mồi chạy trong engine ghép.
+secondary = { engine = "faster_whisper", model = "/app/models/asr_secondary", revision = "", generate_kwargs = { language = "vi", task = "transcribe", temperature = 0.0, beam_size = 1, vad_filter = true, vad_parameters = { min_silence_duration_ms = 500 }, condition_on_previous_text = false } }
+

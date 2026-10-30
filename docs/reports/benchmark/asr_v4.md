@@ -1,7 +1,7 @@
 # Báo cáo benchmark ASR lần 4: giá trị tham số trong chữ ASR (đổi số, sửa tên, dữ liệu fine-tune từ chữ ASR)
 
 Ngày lập kế hoạch: 31/10/2026. Trạng thái: **L1 đã đo và nhận (mục 3.4); L2 đã đo và loại (mục 4.4); L3a xong (mục
-5.2); L0, L3b và các việc cần GPU chưa chạy**. Phần không cần GPU (L1, L2, L3a) làm trước trên máy dev; phần cần GPU ghi rõ và chờ phiên GPU.
+5.2); code `MergedASR` xong (mục 6); L0, L3b và mọi việc cần GPU chưa chạy**. Phần không cần GPU (L1, L2, L3a) làm trước trên máy dev; phần cần GPU ghi rõ và chờ phiên GPU.
 
 Lần 3 ([`asr_v3.md`](asr_v3.md), mục "Nghiệm thu lần 3") kết thúc với ba số đếm trên `val_seen`:
 
@@ -242,7 +242,7 @@ Trạng thái: L3a xong; L3b chờ GPU.
 
 | Việc | Cần GPU | Trạng thái |
 |---|---|---|
-| Engine `MergedASR` (RNNT + large-v3 E2 + điểm âm thanh + H; trọng số H vào `configs/` có phiên bản; L1, L2 nối vào khi đạt tiêu chí) | Viết: không; đối chiếu với chữ offline: có | Chưa làm |
+| Engine `MergedASR` (RNNT + large-v3 E2 + điểm âm thanh + H + L1; trọng số H ở `configs/asr_merge/h_v1.json`) | Viết: không; chạy thật: có | **Code xong 31/10 (D59)**: [`lifemate/backends/asr_merged.py`](../../../lifemate/backends/asr_merged.py); `configs/v0.toml`, `docker.toml` đã trỏ sang; test phát lại K2, K3 trùng từng byte với bản ghép offline trên 40 mẫu `val_seen`. Còn chạy thật trên GPU (đối chiếu chữ, thời gian, bộ nhớ) |
 | Chạy agent ChatML thật trên `val_seen` (kiểm chứng D50, D51 trên vLLM) | Có | Chưa làm |
 | Đo cả hệ thống trên GPU 24 GB: thời gian từng mẫu, số mẫu quá 30 giây, bộ nhớ | Có | Chưa làm |
 | Chốt cấu hình nộp, đo `val_unseen` một lần, nộp public test một lần (D53) | Có | Chưa làm |
@@ -254,7 +254,7 @@ Trạng thái: L3a xong; L3b chờ GPU.
 | 1 | L1: bộ đổi số, test, đo trên chữ đã lưu (train, `val_seen` một lần) | Không | Xong 31/10: đạt trên train, cùng chiều trên `val_seen` (mục 3.4) |
 | 2 | L2: danh sách ứng viên từ mẫu và catalog, bộ sửa tên, test, đo như L1 | Không | Xong 31/10: loại (15 lần thay trên 3 593 câu, 6 sai; trần 31%) |
 | 3 | L3a: dựng dữ liệu SFT từ chữ ASR của train | Không | Xong 31/10 (D58) |
-| 4 | `MergedASR` với H, L1, L2 (phần code và test không cần GPU) | Không | Chưa làm |
+| 4 | `MergedASR` với H và L1 (phần code và test không cần GPU) | Không | Xong 31/10 (D59); L2 không nối vào (D57) |
 | 5 | L0 và chạy lại J ở ChatML (J0, J1, ghép H, ghép H + L1 + L2) trên `val_seen` | Có | Chờ GPU |
 | 6 | L3b: fine-tune và đo | Có | Chờ lead |
 | 7 | Đo cả hệ thống, chốt, `val_unseen` một lần, nộp | Có | Chờ GPU |

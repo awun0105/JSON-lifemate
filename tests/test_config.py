@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from lifemate.core.config import ConfigError, EnvProfile, load_config, load_profile
+from lifemate.core.config import ConfigError, EnvProfile, load_config, load_profile, secondary_config
 
 PROFILES = ["local", "kaggle", "colab", "rented", "runpod", "docker"]
 
@@ -64,7 +64,9 @@ def test_v0_and_docker_configs_load(repo_root: Path) -> None:
     """`v0.toml` và `docker.toml` đọc được và đã điền model đã chọn (SPEC 6.0)."""
     v0 = load_config(repo_root / "configs" / "v0.toml")
     assert v0.llm.model and v0.llm.revision and v0.asr.model and v0.asr.revision
-    assert v0.asr.engine == "faster_whisper"
+    # D59: engine ghép, RNNT chính và whisper-large-v3 phụ, trọng số H có phiên bản.
+    assert v0.asr.engine == "chunkformer" and v0.asr.merge_weights.startswith("configs/asr_merge/")
+    assert secondary_config(v0.asr).engine == "faster_whisper" and secondary_config(v0.asr).model
     dk = load_config(repo_root / "configs" / "docker.toml")
     assert dk.llm.model.startswith("/app/models/") and dk.asr.backend == "asr"
     assert dk.agent == v0.agent and dk.llm.max_model_len == v0.llm.max_model_len
@@ -86,9 +88,12 @@ def test_vllm_empty_model_raises(tmp_path: Path, repo_root: Path) -> None:
 @pytest.mark.parametrize(
     ("old", "new", "key"),
     [
-        ('engine = "faster_whisper"', 'engine = "nemo"', r"asr\.engine"),
-        ('model = "Systran/faster-whisper-large-v3"', 'model = ""', r"asr\.model"),
-        ('dtype = "auto"                         # auto: bfloat16', 'dtype = "int8"  # auto: bfloat16', r"asr\.dtype"),
+        ('engine = "chunkformer"', 'engine = "nemo"', r"asr\.engine"),
+        ('model = "khanhld/chunkformer-rnnt-large-vie"', 'model = ""', r"asr\.model"),
+        ('dtype = "auto"\nbatch_size = 8\ngenerate_kwargs = { language = "vi", task = "transcribe", temperature = 0.0, beam_size = 1', 'dtype = "int8"\nbatch_size = 8\ngenerate_kwargs = { language = "vi", task = "transcribe", temperature = 0.0, beam_size = 1', r"asr\.dtype"),
+        ('merge_weights = "configs/asr_merge/h_v1.json"', 'merge_weights = "configs/asr_merge/nope.json"', r"merge_weights"),
+        ('merge_weights = "configs/asr_merge/h_v1.json"\n', "", r"asr\.secondary"),
+        ('engine = "faster_whisper", model', 'engine = "nemo", model', r"asr\.secondary\.engine"),
     ],
 )
 def test_asr_engine_and_model_validated(tmp_path: Path, repo_root: Path, old: str, new: str, key: str) -> None:

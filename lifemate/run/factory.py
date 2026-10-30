@@ -32,6 +32,7 @@ from lifemate.agent.guards import build_guard_chain
 from lifemate.agent.prompt import PromptBuilder
 from lifemate.agent.tooldocs import CatalogIndex
 from lifemate.backends.asr import ASRTranscriber, GoldTranscriber
+from lifemate.backends.asr_merged import MergedASR
 from lifemate.backends.llm import FakeLLM, VLLMBackend
 from lifemate.core.config import Config, ConfigError, EnvProfile
 from lifemate.core.envinfo import EnvInfo, resolve_dtype
@@ -94,7 +95,11 @@ LLM_BACKENDS: dict[str, Callable[[Config, EnvProfile, Sequence[Sample], EnvInfo,
 }
 TRANSCRIBERS: dict[str, Callable[[Config, Path, str], Transcriber]] = {
     "gold": lambda cfg, root, split: GoldTranscriber(),
-    "asr": lambda cfg, root, split: ASRTranscriber(cfg.asr, data_root=root, split=split),
+    "asr": lambda cfg, root, split: (
+        MergedASR(cfg.asr, data_root=root, split=split)
+        if cfg.asr.merge_weights
+        else ASRTranscriber(cfg.asr, data_root=root, split=split)
+    ),
 }
 
 

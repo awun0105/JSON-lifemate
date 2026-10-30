@@ -688,6 +688,12 @@ khác nhận đối tượng qua tham số hàm khởi tạo. Không có biến 
 
 ## 10. Chấm điểm và đo lường: [`lifemate/eval`](../lifemate/eval)
 
+
+### 6.6. Engine ghép hai mô hình: [`lifemate/backends/asr_merged.py`](../lifemate/backends/asr_merged.py)
+
+`MergedASR` là ASR của hệ thống từ D59, thay `ASRTranscriber` khi `asr.merge_weights` khác rỗng (`lifemate/run/factory.py › TRANSCRIBERS`). Với mỗi mẫu: (1) mô hình chính ChunkFormer RNNT chép mọi câu qua `ASRTranscriber` (bộ lọc câu bịa như thường); (2) mô hình phụ whisper-large-v3 (`[asr].secondary`) chép lại từng câu với câu mồi theo mẫu E2 của `asr_prompt`, có lớp bảo vệ g4 (`asr_guard.needs_retry` so với phần cố định; hỏng thì chép lại không câu mồi); câu rỗng hoặc bị bộ lọc cắt thì bỏ; (3) `asr_merge.split_regions` đặt hai bản cạnh nhau, `candidate_regions` tìm vùng large-v3 có từ tiếng Anh mới; nếu có, `score_texts` của large-v3 không câu mồi chấm điểm âm thanh câu A và từng câu B (`candidate_scoring.candidate_pairs`); (4) bộ phân loại H (`asr_v3_analysis.h_decider`, trọng số `configs/asr_merge/h_v1.json`) quyết định từng vùng, `assemble` ghép lại; (5) `asr_numbers.digitize` đổi số đọc thành chữ số. `stats` cộng dồn thời gian từng bước và số vùng, ghi log `asr_merged` mỗi mẫu. Test `tests/test_asr_merged.py` phát lại chữ và điểm của các phiên K2, K3 qua hai backend giả và đòi kết quả trùng từng byte với `asr_v4_report` (`digitized(apply_decider(...))`).
+
+`MergeWeights.load` từ chối file có thứ tự đặc trưng khác `asr_v3_analysis.FEATURES`. Trọng số xuất bằng `python -m lifemate.eval.asr_v4_report export-h`; mọi số học trên train.
 ### 10.1. Bộ chấm: [`lifemate/eval/score.py`](../lifemate/eval/score.py)
 
 Mô phỏng đúng luật chấm của BTC (luật gốc chép trong docstring của file):

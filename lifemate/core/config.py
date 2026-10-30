@@ -120,6 +120,11 @@ class ASRConfig:
         prompt_guard_max_compression: ngưỡng tỉ lệ nén của lớp bảo vệ; lớn hơn là câu lặp.
         initial_prompt_file: file câu mồi (đường dẫn tính từ gốc repo, ví dụ `configs/asr_prompts/en_top10_v1.txt`);
             `load_config` đọc file và đưa nội dung vào `generate_kwargs.initial_prompt`. Rỗng là không dùng.
+        merge_weights: file trọng số của engine ghép hai mô hình (`configs/asr_merge/h_v1.json`, đường dẫn tính từ
+            gốc repo). Khác rỗng thì `[asr]` là mô hình chính (ChunkFormer RNNT) và `secondary` là mô hình phụ
+            (whisper-large-v3); hệ thống chạy `lifemate.backends.asr_merged.MergedASR`. Rỗng là một mô hình.
+        secondary: bảng cấu hình mô hình phụ khi dùng `merge_weights`: cùng khoá với `[asr]` (`engine`, `model`,
+            `revision`, `generate_kwargs`, ...), không có `backend`, `merge_weights`, `secondary`.
     """
 
     backend: str
@@ -135,6 +140,8 @@ class ASRConfig:
     prompt_guard_ngram: int = 0  # câu hỏng do câu mồi thì chép lại không câu mồi (`lifemate.backends.asr_guard`)
     prompt_guard_max_compression: float = 2.4  # tỉ lệ nén zlib; như ngưỡng câu lặp của faster-whisper
     initial_prompt_file: str = ""  # câu mồi có phiên bản trong configs/asr_prompts/, giống agent.system_prompt
+    merge_weights: str = ""  # configs/asr_merge/<phiên bản>.json: bật engine ghép RNNT + large-v3 (asr_v3.md mục 7.2)
+    secondary: dict[str, Any] = dataclasses.field(default_factory=dict)  # mô hình phụ của engine ghép
 
 
 ASR_ENGINE_NAMES = frozenset({"faster_whisper", "hf_seq2seq", "chunkformer", "nemo_ctc"})
@@ -157,6 +164,8 @@ _ASR_OPTIONAL = frozenset(
         "prompt_guard_ngram",
         "prompt_guard_max_compression",
         "initial_prompt_file",
+        "merge_weights",
+        "secondary",
     }
 )
 
@@ -269,6 +278,28 @@ def _build(cls: type[_T], section: str, raw: Any, optional: frozenset[str] = fro
     return cls(**raw)
 
 
+def secondary_config(asr: ASRConfig) -> ASRConfig:
+    """`ASRConfig` của mô hình phụ trong engine ghép: bảng `asr.secondary` chồng lên các khoá chung của `[asr]`
+    (`device`, `dtype`, `sample_rate`, `sanitize`), không mang `merge_weights` hay `secondary`.
+
+    Lỗi:
+        ConfigError: khi `asr.secondary` có khoá lạ hoặc khoá không được phép (`backend`, `merge_weights`,
+            `secondary`).
+    """
+    forbidden = {"backend", "merge_weights", "secondary"}
+    bad = sorted(set(asr.secondary) & forbidden)
+    _check(not bad, f"asr.secondary: keys not allowed: {', '.join(bad)}")
+    base = {
+        "backend": "asr",
+        "device": asr.device,
+        "dtype": asr.dtype,
+        "sample_rate": asr.sample_rate,
+        "sanitize": asr.sanitize,
+        "batch_size": 1,
+    }
+    return _build(ASRConfig, "asr.secondary", {**base, **asr.secondary}, optional=_ASR_OPTIONAL)
+
+
 def _check(cond: bool, msg: str) -> None:
     """Báo `ConfigError` với thông báo `msg` khi `cond` sai."""
     if not cond:
@@ -365,6 +396,18 @@ def load_config(path: Path, overrides: Sequence[str] = ()) -> Config:
         not ngram or bool(asr.generate_kwargs.get("initial_prompt")),
         "asr.prompt_guard_ngram: needs asr.generate_kwargs.initial_prompt",
     )
+    _check(isinstance(asr.secondary, dict), "asr.secondary: must be a table")
+    if asr.merge_weights:
+        _check(repo_path(asr.merge_weights).is_file(), f"asr.merge_weights: {asr.merge_weights} not found")
+        _check(bool(asr.secondary), "asr.merge_weights: needs asr.secondary (the whisper model)")
+        secondary = secondary_config(asr)
+        _check(
+            secondary.engine in ASR_ENGINE_NAMES,
+            f"asr.secondary.engine: {secondary.engine!r} not in {'|'.join(sorted(ASR_ENGINE_NAMES))}",
+        )
+        _check(bool(secondary.model), "asr.secondary.model: required")
+    else:
+        _check(not asr.secondary, "asr.secondary: only used with asr.merge_weights")
     _check(
         isinstance(agent.guards, list) and all(isinstance(g, str) for g in agent.guards),
         "agent.guards: must be a list of str",

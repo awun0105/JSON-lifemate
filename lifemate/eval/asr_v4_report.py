@@ -3,6 +3,7 @@
 Cách dùng (từ thư mục gốc repo):
   python -m lifemate.eval.asr_v4_report l1 --k1 <K1> --k2 <K2> --k3 <K3> --winner E2 --split train --out <thư mục>
   python -m lifemate.eval.asr_v4_report l1 --k1 <K1> --k2 <K2> --k3 <K3> --winner E2 --split val_seen --out <thư mục>
+  python -m lifemate.eval.asr_v4_report export-h --k1 <K1> --k2 <K2> --k3 <K3> --out configs/asr_merge/h_v1.json
 
 Nội dung chính:
 - `h_full_train`: học lại bộ quyết định H trên cả 1 093 mẫu train như D54 (`asr_v3_report.fit_h`), trả về cách
@@ -10,6 +11,8 @@ Nội dung chính:
 - `merged_rows`: chữ ghép H của một tập (RNNT làm nền, large-v3 câu mồi thắng ở các đoạn H chọn).
 - `stage_l1`: thử nghiệm L1: áp `asr_numbers.digitize` lên chữ RNNT và chữ ghép H, so bốn hệ thống bằng `compare`
   (bootstrap ghép cặp theo mẫu) với mốc là ghép H; thêm số câu có chữ số và số chữ số đổi sai.
+- `stage_export_h`: ghi bộ quyết định H (mô hình đã học trên cả train, bảng độ tin cậy, câu mồi, lớp bảo vệ) thành
+  file JSON có phiên bản trong `configs/asr_merge/`, để engine `MergedASR` của hệ thống thật nạp lên.
 - `stage_l2`: thử nghiệm L2: áp `asr_entities.correct` (danh sách ứng viên của từng mẫu tại từng lượt) lên chữ ghép
   H + L1, so với mốc H + L1; đếm số lần thay và số lần thay đúng (tên thay có trong đáp án), và tỉ lệ từ tiếng Anh bị
   mất mà có trong danh sách ứng viên (trần của L2).
@@ -70,12 +73,8 @@ def load_parts(args: argparse.Namespace, parts: Sequence[str]) -> dict[str, Any]
     return {"samples": samples, "context": context, "rnnt": rnnt, "utts": utts}
 
 
-def h_full_train(args: argparse.Namespace) -> tuple[DeciderMaker, dict[str, Any]]:
-    """Bộ quyết định H học trên cả train (D54): mô hình của `fit_h`, bảng độ tin cậy đếm trên cả train.
-
-    Trả về:
-        (hàm quyết định dùng với từ điển ngữ cảnh của tập đích, thông tin đã học: l2, số đoạn).
-    """
+def fit_h_full_train(args: argparse.Namespace) -> tuple[A.LogisticModel, dict[str, float], dict[str, Any]]:
+    """Mô hình H và bảng độ tin cậy học trên cả 1 093 mẫu train (D54), kèm thông tin đã học (l2, số đoạn)."""
     _, prompt_words = _fixed_prompt()
     train = load_parts(args, SPLIT_PARTS["train"])
     if len(train["samples"]) != 1093:
@@ -83,11 +82,43 @@ def h_full_train(args: argparse.Namespace) -> tuple[DeciderMaker, dict[str, Any]
     model, l2, _ = fit_h(train["utts"], train["context"], prompt_words)
     rel = A.reliability(A.count_prompt_words(train["utts"], prompt_words))
     info = {"l2": l2, "train_regions": sum(len(u.candidates) for u in train["utts"])}
+    return model, rel, info
+
+
+def h_full_train(args: argparse.Namespace) -> tuple[DeciderMaker, dict[str, Any]]:
+    """Bộ quyết định H học trên cả train (D54).
+
+    Trả về:
+        (hàm quyết định dùng với từ điển ngữ cảnh của tập đích, thông tin đã học: l2, số đoạn).
+    """
+    _, prompt_words = _fixed_prompt()
+    model, rel, info = fit_h_full_train(args)
 
     def make(context: Mapping[str, frozenset[str]]) -> A.RegionDecider:
         return A.h_decider(model, context, prompt_words, rel)
 
     return make, info
+
+
+def stage_export_h(args: argparse.Namespace) -> dict[str, Any]:
+    """File trọng số của `MergedASR` (`lifemate/backends/asr_merged.py`): mô hình H, bảng độ tin cậy, câu mồi, lớp
+    bảo vệ, thứ tự đặc trưng. Mọi số đều học trên train; không có số nào từ val."""
+    from lifemate.eval.asr_v3 import FIXED_PROMPT_FILE, GUARD_MAX_COMPRESSION, GUARD_NGRAM
+
+    model, rel, info = fit_h_full_train(args)
+    return {
+        "version": args.out.stem,
+        "description": "Bộ quyết định ghép H (asr_v3.md mục 7.2, D54) học trên cả 1 093 mẫu train; đổi số L1 (D56)",
+        "prompt_file": FIXED_PROMPT_FILE,
+        "prompt_variant": "E2",
+        "guard": {"ngram": GUARD_NGRAM, "max_compression": GUARD_MAX_COMPRESSION},
+        "features": list(A.FEATURES),
+        "threshold": 0.5,
+        "model": dataclasses.asdict(model),
+        "reliability": dict(sorted(rel.items())),
+        "digitize": True,
+        "trained_on": info,
+    }
 
 
 def digitized(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -281,7 +312,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     p2.add_argument("--winner", default="E2")
     p2.add_argument("--split", choices=sorted(SPLIT_PARTS), default="train")
     p2.add_argument("--out", type=Path, required=True)
+    pe = sub.add_parser("export-h")
+    for k in ("--k1", "--k2", "--k3"):
+        pe.add_argument(k, type=Path, required=True)
+    pe.add_argument("--winner", default="E2")
+    pe.add_argument("--out", type=Path, required=True, help="file JSON, ví dụ configs/asr_merge/h_v1.json")
     args = ap.parse_args(argv)
+    if args.cmd == "export-h":
+        weights = stage_export_h(args)
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(weights, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        print(json.dumps({k: weights[k] for k in ("version", "trained_on", "model")}, ensure_ascii=False))
+        return 0
     args.out.mkdir(parents=True, exist_ok=True)
     if args.split == "val_unseen":
         raise SystemExit("val_unseen bị khoá (D53): chỉ đo khi chốt cấu hình nộp bài")

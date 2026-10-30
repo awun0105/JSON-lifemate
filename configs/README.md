@@ -9,5 +9,7 @@
 | `fake.toml` | Thay LLM bằng mô hình giả phát lại đáp án, để kiểm tra cả đường ống trên máy không có GPU. |
 | `env/` | Profile cho từng loại máy: dữ liệu ở đâu, lưu kết quả ở đâu, lấy HF token từ đâu. |
 | `prompts/` | Prompt hệ thống của LLM. |
+| `asr_prompts/` | Câu mồi (`initial_prompt`) cho ASR kiểu Whisper. |
+| `asr_merge/` | Trọng số của engine ghép RNNT + whisper-large-v3 (bộ phân loại H), dùng khi `asr.merge_weights` khác rỗng. |
 | `splits/` | Danh sách id của từng tập chia dữ liệu. Không có trong git; sinh bằng `make splits`. |
 | `train/` | Cấu hình fine-tune LLM và ASR. |
