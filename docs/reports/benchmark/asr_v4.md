@@ -1,7 +1,7 @@
 # Báo cáo benchmark ASR lần 4: giá trị tham số trong chữ ASR (đổi số, sửa tên, dữ liệu fine-tune từ chữ ASR)
 
-Ngày lập kế hoạch: 31/10/2026. Trạng thái: **L1 đã đo và nhận (mục 3.4); L2 đã đo và loại (mục 4.4); L3a đang làm;
-L0, L3b và các việc cần GPU chưa chạy**. Phần không cần GPU (L1, L2, L3a) làm trước trên máy dev; phần cần GPU ghi rõ và chờ phiên GPU.
+Ngày lập kế hoạch: 31/10/2026. Trạng thái: **L1 đã đo và nhận (mục 3.4); L2 đã đo và loại (mục 4.4); L3a xong (mục
+5.2); L0, L3b và các việc cần GPU chưa chạy**. Phần không cần GPU (L1, L2, L3a) làm trước trên máy dev; phần cần GPU ghi rõ và chờ phiên GPU.
 
 Lần 3 ([`asr_v3.md`](asr_v3.md), mục "Nghiệm thu lần 3") kết thúc với ba số đếm trên `val_seen`:
 
@@ -220,12 +220,23 @@ chữ bẩn (lệch giữa huấn luyện và chạy).
 
 ### 5.2. Giải pháp
 
-L3a (không cần GPU): thêm vào bộ dựng SFT (`lifemate/train/sft_data.py`) lựa chọn lấy câu người dùng từ chữ ASR đã lưu
-(RNNT, ghép H, sau L1 và L2 nếu đã chốt) thay cho chữ chuẩn, giữ nguyên lời gọi đáp án; mỗi mẫu có thể sinh cả hai bản
-(chuẩn và ASR). Chỉ dùng chữ của `train` (chữ K2 của 1 093 mẫu đã có), không dùng val. L3b (cần GPU, phối hợp lead):
-fine-tune với dữ liệu này và đo điểm thi trên `val_seen` so với mô hình học trên chữ chuẩn.
+Bộ dựng SFT ([`lifemate/train/sft_data.py`](../../../lifemate/train/sft_data.py)) đã có sẵn lựa chọn
+`transcript_source = "asr" | "mix"` đọc chữ ASR từ một cache (SPEC 6.2.1); cái thiếu là cache của **pipeline đã chốt**:
+cache cũ `data/asr/train_asr.json` (28/10) là large-v3 beam 5 đứng riêng, không còn là ASR của hệ thống.
 
-Trạng thái: chưa làm.
+L3a (không cần GPU, đã làm 31/10, D58): [`lifemate/train/hyps_cache.py`](../../../lifemate/train/hyps_cache.py) dựng
+cache từ chữ đã lưu của phiên K2 và K3 qua đúng chuỗi xử lý đã chốt (ghép H học trên cả train, rồi `digitize`), đúng
+định dạng của `asr_cache.py`, cho `train` (1 093 mẫu) và `val_seen` (274); `val_unseen` để dành (D53). Kết quả:
+`data/asr/train_asr_v3h.json` (không có trên git, thư mục `data/` bị bỏ qua). Dữ liệu SFT dựng từ cache này với
+`configs/train/llm_v2.toml` (ChatML, D50): `data/sft/v2_asr.jsonl` 1 047 dòng (46 mẫu bỏ vì lời gọi đáp án dùng app giữ
+lại, không liên quan ASR; 3% dòng phục hồi lỗi), `data/sft/v2_val_seen_asr.jsonl` 274 dòng để đo loss. Kiểm tra bằng
+mắt: câu người dùng của `train_0007` trong dữ liệu là "tập báo thức 5 giờ nhé à không 5 rưỡi sáng mai đó", đúng chữ RNNT
+sau khi đổi số.
+
+L3b (cần GPU, phối hợp lead): fine-tune với dữ liệu này và đo điểm thi trên `val_seen` so với mô hình học trên chữ
+chuẩn; đo cả hai nguồn chữ lúc chạy (chữ chuẩn và chữ H + L1) để tách phần LLM tự sửa được.
+
+Trạng thái: L3a xong; L3b chờ GPU.
 
 ## 6. Việc kỹ thuật kèm theo (từ "Sau lần 3")
 
@@ -242,7 +253,7 @@ Trạng thái: chưa làm.
 |---|---|---|---|
 | 1 | L1: bộ đổi số, test, đo trên chữ đã lưu (train, `val_seen` một lần) | Không | Xong 31/10: đạt trên train, cùng chiều trên `val_seen` (mục 3.4) |
 | 2 | L2: danh sách ứng viên từ mẫu và catalog, bộ sửa tên, test, đo như L1 | Không | Xong 31/10: loại (15 lần thay trên 3 593 câu, 6 sai; trần 31%) |
-| 3 | L3a: dựng dữ liệu SFT từ chữ ASR của train | Không | Chưa làm |
+| 3 | L3a: dựng dữ liệu SFT từ chữ ASR của train | Không | Xong 31/10 (D58) |
 | 4 | `MergedASR` với H, L1, L2 (phần code và test không cần GPU) | Không | Chưa làm |
 | 5 | L0 và chạy lại J ở ChatML (J0, J1, ghép H, ghép H + L1 + L2) trên `val_seen` | Có | Chờ GPU |
 | 6 | L3b: fine-tune và đo | Có | Chờ lead |

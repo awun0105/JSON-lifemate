@@ -24,7 +24,7 @@ import argparse
 import dataclasses
 import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +41,8 @@ SPLIT_PARTS = {
     "val_unseen": ("val_unseen",),
 }
 METRIC_KEYS = ("entity_miss_rate", "wer", "wer_nonum", "vi_only_wer", "en_word_recall")
+# Hàm nhận từ điển ngữ cảnh của một tập và trả về cách quyết định H cho tập đó.
+DeciderMaker = Callable[[Mapping[str, frozenset[str]]], A.RegionDecider]
 _DIGIT = re.compile(r"\d+")
 
 
@@ -68,7 +70,7 @@ def load_parts(args: argparse.Namespace, parts: Sequence[str]) -> dict[str, Any]
     return {"samples": samples, "context": context, "rnnt": rnnt, "utts": utts}
 
 
-def h_full_train(args: argparse.Namespace) -> tuple[A.RegionDecider, dict[str, Any]]:
+def h_full_train(args: argparse.Namespace) -> tuple[DeciderMaker, dict[str, Any]]:
     """Bộ quyết định H học trên cả train (D54): mô hình của `fit_h`, bảng độ tin cậy đếm trên cả train.
 
     Trả về:
@@ -85,7 +87,7 @@ def h_full_train(args: argparse.Namespace) -> tuple[A.RegionDecider, dict[str, A
     def make(context: Mapping[str, frozenset[str]]) -> A.RegionDecider:
         return A.h_decider(model, context, prompt_words, rel)
 
-    return make, info  # type: ignore[return-value]
+    return make, info
 
 
 def digitized(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
