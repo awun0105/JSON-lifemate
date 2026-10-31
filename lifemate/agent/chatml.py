@@ -61,8 +61,12 @@ def normalize_input_text(text: str | None) -> str:
     return " ".join(unicodedata.normalize("NFC", text).split())
 
 
-def build_system_prompt(context: Mapping[str, Any]) -> str:
-    """Lời dặn hệ thống của lead, kèm thời gian, múi giờ, hồ sơ và vị trí của mẫu."""
+def build_system_prompt(context: Mapping[str, Any], extra_rules: Sequence[str] = ()) -> str:
+    """Lời dặn hệ thống của lead, kèm thời gian, múi giờ, hồ sơ và vị trí của mẫu.
+
+    `extra_rules` (`[agent].extra_rules`) là các quy tắc thêm, chèn sau bốn quy tắc của lead, mỗi quy tắc một dòng `- `.
+    Rỗng (mặc định) thì chuỗi giống hệt của lead, khớp dữ liệu SFT của lead.
+    """
     current_time = context.get("current_time", "")
     timezone = context.get("timezone", "Asia/Ho_Chi_Minh")
     user_prof = context.get("user_profile", {})
@@ -77,7 +81,8 @@ def build_system_prompt(context: Mapping[str, Any]) -> str:
         "hãy gọi 'sys.ask_missing_info' để hỏi lại người dùng.\n"
         "- Khi hoàn tất mọi hành động hoặc nếu yêu cầu không cần gọi công cụ nào, "
         "hãy trả lời bằng văn bản kết thúc lượt.\n"
-        f"- Thời gian hiện tại: {current_time} (Múi giờ: {timezone})\n"
+        + "".join(f"- {rule}\n" for rule in extra_rules)
+        + f"- Thời gian hiện tại: {current_time} (Múi giờ: {timezone})\n"
     )
     if user_prof:
         prompt += f"- Hồ sơ người dùng: {json.dumps(user_prof, ensure_ascii=False)}\n"
@@ -184,6 +189,7 @@ def build_messages(
     installed_apps: Mapping[str, Any] | None = None,
     compact: bool = False,
     skip_turns: int = 0,
+    extra_rules: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
     """Danh sách tin nhắn của một mẫu trước lượt trả lời đầu tiên của mô hình.
 
@@ -194,11 +200,16 @@ def build_messages(
         installed_apps: app đã cài dùng để dựng danh sách tool; `None` thì lấy từ `sample.context`.
         compact: rút gọn schema tool.
         skip_turns: số lượt lịch sử cũ nhất bị bỏ (rút gọn khi quá dài).
+        extra_rules: quy tắc thêm vào lời dặn hệ thống (`build_system_prompt`).
     """
     context = dict(sample.context)
     apps = installed_apps if installed_apps is not None else (context.get("installed_apps") or {})
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": build_system_prompt(context), "tools": tool_schemas(index, apps, compact=compact)}
+        {
+            "role": "system",
+            "content": build_system_prompt(context, extra_rules),
+            "tools": tool_schemas(index, apps, compact=compact),
+        }
     ]
     for i, turn in enumerate(sample.history):
         if i < skip_turns:
@@ -321,6 +332,7 @@ class ChatMLPrompt:
         max_tokens: số token sinh tối đa mỗi bước; phải chừa chỗ này.
         compact: rút gọn schema tool ngay từ mức 0.
         held_out_apps: app bị giấu ở train mode.
+        extra_rules: quy tắc thêm vào lời dặn hệ thống (`[agent].extra_rules`).
     """
 
     def __init__(
@@ -332,6 +344,7 @@ class ChatMLPrompt:
         max_tokens: int,
         compact: bool = False,
         held_out_apps: frozenset[str] = frozenset(),
+        extra_rules: Sequence[str] = (),
     ) -> None:
         self._index = index
         self._counter = counter
@@ -339,6 +352,7 @@ class ChatMLPrompt:
         self._max_tokens = max_tokens
         self._compact = compact
         self._held_out = held_out_apps
+        self._rules = tuple(extra_rules)
 
     def installed(self, sample: Sample, train_mode: bool) -> dict[str, Any]:
         """`installed_apps` của mẫu; ở train mode bỏ app held-out."""
@@ -351,7 +365,7 @@ class ChatMLPrompt:
         """Tin `system` của mẫu (system prompt, ngữ cảnh, danh sách tool): phần đầu của mọi prompt của mẫu, không phụ
         thuộc chữ ASR, nên đọc trước được trong lúc ASR chạy. Trùng tin đầu của `start` ở mức rút gọn 0."""
         msgs = build_messages(sample, self._index, _EMPTY_TRANSCRIPT, installed_apps=self.installed(sample, train_mode),
-                              compact=self._compact)  # fmt: skip
+                              compact=self._compact, extra_rules=self._rules)  # fmt: skip
         return msgs[:1]
 
     def allowed_tools(self, sample: Sample, train_mode: bool = False) -> tuple[str, ...]:
@@ -377,16 +391,20 @@ class ChatMLPrompt:
         if train_mode:
             self._check_leak(sample)
         apps = self.installed(sample, train_mode)
-        msgs = build_messages(sample, self._index, transcript, installed_apps=apps, compact=self._compact)
+        r = self._rules
+        msgs = build_messages(sample, self._index, transcript, installed_apps=apps, compact=self._compact,
+                              extra_rules=r)  # fmt: skip
         if self.fits(msgs):
             return msgs, 0
-        msgs = build_messages(sample, self._index, transcript, installed_apps=apps, compact=True)
+        msgs = build_messages(sample, self._index, transcript, installed_apps=apps, compact=True, extra_rules=r)
         if self.fits(msgs):
             return msgs, SHRINK_COMPACT
         skip = 0
         while len(sample.history) - skip - 2 >= _MIN_HISTORY_TURNS:
             skip += 2
-            msgs = build_messages(sample, self._index, transcript, installed_apps=apps, compact=True, skip_turns=skip)
+            msgs = build_messages(
+                sample, self._index, transcript, installed_apps=apps, compact=True, skip_turns=skip, extra_rules=r
+            )
             if self.fits(msgs):
                 break
         return msgs, SHRINK_HISTORY

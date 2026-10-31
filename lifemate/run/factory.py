@@ -34,7 +34,7 @@ from lifemate.agent.tooldocs import CatalogIndex
 from lifemate.backends.asr import ASRTranscriber, GoldTranscriber
 from lifemate.backends.asr_merged import MergedASR
 from lifemate.backends.llm import FakeLLM, VLLMBackend
-from lifemate.core.config import Config, ConfigError, EnvProfile
+from lifemate.core.config import Config, ConfigError, EnvProfile, extra_rules
 from lifemate.core.envinfo import EnvInfo, resolve_dtype
 from lifemate.core.tokens import HFTokenCounter, SimpleTokenCounter
 from lifemate.core.types import AgentObserver, LLMBackend, Sample, TokenCounter, Transcriber
@@ -135,6 +135,8 @@ def prompt_sha256(config: Config, repo_root: Path) -> str:
     """
     if config.agent.format == "chatml":
         source = (repo_root / "lifemate" / "agent" / "chatml.py").read_text(encoding="utf-8")
+        # Quy tắc thêm là một phần của lời dặn hệ thống: đổi quy tắc thì đổi hash.
+        source += "".join(f"\n{rule}" for rule in extra_rules(config.agent))
     else:
         source = _template(config, repo_root)
     return hashlib.sha256(source.encode("utf-8")).hexdigest()
@@ -196,6 +198,7 @@ def build(
             max_tokens=config.llm.max_tokens,
             compact=config.agent.compact_tools,
             held_out_apps=_held_out(repo_root),
+            extra_rules=extra_rules(config.agent),
         )
         agent = ChatMLAgent(llm, timed, chatml, guards, index, counter, config.agent, config.llm, observer=observer)
     else:

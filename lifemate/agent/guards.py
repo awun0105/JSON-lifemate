@@ -5,6 +5,7 @@ Nội dung chính:
 - `SchemaGuard` (G2): chặn tham số mà `env.validate` từ chối.
 - `DuplicateWriteGuard` (G3): cảnh báo khi một lời gọi `write` bị lặp lại y hệt.
 - `AfterAskGuard` (G4): dừng nếu đã hỏi lại người dùng; mặc định không bật.
+- `DuplicateReadGuard` (G6): chặn lời gọi `read` giống hệt một lời gọi đã chạy trong lượt; kết quả đã có ở trên.
 - `GroundedIdGuard` (G5): chặn mã (tham số `*_id`) chưa từng xuất hiện trong những gì mô hình đã đọc, tức mô hình đoán
   mã thay vì tra cứu trước.
 - `GuardChain`: chạy các guard theo thứ tự và trả về quyết định cuối.
@@ -84,6 +85,30 @@ class AfterAskGuard:
         return PASS
 
 
+class DuplicateReadGuard:
+    """G6: chặn lời gọi `read` giống hệt (cùng tool, cùng tham số) một lời gọi đã chạy trong lượt hiện tại.
+
+    Kết quả của lần trước đã nằm trong hội thoại, nên gọi lại chỉ tốn một bước và thêm một lời gọi thừa vào bài nộp
+    (bộ chấm tính vào U). Đáp án train không có lời gọi đọc nào lặp y hệt; trace L0 có mẫu lặp `list_bills` 5 lần tới
+    hết giờ. Lời gọi `write` lặp không bị chặn ở đây (G3 chỉ cảnh báo), vì đáp án có ghi lặp thật.
+    """
+
+    def check(self, action: Action, ctx: GuardContext) -> GuardResult:
+        """BLOCK với mã `duplicate_read` khi lời gọi `read` này đã chạy y hệt trước đó; còn lại PASS."""
+        if ctx.tool_kind.get(action.name or "") != "read":
+            return PASS
+        key = canonical_json(action.arguments or {})
+        for prev in ctx.calls_so_far:
+            if prev.name == action.name and canonical_json(prev.arguments or {}) == key:
+                return GuardResult(
+                    GuardVerdict.BLOCK,
+                    ErrorCode.DUPLICATE_READ,
+                    f"đã gọi {action.name} với đúng tham số này; kết quả đã có ở trên, "
+                    "hãy dùng kết quả đó để làm bước tiếp theo hoặc trả lời",
+                )
+        return PASS
+
+
 class GroundedIdGuard:
     """G5: mỗi tham số `*_id` dạng chuỗi phải là mã đã xuất hiện trong chữ mô hình đã đọc (`ctx.seen_text`).
 
@@ -147,7 +172,12 @@ GUARD_REGISTRY: dict[str, type] = {
     "duplicate_write": DuplicateWriteGuard,
     "after_ask": AfterAskGuard,
     "grounded_ids": GroundedIdGuard,
+    "duplicate_read": DuplicateReadGuard,
 }
+
+# Mã chặn không tốn lượt thử lại: mô hình không viết sai định dạng mà chỉ cần đi bước khác (tra cứu trước, dùng kết quả
+# đã có); số bước vẫn bị `max_steps` giới hạn nên không lặp vô hạn.
+FREE_BLOCKS = frozenset({ErrorCode.UNGROUNDED_ID, ErrorCode.DUPLICATE_READ})
 
 
 def build_guard_chain(names: Sequence[str]) -> GuardChain:

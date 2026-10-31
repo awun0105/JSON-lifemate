@@ -54,6 +54,7 @@ class ErrorCode(Enum):
     INVALID_ARGS = "invalid_args"
     DUPLICATE_WRITE = "duplicate_write"
     UNGROUNDED_ID = "ungrounded_id"
+    DUPLICATE_READ = "duplicate_read"
     EXCEPTION = "exception"
 
 

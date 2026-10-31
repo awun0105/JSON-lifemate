@@ -42,7 +42,7 @@ import structlog
 from lifemate.agent.agent import PARSE_ERROR_MSG, transcript_source
 from lifemate.agent.budget import Budget
 from lifemate.agent.chatml import ChatMLPrompt, arguments_text, parse_reply, tool_call_constraint, tool_content
-from lifemate.agent.guards import GuardChain
+from lifemate.agent.guards import FREE_BLOCKS, GuardChain
 from lifemate.agent.observers import NullObserver
 from lifemate.agent.tooldocs import ASK_TOOL, CatalogIndex
 from lifemate.core.config import AgentConfig, LLMConfig
@@ -210,6 +210,8 @@ class ChatMLAgent:
             run.messages.append({"role": "tool", "tool_call_id": cid, "name": name, "content": tool_content(error)})
             step = StepRecord(**base, action=action, guard=decision.verdict, warnings=warn_codes, error=decision.code)
             self._record(run, step)
+            if decision.code in FREE_BLOCKS:
+                return None
             return None if run.budget.retry() else StopReason.RETRIES_EXHAUSTED
         if decision.verdict is GuardVerdict.STOP:
             self._record(run, StepRecord(**base, action=action, guard=decision.verdict, warnings=warn_codes))

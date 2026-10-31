@@ -387,3 +387,26 @@ def test_seen_text_excludes_the_call_being_checked() -> None:
     ]
     text = seen_text(messages)
     assert "evt_01" in text and "calendar.list_events" in text and "evt_99" not in text
+
+
+def test_extra_rules_are_inserted_after_lead_rules_and_default_is_unchanged() -> None:
+    """`extra_rules` chèn mỗi quy tắc một dòng sau bốn quy tắc của lead, trước dòng thời gian; mặc định không đổi gì."""
+    from lifemate.agent.chatml import build_system_prompt
+
+    ctx = {"current_time": "2026-11-10T08:00:00+07:00"}
+    base = build_system_prompt(ctx)
+    ruled = build_system_prompt(ctx, ("Chỉ điền tham số người dùng nói.",))
+    assert ruled == base.replace("- Thời gian hiện tại", "- Chỉ điền tham số người dùng nói.\n- Thời gian hiện tại")
+    rules_file = Path(__file__).resolve().parent.parent / "configs" / "prompts" / "chatml_rules_v1.txt"
+    assert len([x for x in rules_file.read_text(encoding="utf-8").splitlines() if x.strip()]) == 3
+
+
+def test_free_blocks_do_not_spend_retries() -> None:
+    """Chặn vì đọc lặp không tốn lượt thử lại: lặp ba lần (quá `max_retries` = 2) vẫn chạy tiếp tới câu kết."""
+    cfg = dataclasses.replace(CFG, guards=["allowed_tool", "schema", "duplicate_read"])
+    outputs = [_call("alarm.list")] * 4 + ["Xong."]
+    agent, _ = _agent(outputs, cfg=cfg)
+    res = agent.run(_sample(), make_env(), clock=FakeClock())
+    assert res.stop_reason is StopReason.DONE
+    assert [c["name"] for c in res.tool_calls] == ["alarm.list"]
+    assert ErrorCode.DUPLICATE_READ in res.errors

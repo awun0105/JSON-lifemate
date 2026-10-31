@@ -88,6 +88,9 @@ class AgentConfig:
         prefill_prefix: `True` thì ở `format = "chatml"`, trong lúc ASR chép âm thanh, LLM đọc trước tin `system`
             (system prompt, ngữ cảnh, danh sách tool; không phụ thuộc âm thanh) để vLLM lưu vào bộ nhớ đệm phần đầu;
             lần gọi đầu chỉ phải đọc phần còn lại. Tuỳ chọn, mặc định `True`.
+        extra_rules: file quy tắc thêm vào lời dặn hệ thống ở `format = "chatml"` (đường dẫn tính từ gốc repo, ví dụ
+            `configs/prompts/chatml_rules_v1.txt`, mỗi dòng một quy tắc). Rỗng (mặc định) thì lời dặn giống hệt của
+            lead, khớp dữ liệu SFT của lead; bật thì dữ liệu SFT dựng bằng cùng config cũng có các quy tắc này.
     """
 
     max_steps: int
@@ -100,6 +103,7 @@ class AgentConfig:
     compact_tools: bool = False
     constrain_tools: bool = True
     prefill_prefix: bool = True
+    extra_rules: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,7 +158,7 @@ ASR_DTYPES = frozenset({"auto", "float32", "float16", "bfloat16"})
 # trong TOML.
 # Định dạng hội thoại với LLM (`[agent].format`) và các khoá `[agent]` được phép bỏ trống.
 AGENT_FORMATS = ("chatml", "json")
-_AGENT_OPTIONAL = frozenset({"format", "compact_tools", "constrain_tools", "prefill_prefix"})
+_AGENT_OPTIONAL = frozenset({"format", "compact_tools", "constrain_tools", "prefill_prefix", "extra_rules"})
 
 _ASR_OPTIONAL = frozenset(
     {
@@ -282,6 +286,14 @@ def _build(cls: type[_T], section: str, raw: Any, optional: frozenset[str] = fro
     return cls(**raw)
 
 
+def extra_rules(agent: AgentConfig) -> tuple[str, ...]:
+    """Các quy tắc trong file `agent.extra_rules` (mỗi dòng không rỗng một quy tắc); rỗng khi không khai."""
+    if not agent.extra_rules:
+        return ()
+    text = repo_path(agent.extra_rules).read_text(encoding="utf-8")
+    return tuple(line.strip() for line in text.splitlines() if line.strip())
+
+
 def secondary_config(asr: ASRConfig) -> ASRConfig:
     """`ASRConfig` của mô hình phụ trong engine ghép: bảng `asr.secondary` chồng lên các khoá chung của `[asr]`
     (`device`, `dtype`, `sample_rate`, `sanitize`), không mang `merge_weights` hay `secondary`.
@@ -370,6 +382,10 @@ def load_config(path: Path, overrides: Sequence[str] = ()) -> Config:
     _check(isinstance(agent.compact_tools, bool), "agent.compact_tools: must be true or false")
     _check(isinstance(agent.constrain_tools, bool), "agent.constrain_tools: must be true or false")
     _check(isinstance(agent.prefill_prefix, bool), "agent.prefill_prefix: must be true or false")
+    _check(
+        not agent.extra_rules or repo_path(agent.extra_rules).is_file(),
+        f"agent.extra_rules: {agent.extra_rules} not found",
+    )
     _check(asr.backend in {"gold", "asr"}, f"asr.backend: {asr.backend!r} not in gold|asr")
     _check(asr.engine in ASR_ENGINE_NAMES, f"asr.engine: {asr.engine!r} not in {'|'.join(sorted(ASR_ENGINE_NAMES))}")
     _check(asr.dtype in ASR_DTYPES, f"asr.dtype: {asr.dtype!r} not in {'|'.join(sorted(ASR_DTYPES))}")

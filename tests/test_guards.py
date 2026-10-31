@@ -15,6 +15,7 @@ from lifemate.agent.guards import (
     GUARD_REGISTRY,
     AfterAskGuard,
     AllowedToolGuard,
+    DuplicateReadGuard,
     DuplicateWriteGuard,
     GroundedIdGuard,
     GuardChain,
@@ -160,6 +161,7 @@ def test_registry_and_build() -> None:
     assert GUARD_REGISTRY["duplicate_write"] is DuplicateWriteGuard
     assert GUARD_REGISTRY["after_ask"] is AfterAskGuard
     assert GUARD_REGISTRY["grounded_ids"] is GroundedIdGuard
+    assert GUARD_REGISTRY["duplicate_read"] is DuplicateReadGuard
     chain = build_guard_chain(["schema", "allowed_tool"])
     assert [type(g) for g in chain.guards] == [SchemaGuard, AllowedToolGuard]
     with pytest.raises(ConfigError):
@@ -198,3 +200,14 @@ def test_grounded_ids_blocks_unseen_code_and_passes_seen_one() -> None:
     assert guard.check(call("calendar.list_events", date="2026-11-01"), with_seen).verdict is GuardVerdict.PASS
     # Không có `seen_text` (định dạng JSON cũ): không chặn gì.
     assert guard.check(call("calendar.update_event", event_id="evt_9"), base).verdict is GuardVerdict.PASS
+
+
+def test_duplicate_read_blocks_identical_read_only() -> None:
+    """G6: đọc lại y hệt bị chặn (`DUPLICATE_READ`); đọc với tham số khác, hoặc ghi lặp, thì qua."""
+    env = make_env()
+    guard = DuplicateReadGuard()
+    prev = (call("notes.search", q="mua sữa"), call("alarm.delete", alarm_id="a1"))
+    res = guard.check(call("notes.search", q="mua sữa"), ctx(env, prev))
+    assert res.verdict is GuardVerdict.BLOCK and res.code is ErrorCode.DUPLICATE_READ
+    assert guard.check(call("notes.search", q="mua bánh"), ctx(env, prev)).verdict is GuardVerdict.PASS
+    assert guard.check(call("alarm.delete", alarm_id="a1"), ctx(env, prev)).verdict is GuardVerdict.PASS

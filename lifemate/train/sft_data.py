@@ -56,7 +56,7 @@ from lifemate.agent.protocol import DONE_TEXT, call_text
 from lifemate.agent.tooldocs import ASK_TOOL, CatalogIndex
 from lifemate.backends.asr import GoldTranscriber
 from lifemate.backends.asr_sanitizer import entities_preserved
-from lifemate.core.config import AgentConfig, ConfigError, LLMConfig, load_profile
+from lifemate.core.config import AgentConfig, ConfigError, LLMConfig, extra_rules, load_profile
 from lifemate.core.envinfo import code_version
 from lifemate.core.jsonutil import canonical_json
 from lifemate.core.paths import REPO_ROOT
@@ -145,6 +145,7 @@ def make_builder(
             max_tokens=run_cfg.llm.max_tokens,
             compact=run_cfg.agent.compact_tools,
             held_out_apps=read_held_out(repo_root),
+            extra_rules=extra_rules(run_cfg.agent),
         )
     template = (repo_root / run_cfg.agent.system_prompt).read_text(encoding="utf-8")
     return PromptBuilder(
