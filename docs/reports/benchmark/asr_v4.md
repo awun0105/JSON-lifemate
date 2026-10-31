@@ -271,6 +271,55 @@ Trạng thái: L3a xong; L3b chờ GPU.
 | Đo cả hệ thống trên GPU 24 GB: thời gian từng mẫu, số mẫu quá 30 giây, bộ nhớ | Có | Chưa làm |
 | Chốt cấu hình nộp, đo `val_unseen` một lần, nộp public test một lần (D53) | Có | Chưa làm |
 
+## 6b. Lần chạy cuối của lần 4: J5, L0 mới, J6
+
+### 6b.1. Thay đổi phía agent từ sau L0 (đều có test, chưa đo trên GPU)
+
+Phân tích lỗi của L0 trên `val_seen` cho thấy điểm mất chủ yếu ở LLM, nên trước lần chạy cuối có các thay đổi sau:
+
+| Thay đổi | Quyết định | Sửa lỗi nào của L0 |
+|---|---|---|
+| Đọc trước tin `system` trong lúc ASR chạy (`prefill_prefix`) | D60 | Lần gọi đầu đọc khoảng 6 000 token, mất khoảng 18 s trên T4; 50/274 mẫu hết giờ |
+| Guard G5 `grounded_ids`: chặn mã chưa xuất hiện trong hội thoại | D61 | Mã đoán (`evt_12345`, `contact_123`): 39 lời gọi ở 34 mẫu |
+| Guard G6 `duplicate_read`; chặn của G5, G6 không tốn lượt thử lại | D62 | Lớp an toàn (1 lời gọi lặp ở L0) |
+| 6 quy tắc thêm vào lời dặn hệ thống (`configs/prompts/chatml_rules_v1.txt`, 295 token) | D62–D64 | Điền thêm tham số không bắt buộc; tin nhắn dài dòng; mã đoán; không hỏi lại khi mơ hồ (35/39 mẫu hỏi lại bị làm luôn); gọi tool khi lẽ ra không làm gì (8/22); tính giờ tương đối sai |
+
+### 6b.2. Ba lần chạy
+
+| Lần | Chạy gì | Đầu ra | Chấm |
+|---|---|---|---|
+| **J5** | Engine `MergedASR` (RNNT, large-v3 câu mồi E2, điểm âm thanh, H, đổi số) trên âm thanh thật của 274 mẫu `val_seen`, bằng `python -m lifemate.train.asr_cache` | Chữ từng câu (`.hyps.jsonl`), thời gian từng mẫu và từng phần (`.timing.jsonl`), bộ nhớ GPU đỉnh | Sau khi chạy: WER, chép đúng từ tiếng Anh, giá trị tham số thiếu so với lời chuẩn; đối chiếu chữ với bản ghép offline (phải trùng, trừ sai khác số học của GPU); thời gian p50, p95, tối đa |
+| **L0v2** | Lời chuẩn qua agent với cấu hình mới (6b.1) | Run agent | Bộ chấm của BTC; so với L0 (cấu hình cũ, cùng 274 mẫu) |
+| **J6** | Chữ của J5 qua cùng agent | Run agent | Bộ chấm của BTC; so với L0v2 (ASR còn làm mất bao nhiêu) và với J1 (pipeline ghép lấy lại được bao nhiêu so với RNNT) |
+
+J5 chạy ASR một mình trên T4 (hai mô hình ASR khoảng 3,6 GB), không cùng vLLM, vì T4 không chứa nổi cả hai; thời gian ASR
+vì vậy là thời gian khi ASR có GPU riêng. Thời gian của cả hệ thống (ASR cùng vLLM, đọc trước) cần GPU từ 24 GB, đo sau.
+
+### 6b.3. Chỉ số và cách so
+
+Tổng hợp bằng `python -m lifemate.eval.agent_report` (D63): điểm `strict` và `canon`; chênh lệch so với run mốc kèm CI
+95% bootstrap ghép cặp theo mẫu (1 000 vòng, seed 0); số mẫu tăng, giảm điểm; điểm theo loại câu (thực thi, hỏi lại,
+ngoài phạm vi); độ chính xác quyết định; loại lỗi của bộ chấm (sai trạng thái cuối, thiếu tool, sai tham số, gọi thừa);
+số mẫu hết giờ và điểm trên mẫu không hết giờ; thời gian mỗi mẫu và lần gọi đầu; số bước; số lần mỗi guard chặn.
+
+Tiêu chí đặt trước:
+
+- **Cấu hình agent mới được giữ** khi L0v2 cao hơn L0 với CI không chứa 0, và điểm nhóm thực thi không giảm có ý nghĩa.
+  Không đạt thì xem bảng theo loại câu và theo guard để biết thay đổi nào gây hại, tắt riêng thay đổi đó.
+- **Pipeline ASR** được đánh giá bằng J6 − J1 (lấy lại bao nhiêu so với RNNT) và L0v2 − J6 (còn lại bao nhiêu cho ASR).
+  J1 chạy bằng cấu hình agent cũ, nên J6 − J1 lẫn cả tác dụng của cấu hình mới; con số sạch về ASR là L0v2 − J6.
+
+### 6b.4. Giới hạn đã biết trước
+
+- Các quy tắc và G5 được thiết kế từ lỗi của L0 trên `val_seen`, nên L0v2 − L0 trên `val_seen` có thể lạc quan. Con số
+  này dùng để quyết định giữ hay tắt cấu hình mới; xác nhận sạch cần một tập chưa nhìn (phần của `train`, hoặc
+  `val_unseen` khi chốt bài nộp theo D53).
+- Một lần chạy đổi nhiều thay đổi cùng lúc; nếu L0v2 tốt hơn thì không tách được phần của từng thay đổi.
+- Trên T4 đọc trước không giấu được thời gian vì L0v2, J6 phát lại chữ (không có ASR chạy song song); 295 token quy tắc
+  thêm khoảng 1 s cho lần gọi đầu.
+
+Trạng thái: chưa chạy.
+
 ## 7. Kế hoạch
 
 | Bước | Việc | Cần GPU | Trạng thái |

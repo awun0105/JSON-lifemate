@@ -17,6 +17,6 @@ Tài liệu của dự án. `SPEC.md` là nguồn sự thật cho mã: đổi h�
 | `CONTRIBUTING.md` | Quy ước viết mã, quy trình commit, cách chia gói. |
 | `docker.md` | Build và chạy thử ảnh Docker. |
 | `runpod.md` | Chạy trên máy thuê RunPod: chọn GPU, cài đặt một lệnh, tải dữ liệu. |
-| `diagrams/` | Sơ đồ dạng ảnh (`png/`), mã nguồn HTML của hai sơ đồ trong README gốc (`src/`) và mã nguồn Mermaid cũ (`mmd/`). |
+| `diagrams/` | Sơ đồ pipeline ASR dạng Mermaid (`asr_pipeline.md`), sơ đồ dạng ảnh (`png/`), mã nguồn HTML của hai sơ đồ trong README gốc (`src/`) và mã nguồn Mermaid cũ (`mmd/`). |
 | `slides/` | Bộ slide trình bày kiến trúc và mã nguồn. Đang sửa, chưa có trong git. |
 | tệp PDF | Thể lệ gốc của ban tổ chức. |

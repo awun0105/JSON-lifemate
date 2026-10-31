@@ -607,7 +607,7 @@ vLLM không nhận tham số này thì tự bỏ.
 - **Warm-up:** chạy 2 lần một prompt khoảng 4 000 token để biên dịch kernel trước mẫu đầu tiên, để mẫu đầu không bị chậm
 bất thường.
 - **`batch_invariant`:** bật chế độ của vLLM cho kết quả không phụ thuộc kích thước batch; chỉ chạy trên GPU từ Ampere.
-- **`gpu_memory_utilization = 0.80`:** chừa khoảng 20% bộ nhớ GPU cho ASR chạy chung.
+- **`gpu_memory_utilization = 0.70`:** chừa khoảng 30% bộ nhớ GPU (khoảng 7,2 GB trên A30) cho ASR chạy chung (D60).
 
 ---
 
@@ -809,7 +809,7 @@ Các giá trị quan trọng trong [`configs/v0.toml`](../configs/v0.toml):
 | `llm.model`                      | `Qwen/Qwen3-4B-Instruct-2507`, revision cố định | Dưới 5B, Apache-2.0                          |
 | `llm.max_model_len`              | 16 384                                          | Trần của thể lệ                              |
 | `llm.max_tokens`                 | 512                                             | Một JSON lời gọi không cần dài hơn           |
-| `llm.gpu_memory_utilization`     | 0,80                                            | Chừa chỗ cho ASR                             |
+| `llm.gpu_memory_utilization`     | 0,70                                            | Chừa chỗ cho ASR (D60)                       |
 | `agent.max_steps`, `max_retries` | 10, 2                                           |                                              |
 | `agent.deadline_s`               | 29,0                                            | Chừa 1 giây so với luật 30 giây, tính cả ASR |
 | `agent.max_result_chars`         | 4 000                                           | Cắt kết quả tool dài                         |
