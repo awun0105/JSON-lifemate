@@ -23,14 +23,20 @@ Lưu ý:
 - Kết quả tool để nguyên như dữ liệu của lead (không cắt). Chỉ khi prompt sắp vượt `max_model_len`, các tin `tool` dài
   nhất mới bị cắt dần còn `[agent].max_result_chars` ký tự (rồi một phần tư số đó) để mẫu chạy tiếp thay vì dừng
   `CONTEXT_OVERFLOW` (`_fit_context`).
-- Agent không bắt `Exception`; `Runner.run_one` là ranh giới lỗi theo mẫu.
+- Agent không bắt `Exception`; `Runner.run_one` là ranh giới lỗi theo mẫu (trừ lỗi của bước đọc trước, chỉ ghi log).
+- Đọc trước (`[agent].prefill_prefix`): trong lúc ASR chạy, một luồng nền cho LLM đọc tin `system` của mẫu
+  (`ChatMLPrompt.prefix`) để vLLM lưu vào bộ nhớ đệm phần đầu; agent chờ luồng xong rồi mới gọi `generate`.
 """
 
 from __future__ import annotations
 
+import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
+
+import structlog
 
 from lifemate.agent.agent import PARSE_ERROR_MSG, transcript_source
 from lifemate.agent.budget import Budget
@@ -59,6 +65,7 @@ from lifemate.core.types import (
     Transcriber,
 )
 
+_log = structlog.get_logger(__name__)
 
 @dataclass(slots=True)
 class _Run:
@@ -231,6 +238,34 @@ class ChatMLAgent:
                 return stop
         return None
 
+    def _start_prefill(self, sample: Sample, train_mode: bool) -> Callable[[], float]:
+        """Bắt đầu đọc trước tin `system` của mẫu trong một luồng nền (`[agent].prefill_prefix`), song song với ASR.
+
+        Trả về hàm chờ luồng xong và trả số giây đọc trước (0 khi tắt, khi backend không có `prefill`, hoặc khi đọc
+        trước lỗi; lỗi chỉ ghi log vì đọc trước chỉ để nhanh hơn, không đổi kết quả). Agent gọi hàm chờ trước lần gọi
+        `generate` đầu tiên, nên engine không bao giờ chạy hai việc cùng lúc từ hai luồng.
+        """
+        prefill = getattr(self.llm, "prefill", None)
+        if not self.cfg.prefill_prefix or prefill is None:
+            return lambda: 0.0
+        messages = self.prompts.prefix(sample, train_mode)
+        box: dict[str, float] = {"s": 0.0}
+
+        def work() -> None:
+            try:
+                box["s"] = float(prefill(messages))
+            except Exception as exc:  # lỗi đọc trước không được làm hỏng mẫu
+                _log.warning("llm_prefill_failed", sample_id=sample.id, error=str(exc))
+
+        thread = threading.Thread(target=work, name=f"prefill-{sample.id}", daemon=True)
+        thread.start()
+
+        def wait() -> float:
+            thread.join()
+            return box["s"]
+
+        return wait
+
     def run(
         self,
         sample: Sample,
@@ -241,7 +276,9 @@ class ChatMLAgent:
     ) -> SampleResult:
         """Chạy vòng lặp cho một mẫu và trả về kết quả (cùng ý nghĩa các trường với `Agent.run`)."""
         budget = Budget(self.cfg, self.llm_cfg, clock)  # bấm giờ trước ASR: thời gian ASR tính vào hạn giờ
+        prefill = self._start_prefill(sample, train_mode)
         transcript = self.transcriber.transcribe(sample)
+        prefill_s = prefill()
         messages, shrink_level = self.prompts.start(sample, transcript, train_mode=train_mode)
         allowed = frozenset(self.prompts.allowed_tools(sample, train_mode))
         self.observer.on_sample_start(sample, transcript)
@@ -289,7 +326,13 @@ class ChatMLAgent:
             steps=tuple(run.steps),
             tool_calls=tuple(env.get_tool_calls()),
             state_hash=env.get_state_hash(),
-            timing={"asr_s": transcript.seconds, "llm_s": llm_s, "tool_s": run.tool_s, "total_s": budget.elapsed},
+            timing={
+                "asr_s": transcript.seconds,
+                "prefill_s": prefill_s,
+                "llm_s": llm_s,
+                "tool_s": run.tool_s,
+                "total_s": budget.elapsed,
+            },
             tokens={"max_prompt": max_prompt, "completion_total": completion_total},
             prompt_shrink_level=shrink_level,
             transcript_source=transcript_source(self.transcriber),

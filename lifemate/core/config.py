@@ -85,6 +85,9 @@ class AgentConfig:
         constrain_tools: `True` thì ép đầu ra ở `format = "chatml"`: sau `<tool_call>` mô hình chỉ viết được tên tool
             đã cài và tham số đúng tên, kiểu, enum (`lifemate.agent.chatml.tool_call_constraint`); câu kết bằng lời vẫn
             tự do. Tuỳ chọn, mặc định `True`.
+        prefill_prefix: `True` thì ở `format = "chatml"`, trong lúc ASR chép âm thanh, LLM đọc trước tin `system`
+            (system prompt, ngữ cảnh, danh sách tool; không phụ thuộc âm thanh) để vLLM lưu vào bộ nhớ đệm phần đầu;
+            lần gọi đầu chỉ phải đọc phần còn lại. Tuỳ chọn, mặc định `True`.
     """
 
     max_steps: int
@@ -96,6 +99,7 @@ class AgentConfig:
     format: str = "json"
     compact_tools: bool = False
     constrain_tools: bool = True
+    prefill_prefix: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,7 +154,7 @@ ASR_DTYPES = frozenset({"auto", "float32", "float16", "bfloat16"})
 # trong TOML.
 # Định dạng hội thoại với LLM (`[agent].format`) và các khoá `[agent]` được phép bỏ trống.
 AGENT_FORMATS = ("chatml", "json")
-_AGENT_OPTIONAL = frozenset({"format", "compact_tools", "constrain_tools"})
+_AGENT_OPTIONAL = frozenset({"format", "compact_tools", "constrain_tools", "prefill_prefix"})
 
 _ASR_OPTIONAL = frozenset(
     {
@@ -365,6 +369,7 @@ def load_config(path: Path, overrides: Sequence[str] = ()) -> Config:
     _check(agent.format in AGENT_FORMATS, f"agent.format: {agent.format!r} not in {'|'.join(AGENT_FORMATS)}")
     _check(isinstance(agent.compact_tools, bool), "agent.compact_tools: must be true or false")
     _check(isinstance(agent.constrain_tools, bool), "agent.constrain_tools: must be true or false")
+    _check(isinstance(agent.prefill_prefix, bool), "agent.prefill_prefix: must be true or false")
     _check(asr.backend in {"gold", "asr"}, f"asr.backend: {asr.backend!r} not in gold|asr")
     _check(asr.engine in ASR_ENGINE_NAMES, f"asr.engine: {asr.engine!r} not in {'|'.join(sorted(ASR_ENGINE_NAMES))}")
     _check(asr.dtype in ASR_DTYPES, f"asr.dtype: {asr.dtype!r} not in {'|'.join(sorted(ASR_DTYPES))}")

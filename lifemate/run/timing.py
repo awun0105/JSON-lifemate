@@ -62,6 +62,11 @@ class TimedLLM:
         finally:
             self.durations.append(time.perf_counter() - t0)
 
+    def prefill(self, messages: list[dict[str, Any]]) -> float:
+        """Chuyển xuống `prefill` của backend bên trong nếu có (đọc trước phần đầu prompt); không có thì trả 0."""
+        inner = getattr(self.inner, "prefill", None)
+        return float(inner(messages)) if inner is not None else 0.0
+
     def warmup(self) -> None:
         """Chuyển lời gọi xuống backend bên trong; không ghi vào `durations`."""
         self.inner.warmup()

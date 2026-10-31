@@ -24,7 +24,7 @@ from lifemate.agent.guards import build_guard_chain
 from lifemate.agent.tooldocs import CatalogIndex
 from lifemate.backends.asr import GoldTranscriber
 from lifemate.backends.llm import FakeLLM, is_structural_tag
-from lifemate.core.types import Action, ErrorCode, ParseError, Sample, StopReason, Transcript
+from lifemate.core.types import Action, ErrorCode, ParseError, Sample, StopReason, Transcript, Turn
 from lifemate.io.data import load_split
 from tests import lead_reference as lead
 from tests.fakes import FakeClock, WhitespaceTokenCounter
@@ -305,3 +305,70 @@ def test_long_tool_result_is_cut_instead_of_overflowing() -> None:
     agent = ChatMLAgent(llm, GoldTranscriber(), prompts, build_guard_chain(cfg.guards), INDEX, counter, cfg, llm_cfg)
     res = agent.run(_sample(), BigEnv(), clock=FakeClock())  # type: ignore[arg-type]
     assert res.stop_reason is StopReason.DONE
+
+
+def test_prefill_reads_system_message_once_before_first_generate() -> None:
+    """`prefill_prefix`: mỗi mẫu đọc trước đúng một lần, nội dung là tin `system` của prompt đầu, trước lần sinh đầu."""
+    agent, llm = _agent([_call("alarm.list"), "Xong."])
+    order: list[str] = []
+    inner_prefill, inner_gen = llm.prefill, llm.generate
+
+    def prefill(messages: list[dict[str, Any]]) -> float:
+        order.append("prefill")
+        return inner_prefill(messages)
+
+    def generate(messages: list[dict[str, Any]], schema: Any, **kw: Any) -> Any:
+        order.append("generate")
+        assert messages[0] == llm.prefills[0][0]  # phần đầu đọc trước trùng tin đầu của prompt thật
+        return inner_gen(messages, schema, **kw)
+
+    llm.prefill, llm.generate = prefill, generate  # type: ignore[method-assign]
+    res = agent.run(_sample(), make_env(), clock=FakeClock())
+    assert order == ["prefill", "generate", "generate"]
+    assert len(llm.prefills) == 1 and [m["role"] for m in llm.prefills[0]] == ["system"]
+    assert "prefill_s" in res.timing
+
+
+def test_prefill_off_and_prefill_errors_do_not_change_the_run() -> None:
+    """Tắt `prefill_prefix` thì không đọc trước; đọc trước lỗi thì mẫu vẫn chạy như thường."""
+    agent, llm = _agent([_call("alarm.list"), "Xong."], cfg=dataclasses.replace(CFG, prefill_prefix=False))
+    agent.run(_sample(), make_env(), clock=FakeClock())
+    assert llm.prefills == []
+
+    agent, llm = _agent([_call("alarm.list"), "Xong."])
+
+    def broken(messages: list[dict[str, Any]]) -> float:
+        raise RuntimeError("engine busy")
+
+    llm.prefill = broken  # type: ignore[method-assign]
+    res = agent.run(_sample(), make_env(), clock=FakeClock())
+    assert res.stop_reason is StopReason.DONE and res.timing["prefill_s"] == 0.0
+
+
+@pytest.mark.tokenizer
+def test_prefill_render_is_a_token_prefix_of_the_real_prompt() -> None:
+    """Chat template thật của Qwen: tin `system` render không có lượt `assistant` là phần đầu (cả chuỗi lẫn dãy token)
+    của prompt đầy đủ, nên bộ nhớ đệm phần đầu của vLLM khớp được."""
+    transformers = pytest.importorskip("transformers")
+    try:
+        tok = transformers.AutoTokenizer.from_pretrained(
+            "Qwen/Qwen3-4B-Instruct-2507", revision="cdbee75f17c01a7cc42f958dc650907174af0554", local_files_only=True
+        )
+    except OSError:
+        pytest.skip("Qwen tokenizer not in the local cache")
+    history = (
+        Turn(role="user", audio="u1.wav", audio_text="có báo thức nào", text=None, tool_calls=(), tool_results=()),
+        Turn(role="assistant", audio=None, audio_text=None, text="Có một báo thức.", tool_calls=(), tool_results=()),
+    )
+    sample = _sample(history)
+    prompts = ChatMLPrompt(INDEX, WhitespaceTokenCounter(), max_model_len=LLM.max_model_len, max_tokens=LLM.max_tokens)
+    full, _ = prompts.start(sample, GoldTranscriber().transcribe(sample))
+    prefix = prompts.prefix(sample)
+    tools = full[0]["tools"]
+    strip = lambda ms: [{k: v for k, v in m.items() if k != "tools"} for m in ms]  # noqa: E731
+    full_text = tok.apply_chat_template(strip(full), tools=tools, tokenize=False, add_generation_prompt=True)
+    pre_text = tok.apply_chat_template(strip(prefix), tools=tools, tokenize=False, add_generation_prompt=False)
+    assert full_text.startswith(pre_text) and len(pre_text) > 0.5 * len(full_text)
+    full_ids = tok(full_text, add_special_tokens=False)["input_ids"]
+    pre_ids = tok(pre_text, add_special_tokens=False)["input_ids"]
+    assert full_ids[: len(pre_ids)] == pre_ids

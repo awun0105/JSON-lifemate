@@ -80,6 +80,12 @@ class FakeLLM:
         for sid, raws in broken.items():
             self._queues.setdefault(sid, list(raws))
         self._cursor: dict[str, int] = {}
+        self.prefills: list[list[dict[str, Any]]] = []
+
+    def prefill(self, messages: list[dict[str, Any]]) -> float:
+        """Ghi lại phần đầu được đọc trước (test kiểm tra `ChatMLAgent` gọi đúng lúc, đúng nội dung); trả 0 giây."""
+        self.prefills.append(list(messages))
+        return 0.0
 
     def _call_text(self, name: str, arguments: dict[str, Any]) -> str:
         """Một lời gọi theo định dạng của `dialect`: JSON `{"action": "call", ...}` hoặc khối `<tool_call>` của Qwen."""
@@ -390,10 +396,43 @@ class VLLMBackend:
             seconds=seconds,
         )
 
-    def _render(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None) -> str:
-        """Áp chat template đúng như `LLM.chat` (bật generation prompt, tắt thinking, kèm `tools`); trả chuỗi prompt."""
+    def prefill(self, messages: list[dict[str, Any]]) -> float:
+        """Đọc trước phần đầu `messages` để vLLM lưu vào bộ nhớ đệm phần đầu (prefix caching); trả số giây.
+
+        Render `messages` bằng chat template **không** thêm lượt `assistant` (đó không phải phần đầu của prompt thật),
+        thêm một request sinh 1 token rồi chạy engine tới khi xong; kết quả bị bỏ. Lần gọi `generate` sau có cùng phần
+        đầu (cùng dãy token) chỉ phải đọc phần còn lại. Engine thiếu API step thì không làm gì.
+
+        Chỉ gọi khi không có request nào khác đang chạy trên engine (agent đợi hàm này xong rồi mới gọi `generate`).
+        """
+        from vllm import SamplingParams  # type: ignore[import-not-found,unused-ignore]
+
+        if not self._abortable:
+            return 0.0
+        messages, tools = split_tools(messages)
+        t0 = time.perf_counter()
+        engine = self.engine.llm_engine
+        self._next_request += 1
+        rid = f"pf-{self._next_request}"
+        engine.add_request(rid, self._render(messages, tools, generation_prompt=False), SamplingParams(max_tokens=1))
+        try:
+            while engine.has_unfinished_requests():
+                engine.step()
+        except BaseException:
+            with contextlib.suppress(Exception):
+                engine.abort_request([rid])
+            raise
+        return time.perf_counter() - t0
+
+    def _render(
+        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None, generation_prompt: bool = True
+    ) -> str:
+        """Áp chat template đúng như `LLM.chat` (bật generation prompt, tắt thinking, kèm `tools`); trả chuỗi prompt.
+
+        `generation_prompt=False` bỏ lượt `assistant` mở ở cuối, dùng cho `prefill`.
+        """
         tok = self.engine.get_tokenizer()
-        kwargs: dict[str, Any] = {"tokenize": False, "add_generation_prompt": True}
+        kwargs: dict[str, Any] = {"tokenize": False, "add_generation_prompt": generation_prompt}
         if tools is not None:
             kwargs["tools"] = tools
         if self._use_template_kwargs:

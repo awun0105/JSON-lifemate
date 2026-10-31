@@ -41,6 +41,8 @@ from lifemate.agent.tooldocs import ASK_TOOL, CatalogIndex
 from lifemate.core.types import Action, ParseError, Sample, TokenCounter, Transcript
 
 # Câu trả lời kết thúc của trợ lý trong dữ liệu huấn luyện, chép nguyên văn từ `builder.py` của lead.
+# Chữ rỗng: tin `system` không phụ thuộc chữ ASR, nên `prefix` dựng được trước khi ASR chạy.
+_EMPTY_TRANSCRIPT = Transcript(final="", history=(), seconds=0.0)
 FINAL_DONE = "Tôi đã thực hiện xong toàn bộ các thao tác bạn yêu cầu."
 FINAL_ASK = "Vui lòng cung cấp thêm các thông tin còn thiếu để tôi có thể hoàn thành yêu cầu cho bạn."
 FINAL_NO_CALL = "Yêu cầu của bạn đã được tiếp nhận và không cần thực hiện thêm thao tác nào trên hệ thống."
@@ -344,6 +346,13 @@ class ChatMLPrompt:
         if train_mode:
             apps = {a: v for a, v in apps.items() if a not in self._held_out}
         return apps
+
+    def prefix(self, sample: Sample, train_mode: bool = False) -> list[dict[str, Any]]:
+        """Tin `system` của mẫu (system prompt, ngữ cảnh, danh sách tool): phần đầu của mọi prompt của mẫu, không phụ
+        thuộc chữ ASR, nên đọc trước được trong lúc ASR chạy. Trùng tin đầu của `start` ở mức rút gọn 0."""
+        msgs = build_messages(sample, self._index, _EMPTY_TRANSCRIPT, installed_apps=self.installed(sample, train_mode),
+                              compact=self._compact)  # fmt: skip
+        return msgs[:1]
 
     def allowed_tools(self, sample: Sample, train_mode: bool = False) -> tuple[str, ...]:
         """Tên các tool mẫu được phép gọi (cùng tập với danh sách `tools` trong prompt)."""
