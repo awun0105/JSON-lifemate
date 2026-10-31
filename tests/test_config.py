@@ -91,8 +91,8 @@ def test_vllm_empty_model_raises(tmp_path: Path, repo_root: Path) -> None:
         ('engine = "chunkformer"', 'engine = "nemo"', r"asr\.engine"),
         ('model = "khanhld/chunkformer-rnnt-large-vie"', 'model = ""', r"asr\.model"),
         ('dtype = "auto"\nbatch_size = 8', 'dtype = "int8"\nbatch_size = 8', r"asr\.dtype"),
-        ('asr_merge/h_v1.json"', 'asr_merge/nope.json"', r"merge_weights"),
-        ('merge_weights = "configs/asr_merge/h_v1.json"\n', "", r"asr\.secondary"),
+        ('asr_merge/h_v2.json"', 'asr_merge/nope.json"', r"merge_weights"),
+        ('merge_weights = "configs/asr_merge/h_v2.json"', 'merge_weights = ""', r"asr\.secondary"),
         ('engine = "faster_whisper", model', 'engine = "nemo", model', r"asr\.secondary\.engine"),
     ],
 )

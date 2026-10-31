@@ -38,7 +38,7 @@ batch_size = 8
 generate_kwargs = { language = "vi", task = "transcribe", temperature = 0.0, beam_size = 1, condition_on_previous_text = false }
 sample_rate = 16000
 sanitize = true
-merge_weights = "configs/asr_merge/h_v1.json"
+merge_weights = "configs/asr_merge/h_v2.json"   # bản 2 (D67, D68): đổi số trước khi gióng, vùng chỉ khác dấu thanh, H-Việt
 # Mô hình phụ: whisper-large-v3 bản CTranslate2, 1,54B, MIT. Câu mồi theo mẫu do engine ghép dựng cho từng câu, nên
 # không khai initial_prompt ở đây; bộ lọc câu bịa và lớp bảo vệ câu mồi chạy trong engine ghép.
 secondary = { engine = "faster_whisper", model = "Systran/faster-whisper-large-v3", revision = "edaa852ec7e145841d8ffdb056a99866b5f0a478", generate_kwargs = { language = "vi", task = "transcribe", temperature = 0.0, beam_size = 1, vad_filter = true, vad_parameters = { min_silence_duration_ms = 500 }, condition_on_previous_text = false } }

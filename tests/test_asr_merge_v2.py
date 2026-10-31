@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from lifemate.backends.asr_merged import MergedASR
 from lifemate.eval.asr_merge import Region
 from lifemate.eval.asr_merge_v2 import (
@@ -34,7 +36,7 @@ def test_prepare_lowercases_strips_punctuation_and_digitizes() -> None:
 
 
 def test_digits_no_longer_make_fake_regions_and_tone_only_differences_do() -> None:
-    """"năm giờ" khớp "5 giờ" sau khi đổi số; "tắt"/"tất" (chỉ khác dấu) thành vùng; vùng tiếng Anh vẫn là `en`."""
+    """ "năm giờ" khớp "5 giờ" sau khi đổi số; "tắt"/"tất" (chỉ khác dấu) thành vùng; vùng tiếng Anh vẫn là `en`."""
     assert _regions("đặt báo thức năm giờ", "Đặt báo thức 5 giờ.") == []
     assert _regions("tất đèn bếp", "Tắt đèn bếp.") == [("tất", "tắt")]
     parts = split_regions_v2(
@@ -105,3 +107,60 @@ def test_merged_v2_decides_vietnamese_regions_and_digitizes_before_merging(tmp_p
     t = engine.transcribe(SAMPLE)
     assert t.final == "tắt máy lạnh lúc 5 giờ"
     assert t.history[0] == "mở nhạc lên"
+
+
+K5 = Path(__file__).resolve().parent.parent / "artifacts" / "runs" / "colab" / "asr" / "11-01_k5"
+
+
+@pytest.mark.data
+def test_replay_v2_matches_offline_merge() -> None:
+    """40 mẫu `val_seen` đầu: `MergedASR` bản 2 (phát lại chữ K2 và điểm K5) trùng `merge_v2_report.assemble_rows`."""
+    from lifemate.backends.asr_merged import MergeWeights
+    from lifemate.core.paths import REPO_ROOT
+    from lifemate.eval import asr_v3_analysis as A  # noqa: N812
+    from lifemate.eval.foreign_words import find_foreign_words
+    from lifemate.eval.merge_v2_report import _vi_decider, assemble_rows, build
+    from lifemate.io.data import load_split, read_ids
+    from lifemate.io.zaic import load_catalog
+    from tests.test_asr_merged import DATA_ROOT, FIXED_PROMPT, K, ReplayPrimary, ReplaySecondary, _rows
+
+    if not (K / "k2_val_seen").is_dir() or not (K5 / "scores_val_seen.jsonl").is_file() or not DATA_ROOT.is_dir():
+        pytest.skip("artifacts of round 3 / K5 or data package missing")
+    weights_path = REPO_ROOT / "configs" / "asr_merge" / "h_v2.json"
+    ids = read_ids(REPO_ROOT / "configs" / "splits" / "val_seen.txt")[:40]
+    samples = load_split(DATA_ROOT, "train", ids)
+    catalog = {str(a["id"]): a for a in load_catalog(DATA_ROOT, "train")["apps"]}
+    rnnt = [r for r in _rows(K / "k2_val_seen" / "rnnt.hyps.jsonl") if r["id"] in ids]
+    v3 = [r for r in _rows(K / "k2_val_seen" / "v3_E2.hyps.jsonl") if r["id"] in ids]
+    scores = [r for r in _rows(K5 / "scores_val_seen.jsonl") if r["id"] in ids]
+
+    w = MergeWeights.load(weights_path)
+    assert w.pipeline == 2 and w.vi_model is not None
+    context = A.context_words_by_sample(samples, catalog)
+    prompt_words = frozenset(x.folded for x in find_foreign_words(FIXED_PROMPT))
+    utts = build(rnnt, v3, scores)
+    dec_en = A.h_decider(w.model, context, prompt_words, w.reliability)
+    expected = {
+        (r["id"], str(r["turn"])): r["hyp"]
+        for r in assemble_rows(utts, dec_en, _vi_decider(w.vi_model, w.vi_threshold, context))
+    }
+
+    primary, secondary = ReplayPrimary(rnnt), ReplaySecondary(v3, scores)
+    engine = MergedASR(_cfg(weights_path), data_root=DATA_ROOT, split="train", primary=primary, secondary=secondary,
+                       catalog_apps=catalog)  # fmt: skip
+    original_read = engine._read_audio
+    queue: list[tuple[str, str]] = []
+
+    def read_and_mark(path: Path, sr: int) -> Any:
+        secondary.key = queue.pop(0)
+        return original_read(path, sr)
+
+    engine._read_audio = read_and_mark  # type: ignore[method-assign]
+    mismatches = []
+    for s in samples:
+        keys = [(s.id, str(i)) for i, t in enumerate(s.history) if t.role == "user"] + [(s.id, "final")]
+        primary.keys, queue[:] = list(keys), list(keys)
+        t = engine.transcribe(s)
+        got = [h for h, turn in zip(t.history, s.history, strict=True) if turn.role == "user"] + [t.final]
+        mismatches += [(k, g, expected[k]) for k, g in zip(keys, got, strict=True) if g != expected[k]]
+    assert not mismatches, mismatches[:5]

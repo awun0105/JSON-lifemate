@@ -111,15 +111,24 @@ def load(args: argparse.Namespace, split: str) -> dict[str, Any]:
     samples: list[Any] = []
     context: dict[str, frozenset[str]] = {}
     utts: list[Utt2] = []
+    skipped: list[str] = []
     for part in SPLIT_PARTS[split]:
         hdir = args.k1 if part == "asr_tune" else args.k2 / f"k2_{part}"
         part_samples, catalog = _data(f"configs/splits/{part}.txt")
+        # Chỉ giữ mẫu đã được K5 chấm xong (có dòng trong `.timing.jsonl`): mẫu chưa chấm không có điểm âm thanh, cho
+        # điểm 0 thì thành dữ liệu sai lệch.
+        scored = {str(r["id"]) for r in _rows(args.k5 / f"scores_{part}.timing.jsonl")}
+        skipped += [s.id for s in part_samples if s.id not in scored]
+        part_samples = [s for s in part_samples if s.id in scored]
+        keep = {s.id for s in part_samples}
         utts += build(
-            _rows(hdir / "rnnt.hyps.jsonl"), _rows(hdir / "v3_E2.hyps.jsonl"), _rows(args.k5 / f"scores_{part}.jsonl")
+            [r for r in _rows(hdir / "rnnt.hyps.jsonl") if str(r["id"]) in keep],
+            _rows(hdir / "v3_E2.hyps.jsonl"),
+            _rows(args.k5 / f"scores_{part}.jsonl"),
         )
         context |= A.context_words_by_sample(part_samples, catalog)
         samples += part_samples
-    return {"samples": samples, "context": context, "utts": utts}
+    return {"samples": samples, "context": context, "utts": utts, "skipped": skipped}
 
 
 def _vi_xy(
@@ -233,6 +242,7 @@ def stage_cv(args: argparse.Namespace) -> dict[str, Any]:
     }
     return {
         "n_samples": len(data["samples"]),
+        "skipped_unscored": data["skipped"],
         "regions": {
             "en": sum(len(u.en.candidates) for u in utts),
             "vi": sum(len(u.vi) for u in utts),

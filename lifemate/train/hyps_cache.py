@@ -69,7 +69,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--winner", default="E2")
     ap.add_argument("--splits", nargs="+", default=["train", "val_seen"], choices=sorted(SPLIT_PARTS))
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument(
+        "--k5",
+        type=Path,
+        help="điểm âm thanh bản 2 (phiên K5): dựng bằng bộ ghép bản 2 (`merge_v2_report`, D67) thay cho bản 1",
+    )
     args = ap.parse_args(argv)
+    if args.k5 is not None:
+        return _main_v2(args)
     if "val_unseen" in args.splits:
         raise SystemExit("val_unseen bị khoá (D53): chỉ dựng khi chốt cấu hình nộp bài")
     make_h, h_info = h_full_train(args)
@@ -94,6 +101,55 @@ def main(argv: Sequence[str] | None = None) -> int:
     out.write_text(json.dumps(cache, ensure_ascii=False, indent=1), encoding="utf-8")
     Path(f"{out}.meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(meta["splits"], ensure_ascii=False))
+    return 0
+
+
+def _main_v2(args: argparse.Namespace) -> int:
+    """Như `main` nhưng bằng bộ ghép bản 2: H-Anh và H-Việt học trên các mẫu train K5 đã chấm (`merge_v2_report`).
+
+    Mẫu K5 chưa chấm (không có điểm âm thanh) vẫn được ghép, với hai tín hiệu âm thanh bằng 0, để cache đủ mọi mẫu.
+    """
+    from lifemate.eval import asr_v3_analysis as A  # noqa: N812
+    from lifemate.eval.asr_v3_report import _data, _fixed_prompt, _rows
+    from lifemate.eval.merge_v2_report import SPLIT_PARTS, _fit_all, _vi_decider, assemble_rows, build, load
+
+    if "val_unseen" in args.splits:
+        raise SystemExit("val_unseen bị khoá (D53): chỉ dựng khi chốt cấu hình nộp bài")
+    _, prompt_words = _fixed_prompt()
+    fit = _fit_all(args)
+    cache: dict[str, Any] = {}
+    meta: dict[str, Any] = {
+        "source": "hyps_cache --k5: ghép bản 2 (đổi số trước khi gióng, vùng chỉ khác dấu thanh, H-Anh, H-Việt; D67)",
+        "trained_on": {"l2_en": fit["l2_en"], "l2_vi": fit["l2_vi"], "theta_vi": fit["theta_vi"]},
+        "k1": str(args.k1), "k2": str(args.k2), "k5": str(args.k5), "splits": {},
+    }  # fmt: skip
+    for split in args.splits:
+        data = load(args, split)
+        context = data["context"]
+        utts, samples = list(data["utts"]), list(data["samples"])
+        if data["skipped"]:
+            # Mẫu chưa có điểm âm thanh: ghép không có tín hiệu âm thanh.
+            skipped = set(data["skipped"])
+            for part in SPLIT_PARTS[split]:
+                hdir = args.k1 if part == "asr_tune" else args.k2 / f"k2_{part}"
+                part_samples, catalog = _data(f"configs/splits/{part}.txt")
+                extra = [s for s in part_samples if s.id in skipped]
+                if not extra:
+                    continue
+                rnnt = [r for r in _rows(hdir / "rnnt.hyps.jsonl") if str(r["id"]) in skipped]
+                utts += build(rnnt, _rows(hdir / "v3_E2.hyps.jsonl"), [])
+                context |= A.context_words_by_sample(extra, catalog)
+                samples += extra
+        dec_en = A.h_decider(fit["en"], context, prompt_words, fit["rel"])
+        rows = assemble_rows(utts, dec_en, _vi_decider(fit["vi"], fit["theta_vi"], context))
+        part_cache, missing = cache_from_rows(samples, rows)
+        cache |= part_cache
+        meta["splits"][split] = {"n_samples": len(part_cache), "missing_turns": missing, "unscored": data["skipped"]}
+    out = args.out if args.out.is_absolute() else REPO_ROOT / args.out
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(cache, ensure_ascii=False, indent=1), encoding="utf-8")
+    Path(f"{out}.meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(json.dumps({k: {"n": v["n_samples"], "missing": v["missing_turns"]} for k, v in meta["splits"].items()}))
     return 0
 
 

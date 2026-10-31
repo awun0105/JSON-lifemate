@@ -325,7 +325,7 @@ Tiêu chí đặt trước:
 
 Trạng thái: chưa chạy.
 
-## 6c. Hướng cải tiến ASR tiếp theo: quyết định cả vùng chữ Việt (chưa làm)
+## 6c. Bộ ghép bản 2: quyết định cả vùng chữ Việt
 
 **Vấn đề.** Pipeline chỉ đưa cho H các vùng mà phía large-v3 có từ tiếng Anh mới; vùng chỉ có chữ Việt luôn giữ RNNT.
 Ví dụ `train_1717` lượt 2: lời chuẩn "Bỏ cái tắt máy lạnh phòng ngủ lúc năm rưỡi sáng đi, trời mát rồi.", RNNT "bỏ cái
@@ -362,7 +362,39 @@ bớt); vùng ở cuối câu; từ phía B có trong ngữ cảnh mẫu; `avg_l
 `no_speech_prob`. Báo độ chính xác riêng cho vùng RNNT đúng và vùng large-v3 đúng (lớp lệch 53% / 27%), chọn ngưỡng
 bằng kiểm định chéo; mọi tín hiệu đếm trên train đều đếm ngoài phần.
 
-Cần một phiên GPU chấm điểm âm thanh các vùng chữ Việt của train và `val_seen`. Làm sau J6, khi biết L0v2 − J6.
+**Kết quả (01/11/2026).** Phiên K5 (Colab T4, `asr_v3 score --v2`, `artifacts/runs/colab/asr/11-01_k5/`) chấm điểm âm thanh
+mọi vùng bản 2 của `asr_tune`, `asr_learn`, `val_seen`; máy bị thu hồi và tài khoản hết hạn mức GPU khi còn 10/793 mẫu
+`asr_learn`, nên 10 mẫu đó bị bỏ khỏi bước học (1 083/1 093 mẫu train; danh sách trong `merge_v2_cv.json`). `val_seen`:
+1 964 vùng (1 791 chữ Việt, 173 tiếng Anh), bộ nhớ GPU đỉnh 3,4 GB.
+
+Kiểm định chéo 5 phần theo mẫu trên train (`merge_v2_report cv`; mốc là bản 2 chỉ H-Anh; CI 95% bootstrap ghép cặp):
+
+| Hệ thống | WER câu thuần Việt | WER mọi câu | Chép đúng từ tiếng Anh | Giá trị tham số thiếu |
+|---|---|---|---|---|
+| Bản 2, chỉ H-Anh (mốc) | 20,74% | 21,36% | 73,95% | 24,94% |
+| **Bản 2, H-Anh + H-Việt** | **19,74%** [−1,23; −0,79] | **20,43%** [−1,11; −0,76] | 74,02% [−0,43; +0,52] | **21,41%** [−5,62; −1,72] |
+| Giữ RNNT ở mọi vùng | 20,65% | 22,11% | 52,33% | 27,81% |
+
+Cả ba tiêu chí đặt trước đạt. Ở vùng chữ Việt có nhãn, H-Việt giữ đúng 89,5% vùng RNNT đúng (3 589 vùng) và lấy đúng
+41,6% vùng large-v3 đúng (1 900 vùng). Trọng số học trên cả 1 083 mẫu: `configs/asr_merge/h_v2.json` (L2 = 10 cho cả
+hai, ngưỡng H-Việt 0,5).
+
+Đo một lần trên `val_seen` (`merge_v2_report measure`; mốc là bản 1 đang dùng, `h_v1` + đổi số sau khi ghép):
+
+| Hệ thống | WER câu thuần Việt | WER mọi câu | Chép đúng từ tiếng Anh | Giá trị tham số thiếu |
+|---|---|---|---|---|
+| Bản 1 (mốc) | 19,19% | 20,28% | 76,72% | 26,61% |
+| Bản 2, chỉ H-Anh | 19,19% | 20,30% | 76,12% [−2,11; +0,93] | 26,61% |
+| **Bản 2, H-Anh + H-Việt** | **18,56%** [−0,99; −0,24] | **19,62%** [−1,00; −0,31] | 76,42% [−1,81; +1,21] | **23,85%** [−8,25; +2,59] |
+
+Giá trị tham số thiếu cùng chiều với train nhưng CI chứa 0 (chỉ 109 giá trị). `v0.toml`, `docker.toml` chuyển sang
+`h_v2.json`. `MergedASR` bản 2 phát lại chữ K2 và điểm K5 trùng từng byte với bản ghép offline trên 40 mẫu `val_seen`
+(`tests/test_asr_merge_v2.py`). Dữ liệu SFT dựng lại từ chữ bản 2: `data/asr/train_asr_v4m2.json`,
+`data/sft/v2_asr.jsonl` (1 047 dòng).
+
+**Giới hạn.** Thời gian chấm điểm âm thanh tăng vì số vùng tăng khoảng 10 lần: trên T4, p50 1,0 s, p95 4,1 s mỗi mẫu
+(so với dưới 1 s khi chỉ chấm vùng tiếng Anh); `score_texts` chấm từng câu ứng viên một, chấm theo lô chưa làm vì cần đo
+trên GPU. J5 đo thời gian thật của `MergedASR` bản 2. `val_unseen` chưa đo (D53).
 
 ## 7. Kế hoạch
 
