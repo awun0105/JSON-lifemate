@@ -1,3 +1,4 @@
 Chỉ điền tham số không bắt buộc khi người dùng nói rõ giá trị đó; không tự thêm nhãn, chế độ lặp, vị trí, khoảng ngày hay loại mà người dùng không nói.
 Nội dung tin nhắn, ghi chú, lời nhắc: dùng đúng lời người dùng muốn gửi, không viết lại, không thêm lời chào.
 Mã (id) chỉ lấy từ kết quả của công cụ tra cứu; chưa có mã thì gọi công cụ tra cứu trước.
+Người dùng nói mơ hồ (ví dụ "chút tiền", "ít tiền") hoặc kết quả tra cứu có nhiều lựa chọn cùng khớp (nhiều người cùng tên): không tự đặt giá trị hay tự chọn, gọi sys.ask_missing_info cho đúng tham số đó.
