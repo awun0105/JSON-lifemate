@@ -75,16 +75,17 @@ L0 cao hơn J1 ở 51 mẫu, thấp hơn ở 11 mẫu. Kết quả thô: `artifa
 
 **Phân tích.**
 
-- **ASR làm mất 10 điểm, có ý nghĩa thống kê.** Khoảng cách này lớn hơn nhiều so với mọi chênh lệch giữa các nguồn chữ
-  ASR ở lần 3 (+0,4), nên công sức cho ASR vẫn đáng: chữ chuẩn hơn RNNT khoảng 65% điểm.
+- **Chữ RNNT đứng riêng làm mất 10 điểm so với chữ chuẩn, có ý nghĩa thống kê.** Đây là phần điểm tối đa mà cải tiến ASR
+  có thể lấy lại so với RNNT. Pipeline đã chốt (ghép H + đổi số, J5) chưa được chạy, nên chưa biết pipeline đó lấy lại
+  được bao nhiêu trong 10 điểm này, và chưa kết luận được cải tiến ASR thêm có đáng hay không.
 - **Chữ chuẩn vẫn chỉ được 25 điểm**: phần lớn điểm mất nằm ở LLM chưa fine-tune và ở thời gian.
 - **Hết giờ là vấn đề lớn của định dạng ChatML trên T4**: 18% số mẫu (5% ở định dạng JSON của lần 3). Mẫu hết giờ có
   bước gọi LLM đầu tiên trung vị 22,5 giây, so với 10,8 giây ở mẫu khác; các bước sau khoảng 2 giây nhờ cache phần đầu.
   Nguyên nhân bước đầu chậm chưa tách được (đọc prompt khoảng 5 000 token, biên dịch luật ép đầu ra của từng mẫu). Trên
   mẫu không hết giờ, L0 được 29,3 điểm.
 
-**Kết luận.** Tiếp tục đưa pipeline ghép H + đổi số vào bài nộp và đo J5 (pipeline đầy đủ) để biết lấy lại được bao
-nhiêu trong 10 điểm này. Song song, tìm nguyên nhân bước đầu chậm (thử `constrain_tools = false`, `compact_tools = true`
+**Kết luận.** Việc kế tiếp bắt buộc là J5 (pipeline đầy đủ: ghép H + đổi số) trên cùng 274 mẫu, cùng định dạng: J5 gần
+L0 thì ASR hiện tại đã đủ; J5 gần J1 thì còn khoảng 10 điểm cho ASR. Song song, tìm nguyên nhân bước đầu chậm (thử `constrain_tools = false`, `compact_tools = true`
 trên 30 mẫu) vì đây là phần điểm mất không phụ thuộc ASR.
 
 ## 3. Thử nghiệm L1: đổi số đọc thành chữ số
