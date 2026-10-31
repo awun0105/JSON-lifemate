@@ -292,7 +292,7 @@ Phân tích lỗi của L0 trên `val_seen` cho thấy điểm mất chủ yếu
 | **L0v2** | Lời chuẩn qua agent với cấu hình mới (6b.1) | Run agent | Bộ chấm của BTC; so với L0 (cấu hình cũ, cùng 274 mẫu) |
 | **J6** | Chữ của J5 qua cùng agent | Run agent | Bộ chấm của BTC; so với L0v2 (ASR còn làm mất bao nhiêu) và với J1 (pipeline ghép lấy lại được bao nhiêu so với RNNT) |
 
-J5 chạy ASR một mình trên T4 (hai mô hình ASR khoảng 3,6 GB), không cùng vLLM, vì T4 không chứa nổi cả hai; thời gian ASR
+J5 chạy riêng ASR trên T4 (hai mô hình ASR khoảng 3,6 GB), không cùng vLLM, vì T4 không chứa nổi cả hai; thời gian ASR
 vì vậy là thời gian khi ASR có GPU riêng. Thời gian của cả hệ thống (ASR cùng vLLM, đọc trước) cần GPU từ 24 GB, đo sau.
 
 ### 6b.3. Chỉ số và cách so
