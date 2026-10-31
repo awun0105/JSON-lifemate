@@ -1,7 +1,7 @@
 # Báo cáo benchmark ASR lần 4: giá trị tham số trong chữ ASR (đổi số, sửa tên, dữ liệu fine-tune từ chữ ASR)
 
 Ngày lập kế hoạch: 31/10/2026. Trạng thái: **L1 đã đo và nhận (mục 3.4); L2 đã đo và loại (mục 4.4); L3a xong (mục
-5.2); code `MergedASR` xong (mục 6); L0, L3b và mọi việc cần GPU chưa chạy**. Phần không cần GPU (L1, L2, L3a) làm trước trên máy dev; phần cần GPU ghi rõ và chờ phiên GPU.
+5.2); code `MergedASR` xong (mục 6); L0, L3b và mọi việc cần GPU khác chưa chạy; L0, J1 xong (mục 2)**. Phần không cần GPU (L1, L2, L3a) làm trước trên máy dev; phần cần GPU ghi rõ và chờ phiên GPU.
 
 Lần 3 ([`asr_v3.md`](asr_v3.md), mục "Nghiệm thu lần 3") kết thúc với ba số đếm trên `val_seen`:
 
@@ -62,7 +62,30 @@ Chạy agent với chữ chuẩn của BTC (`--transcripts gold`) trên `val_see
 chạy lại J. Khoảng 274 mẫu, 1,5 giờ trên T4. Số J0 − J1 là phần điểm ASR còn mất. Đồng thời chạy lại J1 và J với nguồn
 ghép H ở ChatML để có mốc cùng định dạng.
 
-Trạng thái: chưa chạy.
+**Kết quả (31/10/2026, Colab T4, vLLM 0.32.0, định dạng ChatML với luật ép đầu ra, Qwen3-4B chưa fine-tune; `val_seen`
+274 mẫu; chênh lệch kèm CI 95% bootstrap ghép cặp theo mẫu, 1 000 vòng, seed 0):**
+
+| Nguồn chữ | Điểm (`strict`) | Thực thi / hỏi lại / ngoài phạm vi | Mẫu hết giờ | Điểm trên mẫu không hết giờ | Thời gian p50 / p95 |
+|---|---|---|---|---|---|
+| L0 chữ chuẩn | **25,33** | 25,32 / 8,89 / 54,55 | 50 (18%) | 29,32 | 18,2 / 29,1 s |
+| J1 chữ RNNT | **15,33** | 13,90 / 6,15 / 45,45 | 48 (18%) | 18,41 | 18,1 / 29,1 s |
+| **L0 − J1** | **+10,00 [+6,25; +14,06]** | | 37 mẫu hết giờ ở cả hai | | |
+
+L0 cao hơn J1 ở 51 mẫu, thấp hơn ở 11 mẫu. Kết quả thô: `artifacts/runs/colab/agent/10-31_l0_j1/`.
+
+**Phân tích.**
+
+- **ASR làm mất 10 điểm, có ý nghĩa thống kê.** Khoảng cách này lớn hơn nhiều so với mọi chênh lệch giữa các nguồn chữ
+  ASR ở lần 3 (+0,4), nên công sức cho ASR vẫn đáng: chữ chuẩn hơn RNNT khoảng 65% điểm.
+- **Chữ chuẩn vẫn chỉ được 25 điểm**: phần lớn điểm mất nằm ở LLM chưa fine-tune và ở thời gian.
+- **Hết giờ là vấn đề lớn của định dạng ChatML trên T4**: 18% số mẫu (5% ở định dạng JSON của lần 3). Mẫu hết giờ có
+  bước gọi LLM đầu tiên trung vị 22,5 giây, so với 10,8 giây ở mẫu khác; các bước sau khoảng 2 giây nhờ cache phần đầu.
+  Nguyên nhân bước đầu chậm chưa tách được (đọc prompt khoảng 5 000 token, biên dịch luật ép đầu ra của từng mẫu). Trên
+  mẫu không hết giờ, L0 được 29,3 điểm.
+
+**Kết luận.** Tiếp tục đưa pipeline ghép H + đổi số vào bài nộp và đo J5 (pipeline đầy đủ) để biết lấy lại được bao
+nhiêu trong 10 điểm này. Song song, tìm nguyên nhân bước đầu chậm (thử `constrain_tools = false`, `compact_tools = true`
+trên 30 mẫu) vì đây là phần điểm mất không phụ thuộc ASR.
 
 ## 3. Thử nghiệm L1: đổi số đọc thành chữ số
 
