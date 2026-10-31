@@ -325,6 +325,31 @@ Tiêu chí đặt trước:
 
 Trạng thái: chưa chạy.
 
+## 6c. Hướng cải tiến ASR tiếp theo: quyết định cả vùng chữ Việt (chưa làm)
+
+**Vấn đề.** Pipeline chỉ đưa cho H các vùng mà phía large-v3 có từ tiếng Anh mới; vùng chỉ có chữ Việt luôn giữ RNNT.
+Ví dụ `train_1717` lượt 2: lời chuẩn "Bỏ cái tắt máy lạnh phòng ngủ lúc năm rưỡi sáng đi, trời mát rồi.", RNNT "bỏ cái
+tóc máy lạnh phòng ngủ năm bưởi sáng đi trời mát gọi", large-v3 đúng từng chữ, chữ ghép giống RNNT. Đếm trên train
+(1 093 mẫu): 6 915 vùng chữ Việt khác nhau; RNNT gần lời chuẩn hơn ở 3 664 (53%), large-v3 ở 1 897 (27%), ngang nhau 1 354.
+Chọn đúng mọi vùng chữ Việt thì WER (so lời chuẩn đã đổi số) giảm từ 19,93% xuống 15,83% (trần).
+
+**Thiết kế đã chốt (01/11/2026):**
+
+1. Đổi số cho cả hai bản ngay sau bước lọc, trước khi gióng, để "năm" và "5" không thành vùng khác nhau giả.
+2. Gióng có giữ dấu thanh cho phần chữ Việt: giữ ranh giới vùng của phép gióng không dấu, tách thêm các từ chỉ khác dấu
+   thanh ("tắt"/"tất") thành vùng chữ Việt.
+3. Bộ phân loại riêng H-Việt (hồi quy logistic như H), tín hiệu chính là chênh điểm âm thanh, cộng độ dài hai phía và độ
+   tin cậy chung của large-v3; nhãn tính so với lời chuẩn đã đổi số. H giữ nguyên cho vùng có từ tiếng Anh.
+4. Điều kiện chặn đặt trước: WER câu thuần Việt giảm có ý nghĩa (kiểm định chéo trên train), rồi đo một lần trên
+   `val_seen`.
+
+**Đã cân nhắc và bỏ:** chấm điểm mọi tổ hợp lựa chọn của các vùng trong câu thay vì từng vùng riêng. Đo trên train (đã
+đổi số trước khi gióng): 942/3 074 câu có vùng (30,6%) có ít nhất hai vùng cách nhau một từ, nhưng trần của hai cách bằng
+nhau tuyệt đối (2 748 lỗi từ giảm được; không câu nào mà tổ hợp tốt hơn chọn từng vùng), vì hai vùng luôn cách nhau ít
+nhất một từ khớp nên lỗi của các vùng cộng độc lập.
+
+Cần một phiên GPU chấm điểm âm thanh các vùng chữ Việt của train và `val_seen`. Làm sau J6, khi biết L0v2 − J6.
+
 ## 7. Kế hoạch
 
 | Bước | Việc | Cần GPU | Trạng thái |
