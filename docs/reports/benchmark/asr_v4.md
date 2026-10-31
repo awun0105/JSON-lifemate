@@ -348,6 +348,20 @@ Chọn đúng mọi vùng chữ Việt thì WER (so lời chuẩn đã đổi s�
 nhau tuyệt đối (2 748 lỗi từ giảm được; không câu nào mà tổ hợp tốt hơn chọn từng vùng), vì hai vùng luôn cách nhau ít
 nhất một từ khớp nên lỗi của các vùng cộng độc lập.
 
+**Rà lại tín hiệu của H (H-Anh).** Kiểm định chéo 5 phần trên train (580 vùng có nhãn, L2 = 10, điểm âm thanh đã
+lưu): như hiện tại 81,4%; điểm âm thanh trung bình mỗi token (bỏ thiên vị độ dài) 81,0%; thêm chênh lệch số token
+82,2%; cả hai 80,9%; bỏ `no_speech_prob` 82,1%; bỏ hai tín hiệu câu mồi (`in_prompt`, `min_reliability`) 79,1%. Các
+cách sửa thiên vị độ dài thay đổi trong ±1 điểm, nhỏ hơn sai số chuẩn (khoảng 1,6 điểm), nên giữ H như `h_v1.json`. Bỏ
+tín hiệu câu mồi mất 2,3 điểm: H có phụ thuộc vào câu mồi (dựng từ từ tiếng Anh hay gặp của train), cần đo trên
+`val_unseen` khi chốt bài nộp. Hai giới hạn còn lại: `avg_logprob`, `no_speech_prob` tính cho cả câu nên không phân
+biệt các vùng trong cùng câu; người chấm điểm âm thanh (large-v3 không câu mồi) cùng họ với phía B.
+
+**Tín hiệu đề xuất cho H-Việt:** chênh điểm âm thanh (như H); chênh lệch số token (bù thiên vị độ dài); số từ hai phía;
+độ giống nhau về chữ giữa hai phía (khoảng cách sửa theo ký tự đã bỏ dấu, chia cho độ dài); kiểu vùng (thay, thêm,
+bớt); vùng ở cuối câu; từ phía B có trong ngữ cảnh mẫu; `avg_logprob`; lượt cuối. Không dùng tín hiệu câu mồi và
+`no_speech_prob`. Báo độ chính xác riêng cho vùng RNNT đúng và vùng large-v3 đúng (lớp lệch 53% / 27%), chọn ngưỡng
+bằng kiểm định chéo; mọi tín hiệu đếm trên train đều đếm ngoài phần.
+
 Cần một phiên GPU chấm điểm âm thanh các vùng chữ Việt của train và `val_seen`. Làm sau J6, khi biết L0v2 − J6.
 
 ## 7. Kế hoạch
