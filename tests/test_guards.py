@@ -16,6 +16,7 @@ from lifemate.agent.guards import (
     AfterAskGuard,
     AllowedToolGuard,
     DuplicateWriteGuard,
+    GroundedIdGuard,
     GuardChain,
     SchemaGuard,
     build_guard_chain,
@@ -158,6 +159,7 @@ def test_registry_and_build() -> None:
     assert GUARD_REGISTRY["schema"] is SchemaGuard
     assert GUARD_REGISTRY["duplicate_write"] is DuplicateWriteGuard
     assert GUARD_REGISTRY["after_ask"] is AfterAskGuard
+    assert GUARD_REGISTRY["grounded_ids"] is GroundedIdGuard
     chain = build_guard_chain(["schema", "allowed_tool"])
     assert [type(g) for g in chain.guards] == [SchemaGuard, AllowedToolGuard]
     with pytest.raises(ConfigError):
@@ -179,3 +181,20 @@ def test_guard_chain_open_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(GUARD_REGISTRY, "custom", Custom)
     build_guard_chain(["allowed_tool", "custom"]).check(call("alarm.list"), ctx(make_env()))
     assert invoked == ["alarm.list"]
+
+
+def test_grounded_ids_blocks_unseen_code_and_passes_seen_one() -> None:
+    """G5: mã chưa xuất hiện bị chặn (`UNGROUNDED_ID`); mã đã có trong kết quả tra cứu thì qua; so theo ranh giới mã."""
+    env = make_env()
+    seen = '{"ok": true, "events": [{"id": "evt_01", "title": "Cà phê"}, {"id": "evt_12", "title": "Họp"}]}'
+    base = ctx(env)
+    with_seen = GuardContext(base.env, base.allowed, base.tool_kind, base.calls_so_far, seen_text=seen)
+    guard = GroundedIdGuard()
+    bad = guard.check(call("calendar.update_event", event_id="evt_12345"), with_seen)
+    assert bad.verdict is GuardVerdict.BLOCK and bad.code is ErrorCode.UNGROUNDED_ID
+    assert bad.message is not None and "evt_12345" in bad.message
+    assert guard.check(call("calendar.update_event", event_id="evt_01"), with_seen).verdict is GuardVerdict.PASS
+    assert guard.check(call("calendar.update_event", event_id="evt_1"), with_seen).verdict is GuardVerdict.BLOCK
+    assert guard.check(call("calendar.list_events", date="2026-11-01"), with_seen).verdict is GuardVerdict.PASS
+    # Không có `seen_text` (định dạng JSON cũ): không chặn gì.
+    assert guard.check(call("calendar.update_event", event_id="evt_9"), base).verdict is GuardVerdict.PASS

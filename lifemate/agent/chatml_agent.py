@@ -30,6 +30,7 @@ Lưu ý:
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from collections.abc import Callable
@@ -66,6 +67,26 @@ from lifemate.core.types import (
 )
 
 _log = structlog.get_logger(__name__)
+
+def seen_text(messages: list[dict[str, Any]]) -> str:
+    """Chữ mô hình đã đọc trước lời gọi đang xét: mọi tin nhắn trừ tin `assistant` có `tool_calls` cuối cùng (tức
+    lượt đang được xử lý, nơi chứa chính lời gọi đó). Tin `tool` của các lời gọi đã chạy trong cùng lượt vẫn được tính.
+
+    Nội dung chuỗi giữ nguyên (không bọc thêm lớp JSON), để mã trong kết quả tool so được trực tiếp.
+    """
+    last = max((i for i, m in enumerate(messages) if m.get("role") == "assistant" and m.get("tool_calls")), default=-1)
+    parts: list[str] = []
+    for i, m in enumerate(messages):
+        if i == last:
+            continue
+        if isinstance(m.get("content"), str):
+            parts.append(m["content"])
+        if m.get("tools"):
+            parts.append(json.dumps(m["tools"], ensure_ascii=False))
+        for call in m.get("tool_calls") or []:
+            parts.append(str(call.get("function", {}).get("arguments", "")))
+    return "\n".join(parts)
+
 
 @dataclass(slots=True)
 class _Run:
@@ -170,7 +191,13 @@ class ChatMLAgent:
         Trả về:
             Lý do dừng (`RETRIES_EXHAUSTED`, `DONE` khi guard STOP, `ASKED`) hoặc `None` để chạy tiếp.
         """
-        ctx = GuardContext(env=run.env, allowed=run.allowed, tool_kind=self._tool_kind, calls_so_far=tuple(run.sent))
+        ctx = GuardContext(
+            env=run.env,
+            allowed=run.allowed,
+            tool_kind=self._tool_kind,
+            calls_so_far=tuple(run.sent),
+            seen_text=seen_text(run.messages),
+        )
         decision, warns = self.guards.check(action, ctx)
         warn_codes = tuple(w.code for w in warns if w.code is not None)
         run.errors.extend(warn_codes)

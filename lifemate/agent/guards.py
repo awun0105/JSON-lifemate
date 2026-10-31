@@ -5,6 +5,8 @@ Nội dung chính:
 - `SchemaGuard` (G2): chặn tham số mà `env.validate` từ chối.
 - `DuplicateWriteGuard` (G3): cảnh báo khi một lời gọi `write` bị lặp lại y hệt.
 - `AfterAskGuard` (G4): dừng nếu đã hỏi lại người dùng; mặc định không bật.
+- `GroundedIdGuard` (G5): chặn mã (tham số `*_id`) chưa từng xuất hiện trong những gì mô hình đã đọc, tức mô hình đoán
+  mã thay vì tra cứu trước.
 - `GuardChain`: chạy các guard theo thứ tự và trả về quyết định cuối.
 - `GUARD_REGISTRY`, `build_guard_chain`: dựng chuỗi guard từ tên trong `[agent].guards`.
 
@@ -20,6 +22,7 @@ Lưu ý:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 from lifemate.agent.tooldocs import ASK_TOOL
@@ -81,6 +84,32 @@ class AfterAskGuard:
         return PASS
 
 
+class GroundedIdGuard:
+    """G5: mỗi tham số `*_id` dạng chuỗi phải là mã đã xuất hiện trong chữ mô hình đã đọc (`ctx.seen_text`).
+
+    Danh sách mã đúng nằm trong trạng thái app, mà agent chỉ được xem qua tool; nên một mã chưa từng hiện ra trong hội
+    thoại là mã mô hình đoán (ví dụ `evt_12345` khi chưa gọi `calendar.list_events`). Lời gọi bị chặn để mô hình tra
+    cứu trước, thay vì tới env và bị tính là lời gọi thừa. So theo ranh giới mã: `evt_1` không khớp bên trong
+    `evt_12`. Đo trên đáp án lượt cuối của train: 900/901 mã đã xuất hiện trước khi dùng (`asr_v4.md`).
+    """
+
+    def check(self, action: Action, ctx: GuardContext) -> GuardResult:
+        """BLOCK với mã `ungrounded_id` khi có mã chưa xuất hiện; còn lại PASS (cả khi không có `seen_text`)."""
+        if ctx.seen_text is None:
+            return PASS
+        for key, value in (action.arguments or {}).items():
+            if not (isinstance(key, str) and key.endswith("_id") and isinstance(value, str) and value):
+                continue
+            if not re.search(r"(?<![\w-])" + re.escape(value) + r"(?![\w-])", ctx.seen_text):
+                return GuardResult(
+                    GuardVerdict.BLOCK,
+                    ErrorCode.UNGROUNDED_ID,
+                    f"mã {value} ({key}) chưa có trong kết quả tra cứu nào; "
+                    "hãy gọi tool tra cứu để lấy mã đúng trước",
+                )
+        return PASS
+
+
 class GuardChain:
     """Chạy các guard theo thứ tự và dừng ở kết quả BLOCK hoặc STOP đầu tiên.
 
@@ -117,6 +146,7 @@ GUARD_REGISTRY: dict[str, type] = {
     "schema": SchemaGuard,
     "duplicate_write": DuplicateWriteGuard,
     "after_ask": AfterAskGuard,
+    "grounded_ids": GroundedIdGuard,
 }
 
 

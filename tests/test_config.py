@@ -57,7 +57,7 @@ def test_v0_config_loads_with_fake(tmp_path: Path, repo_root: Path) -> None:
     p = tmp_path / "c.toml"
     p.write_text(text, encoding="utf-8")
     cfg = load_config(p)
-    assert cfg.agent.guards == ["allowed_tool", "schema", "duplicate_write"]
+    assert cfg.agent.guards == ["allowed_tool", "schema", "grounded_ids", "duplicate_write"]
 
 
 def test_v0_and_docker_configs_load(repo_root: Path) -> None:

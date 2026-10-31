@@ -372,3 +372,18 @@ def test_prefill_render_is_a_token_prefix_of_the_real_prompt() -> None:
     full_ids = tok(full_text, add_special_tokens=False)["input_ids"]
     pre_ids = tok(pre_text, add_special_tokens=False)["input_ids"]
     assert full_ids[: len(pre_ids)] == pre_ids
+
+
+def test_seen_text_excludes_the_call_being_checked() -> None:
+    """`seen_text` gồm system, tool và kết quả trước đó, nhưng không gồm lượt `assistant` đang xét."""
+    from lifemate.agent.chatml_agent import seen_text
+
+    messages = [
+        {"role": "system", "content": "luật", "tools": [{"function": {"name": "calendar.list_events"}}]},
+        {"role": "user", "content": "dời lịch"},
+        {"role": "assistant", "tool_calls": [{"function": {"name": "calendar.list_events", "arguments": "{}"}}]},
+        {"role": "tool", "content": '{"events": [{"id": "evt_01"}]}'},
+        {"role": "assistant", "tool_calls": [{"function": {"arguments": '{"event_id": "evt_99"}'}}]},
+    ]
+    text = seen_text(messages)
+    assert "evt_01" in text and "calendar.list_events" in text and "evt_99" not in text

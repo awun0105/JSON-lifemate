@@ -53,6 +53,7 @@ class ErrorCode(Enum):
     UNKNOWN_TOOL = "unknown_tool"
     INVALID_ARGS = "invalid_args"
     DUPLICATE_WRITE = "duplicate_write"
+    UNGROUNDED_ID = "ungrounded_id"
     EXCEPTION = "exception"
 
 
@@ -204,12 +205,16 @@ class GuardContext:
         allowed: tên các tool được phép gọi.
         tool_kind: tên tool tới loại tool (ví dụ `read` hoặc `write`).
         calls_so_far: các `Action` đã thực thi trước đó trong mẫu.
+        seen_text: toàn bộ chữ mô hình đã đọc trước lời gọi này (tin `system` gồm danh sách tool, lịch sử, kết quả
+            tool của lượt hiện tại), không gồm chính lời gọi đang xét; `None` khi agent không cung cấp (định dạng
+            JSON cũ), khi đó guard cần nó cho qua.
     """
 
     env: ToolEnvLike
     allowed: frozenset[str]
     tool_kind: Mapping[str, str]
     calls_so_far: tuple[Action, ...]
+    seen_text: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
