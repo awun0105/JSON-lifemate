@@ -317,6 +317,11 @@ Tiêu chí đặt trước:
 - Một lần chạy đổi nhiều thay đổi cùng lúc; nếu L0v2 tốt hơn thì không tách được phần của từng thay đổi.
 - Trên T4 đọc trước không giấu được thời gian vì L0v2, J6 phát lại chữ (không có ASR chạy song song); 295 token quy tắc
   thêm khoảng 1 s cho lần gọi đầu.
+- Whisper đôi khi chép lại lời trợ lý liền trước nằm trong câu mồi E2 (ví dụ `val_seen`: RNNT "chiều rồi tỷ giá đô hôm
+  nay bao nhiêu em", Whisper "Chị đặt vé vào Sài Gòn thứ Bảy tuần sau rồi nhé."); lớp bảo vệ g4 chỉ so phần cố định nên
+  không bắt. Đo trên train (khoảng 3 600 câu): chỉ 3 câu thật sự chép từ câu mồi; so với lời trợ lý bắt 57 câu (54 nhầm,
+  người dùng thật sự lặp lời trợ lý), dùng RNNT làm nhân chứng (bỏ khi RNNT không có cụm đó) bắt 24 câu (21 nhầm, vì
+  RNNT nghe lệch một từ trong cụm). Cái giá lớn hơn cái lợi, nên giữ g4 như lần 3.
 
 Trạng thái: chưa chạy.
 
