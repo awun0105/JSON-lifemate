@@ -312,7 +312,13 @@ def score_candidates(args: argparse.Namespace) -> int:
                 v_hyp = str(v_row["hyp"])
                 if not v_hyp.strip() or " ".join(str(v_row.get("raw", v_hyp)).split()) != " ".join(v_hyp.split()):
                     continue
-                pairs = candidate_pairs(str(r_row["hyp"]), v_hyp)
+                if args.v2:
+                    from lifemate.eval.asr_merge_v2 import candidate_pairs_v2, prepare, split_regions_v2
+
+                    v2_parts = split_regions_v2(prepare(str(r_row["hyp"])), prepare(v_hyp))
+                    pairs: list[Any] = candidate_pairs_v2(v2_parts)
+                else:
+                    pairs = candidate_pairs(str(r_row["hyp"]), v_hyp)
                 if not pairs:
                     continue
                 audio = read_wav(path, cfg.sample_rate)
@@ -324,6 +330,7 @@ def score_candidates(args: argparse.Namespace) -> int:
                             "id": sample.id,
                             "turn": key,
                             "part": pair.part_index,
+                            "kind": getattr(pair, "kind", "en"),
                             "a": pair.text_a,
                             "b": pair.text_b,
                             "score_a": score_a,
@@ -380,6 +387,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             p.add_argument("--rnnt", type=Path, required=True, help="hyps.jsonl của RNNT")
             p.add_argument("--v3", type=Path, required=True, help="hyps.jsonl của large-v3")
+            p.add_argument(
+                "--v2",
+                action="store_true",
+                help="tách vùng bản 2 (asr_merge_v2: đổi số trước, giữ dấu thanh) và chấm mọi vùng, cả vùng chữ Việt",
+            )
     args = ap.parse_args(argv)
     return transcribe_variants(args) if args.cmd == "transcribe" else score_candidates(args)
 

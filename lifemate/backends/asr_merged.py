@@ -48,7 +48,8 @@ from lifemate.core.config import ASRConfig, secondary_config
 from lifemate.core.paths import repo_path
 from lifemate.core.types import Sample, Transcript
 from lifemate.eval.asr_merge import assemble, candidate_regions, sample_context_words, split_regions
-from lifemate.eval.asr_v3_analysis import FEATURES, LogisticModel, UtteranceRegions, h_decider
+from lifemate.eval.asr_merge_v2 import candidate_pairs_v2, prepare, region_indices, split_regions_v2, vi_features
+from lifemate.eval.asr_v3_analysis import FEATURES, LogisticModel, UtteranceRegions, h_decider, predict
 from lifemate.eval.candidate_scoring import candidate_pairs
 from lifemate.eval.foreign_words import find_foreign_words
 
@@ -68,6 +69,9 @@ class MergeWeights:
         reliability: độ tin cậy từng từ của câu mồi (đặc trưng `min_reliability`).
         threshold: ngưỡng xác suất lấy large-v3.
         digitize: có đổi số đọc thành chữ số không.
+        pipeline: 1 là bản 1 (vùng tiếng Anh, đổi số sau khi ghép); 2 là bản 2 (`asr_merge_v2`: đổi số trước khi gióng,
+            vùng chỉ khác dấu thanh, H-Việt cho vùng chữ Việt).
+        vi_model, vi_threshold: H-Việt và ngưỡng (chỉ bản 2).
     """
 
     version: str
@@ -79,6 +83,9 @@ class MergeWeights:
     reliability: dict[str, float]
     threshold: float = 0.5
     digitize: bool = True
+    pipeline: int = 1
+    vi_model: LogisticModel | None = None
+    vi_threshold: float = 0.5
 
     @classmethod
     def load(cls, path: Path) -> MergeWeights:
@@ -99,7 +106,21 @@ class MergeWeights:
             reliability={str(k): float(v) for k, v in raw["reliability"].items()},
             threshold=float(raw.get("threshold", 0.5)),
             digitize=bool(raw.get("digitize", True)),
+            pipeline=int(raw.get("pipeline", 1)),
+            vi_model=_vi_model(raw, path),
+            vi_threshold=float(raw.get("vi_threshold", 0.5)),
         )
+
+
+def _vi_model(raw: Mapping[str, Any], path: Path) -> LogisticModel | None:
+    """H-Việt của file bản 2; báo lỗi khi thứ tự tín hiệu khác `asr_merge_v2.VI_FEATURES`."""
+    if int(raw.get("pipeline", 1)) != 2:
+        return None
+    from lifemate.eval.asr_merge_v2 import VI_FEATURES
+
+    if list(raw["vi_features"]) != list(VI_FEATURES):
+        raise ValueError(f"{path}: vi_features {raw['vi_features']} differ from current {list(VI_FEATURES)}")
+    return LogisticModel(**raw["vi_model"])
 
 
 @dataclass
@@ -171,6 +192,7 @@ class MergedASR:
         self._read_audio = read_audio if read_audio is not None else read_wav
         self.stats = MergeStats()
         self._warmed = False
+        self._context: dict[str, frozenset[str]] = {}
 
     def transcribe(self, sample: Sample) -> Transcript:
         """Chép mọi câu người dùng của `sample` theo chuỗi xử lý đã chốt; `raw` là chữ RNNT trước bộ lọc."""
@@ -183,6 +205,7 @@ class MergedASR:
         paths = self._primary.wav_paths(sample)
         prompts = build_sample_prompts(sample, self._catalog, self._fixed_prompt, self.weights.prompt_variant)
         context = {sample.id: sample_context_words(sample, self._catalog)}
+        self._context = context
         decide = h_decider(self.weights.model, context, self._prompt_words, self.weights.reliability)
         sr = self._cfg.sample_rate
         counts = {"retries": 0, "dropped": 0, "regions": 0, "taken": 0}
@@ -206,11 +229,16 @@ class MergedASR:
                 counts["dropped"] += 1
             else:
                 t1 = time.perf_counter()
-                merged, n_regions, n_taken = self._merge(sample.id, key, text, hyp, audio, scores, decide)
+                merge = self._merge_v2 if self.weights.pipeline == 2 else self._merge
+                merged, n_regions, n_taken = merge(sample.id, key, text, hyp, audio, scores, decide)
                 t_score += time.perf_counter() - t1
                 counts["regions"] += n_regions
                 counts["taken"] += n_taken
-            out.append(digitize(merged) if self.weights.digitize else merged)
+            if self.weights.pipeline == 2:
+                # Bản 2 đổi số trước khi gióng; câu không ghép (large-v3 bị bỏ) vẫn phải qua cùng bước chuẩn bị.
+                out.append(merged if merged is not text else prepare(text))
+            else:
+                out.append(digitize(merged) if self.weights.digitize else merged)
         it = iter(out[:-1])
         history = tuple(next(it) if t.role == "user" else None for t in sample.history)
         self._account(sample.id, len(texts), counts, t_primary, t_secondary, t_score)
@@ -259,6 +287,54 @@ class MergedASR:
             return ok
 
         return assemble(parts, take), len(cands), len(taken)
+
+    def _merge_v2(
+        self,
+        sample_id: str,
+        key: str,
+        primary_text: str,
+        secondary_text: str,
+        audio: Any,
+        scores: Mapping[str, float],
+        decide: Any,
+    ) -> tuple[str, int, int]:
+        """Ghép bản 2: `prepare` hai bản, tách vùng có giữ dấu thanh, chấm điểm âm thanh mọi vùng, vùng `en` theo H-Anh,
+        vùng `vi` theo H-Việt. Trả (chữ sau ghép, số vùng, số vùng lấy large-v3)."""
+        a, b = prepare(primary_text), prepare(secondary_text)
+        parts = split_regions_v2(a, b)
+        idx = region_indices(parts)
+        if not idx["en"] and not idx["vi"]:
+            return a, 0, 0
+        pairs = candidate_pairs_v2(parts)
+        scored = self._secondary.score_texts(audio, [pairs[0].text_a] + [p.text_b for p in pairs])
+        long = len(audio) > 30 * self._cfg.sample_rate
+        full = {
+            p.part_index: (float(scored[0][0]), float(sb), int(scored[0][1]), int(nb), long)
+            for p, (sb, nb) in zip(pairs, scored[1:], strict=True)
+        }
+        u = UtteranceRegions(
+            sample_id, key, "", a, b, parts, idx["en"], [None] * len(idx["en"]),
+            {k: float(v) for k, v in scores.items()},
+            {k: (v[0], v[1], v[4]) for k, v in full.items() if k in idx["en"]},
+        )  # fmt: skip
+        context = self._context.get(sample_id, frozenset())
+        en_set, vi_set = set(idx["en"]), set(idx["vi"])
+        vi_model = self.weights.vi_model
+        taken: set[int] = set()
+
+        def take(k: int, region: Any) -> bool:
+            if k in en_set:
+                ok = bool(decide(u, k, region))
+            elif k in vi_set and vi_model is not None:
+                feats = vi_features(parts, k, full.get(k), context, u.v3_scores, key == "final")
+                ok = predict(vi_model, feats) >= self.weights.vi_threshold
+            else:
+                ok = False
+            if ok:
+                taken.add(k)
+            return ok
+
+        return assemble(parts, take), len(idx["en"]) + len(idx["vi"]), len(taken)
 
     def _account(
         self, sample_id: str, n: int, counts: Mapping[str, int], t_primary: float, t_secondary: float, t_score: float
