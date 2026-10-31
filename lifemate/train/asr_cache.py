@@ -13,8 +13,11 @@ Nội dung chính:
 Cách hoạt động:
 1. Đọc các file id và nạp mẫu của split.
 2. `ASRTranscriber` chép lời từng mẫu theo thứ tự.
-3. Ghi file JSON `{sample_id: {"final": str, "history": [str | null, ...]}}` và `<out>.meta.json` (config, file
-   id, số mẫu, số giây).
+3. Ghi file JSON `{sample_id: {"final": str, "history": [str | null, ...]}}`, `<out>.meta.json` (config, file
+   id, số mẫu, số giây), `<out>.hyps.jsonl` (mỗi câu người dùng một dòng `{id, turn, ref, hyp, raw}`, đọc lại được bằng
+   `run.cli --transcripts replay --hyps`) và `<out>.timing.jsonl` (số giây từng mẫu; với engine ghép kèm thời gian
+   từng phần và số vùng quyết định).
+- `[asr].merge_weights` khác rỗng thì dùng engine ghép `MergedASR` (như hệ thống thật), không thì `ASRTranscriber`.
 
 Lưu ý:
 - Cache giúp `sft_data` tạo dữ liệu từ đầu ra ASR thật mà không phải chạy lại model ASR. Cache cũng cố định bản
@@ -92,12 +95,27 @@ class CachedTranscriber:
         """Không cần làm gì."""
 
 
-def build_cache(samples: Sequence[Sample], transcriber: Transcriber) -> tuple[dict[str, Any], float]:
+def hyp_rows(sample: Sample, t: Transcript) -> list[dict[str, Any]]:
+    """Các dòng `{id, turn, ref, hyp, raw}` của một mẫu, cùng định dạng `hyps.jsonl` của benchmark ASR."""
+    rows = [
+        {"id": sample.id, "turn": str(i), "ref": turn.audio_text, "hyp": t.history[i] or "", "raw": t.history[i] or ""}
+        for i, turn in enumerate(sample.history)
+        if turn.role == "user"
+    ]
+    rows.append({"id": sample.id, "turn": "final", "ref": sample.audio_text, "hyp": t.final, "raw": t.final})
+    return rows
+
+
+def build_cache(
+    samples: Sequence[Sample], transcriber: Transcriber, records: list[dict[str, Any]] | None = None
+) -> tuple[dict[str, Any], float]:
     """Chép lời mọi mẫu theo thứ tự.
 
     Tham số:
         samples: các mẫu cần chép lời.
         transcriber: transcriber ASR.
+        records: nếu có, mỗi mẫu được nối thêm `{"id", "seconds", "rows": hyp_rows, **stats.last}` (thời gian và số đếm
+            của engine ghép nếu có).
 
     Trả về:
         Cặp (cache, tổng số giây chép lời, không tính warmup).
@@ -106,7 +124,14 @@ def build_cache(samples: Sequence[Sample], transcriber: Transcriber) -> tuple[di
     cache: dict[str, Any] = {}
     t0 = time.perf_counter()
     for i, sample in enumerate(samples, 1):
-        cache[sample.id] = to_entry(transcriber.transcribe(sample))
+        start = time.perf_counter()
+        transcript = transcriber.transcribe(sample)
+        cache[sample.id] = to_entry(transcript)
+        if records is not None:
+            stats = getattr(getattr(transcriber, "stats", None), "last", None) or {}
+            records.append(
+                {"id": sample.id, "seconds": time.perf_counter() - start, "rows": hyp_rows(sample, transcript), **stats}
+            )
         if i % 100 == 0:
             log.info("asr_cache_progress", done=i, total=len(samples), seconds=round(time.perf_counter() - t0, 1))
     return cache, time.perf_counter() - t0
@@ -127,6 +152,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None, repo_root: Path = REPO_ROOT) -> int:
     """Chạy CLI: nạp config và mẫu, chép lời, ghi cache và file meta; trả về mã thoát 0."""
     from lifemate.backends.asr import ASRTranscriber
+    from lifemate.backends.asr_merged import MergedASR
 
     args = parse_args(argv)
     cfg = load_config(args.config if args.config.is_absolute() else repo_root / args.config)
@@ -139,7 +165,13 @@ def main(argv: Sequence[str] | None = None, repo_root: Path = REPO_ROOT) -> int:
     samples = load_split(root, args.split, ids)
     # Ép backend "asr" để cache luôn là đầu ra ASR thật, kể cả khi config chạy dùng backend khác.
     asr_cfg = dataclasses.replace(cfg.asr, backend="asr")
-    cache, seconds = build_cache(samples, ASRTranscriber(asr_cfg, data_root=root, split=args.split))
+    transcriber: Transcriber = (
+        MergedASR(asr_cfg, data_root=root, split=args.split)
+        if asr_cfg.merge_weights
+        else ASRTranscriber(asr_cfg, data_root=root, split=args.split)
+    )
+    records: list[dict[str, Any]] = []
+    cache, seconds = build_cache(samples, transcriber, records)
     out = args.out if args.out.is_absolute() else repo_root / args.out
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(cache, ensure_ascii=False, indent=0) + "\n", encoding="utf-8")
@@ -151,6 +183,11 @@ def main(argv: Sequence[str] | None = None, repo_root: Path = REPO_ROOT) -> int:
         "seconds": round(seconds, 2),
     }
     out.with_name(out.name + ".meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
+    with open(out.with_name(out.name + ".hyps.jsonl"), "w", encoding="utf-8") as f:
+        for rec in records:
+            f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in rec["rows"])
+    with open(out.with_name(out.name + ".timing.jsonl"), "w", encoding="utf-8") as f:
+        f.writelines(json.dumps({k: v for k, v in r.items() if k != "rows"}) + "\n" for r in records)
     print(f"samples={len(cache)} seconds={seconds:.1f} -> {out}")
     return 0
 
