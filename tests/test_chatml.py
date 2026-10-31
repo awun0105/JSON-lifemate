@@ -398,7 +398,7 @@ def test_extra_rules_are_inserted_after_lead_rules_and_default_is_unchanged() ->
     ruled = build_system_prompt(ctx, ("Chỉ điền tham số người dùng nói.",))
     assert ruled == base.replace("- Thời gian hiện tại", "- Chỉ điền tham số người dùng nói.\n- Thời gian hiện tại")
     rules_file = Path(__file__).resolve().parent.parent / "configs" / "prompts" / "chatml_rules_v1.txt"
-    assert len([x for x in rules_file.read_text(encoding="utf-8").splitlines() if x.strip()]) == 4
+    assert len([x for x in rules_file.read_text(encoding="utf-8").splitlines() if x.strip()]) == 6
 
 
 def test_free_blocks_do_not_spend_retries() -> None:
