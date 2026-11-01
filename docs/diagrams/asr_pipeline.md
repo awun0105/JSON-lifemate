@@ -149,7 +149,7 @@ flowchart LR
 |---|---|---|---|
 | ① ChunkFormer RNNT | Mô hình tiếng Việt 0,11B chép câu | Âm thanh | A = `nhắn da lô cho minh năm rưỡi chiều mai đi đá bóng` |
 | ② Lọc câu bịa | Cắt câu kiểu phụ đề bịa ("hãy subscribe kênh…") | A | A, không đổi |
-| ③ Dựng câu mồi E2 | Ghép câu mồi cố định (khoảng 40 từ tiếng Anh hay gặp, có "Zalo"), tên tiếng Việt của app đã cài, lời trợ lý ngay trước | File câu mồi, app đã cài, lời trợ lý trước | `[câu mồi cố định] Ứng dụng đã cài: Tin nhắn SMS, Báo thức, Lịch… Dạ, anh muốn nhắn cho ai ạ?` |
+| ③ Dựng câu mồi E2 | Ghép câu mồi cố định (94 từ, chứa 44 từ tiếng Anh, tên riêng, từ mượn hay gặp, có "Zalo"; nguyên văn ở mục "Câu mồi của Whisper"), tên tiếng Việt của app đã cài, lời trợ lý ngay trước | File câu mồi, app đã cài, lời trợ lý trước | `[câu mồi cố định] Ứng dụng đã cài: Tin nhắn SMS, Báo thức, Lịch… Dạ, anh muốn nhắn cho ai ạ?` |
 | ④ whisper-large-v3 | Mô hình 1,55B chép lại câu, có câu mồi | Âm thanh + câu mồi | B = `Nhắn Zalo cho Minh 5 rưỡi chiều mai đi đá bóng.` |
 | ⑤ Bảo vệ g4 + lọc câu bịa | Nếu B lặp 4 từ liền của câu mồi hoặc lặp vô hạn thì chép lại không câu mồi; nếu B bị cắt hoặc rỗng thì bỏ B, câu ra chỉ là A đã chuẩn bị (bước ⑥) | B | B, không đổi |
 | ⑥ Chuẩn bị hai bản | Viết thường, bỏ dấu câu dính hai đầu từ, đổi số đọc thành chữ số; làm trước khi gióng, nên "năm" (A) và "5" (B) khớp nhau thay vì thành một vùng giả. Luật đổi số giữ "năm nay", "thứ tư", "một lít" | A, B | A = `nhắn da lô cho minh 5 rưỡi chiều mai đi đá bóng`, B = `nhắn zalo cho minh 5 rưỡi chiều mai đi đá bóng` |
@@ -162,6 +162,47 @@ flowchart LR
 
 Lời trợ lý «Dạ, anh muốn nhắn cho ai ạ?» cũng là ví dụ minh hoạ. Điểm âm thanh và xác suất của H-Anh không ghi số vì
 không đo trên câu mẫu này.
+
+## Câu mồi của Whisper
+
+Câu mồi (`initial_prompt`) là đoạn chữ đưa cho Whisper như thể đó là chữ ngay trước đoạn âm thanh. Whisper bắt chước cách
+viết trong đó (chính tả từ tiếng Anh, tên riêng), không làm theo lời dặn. RNNT không dùng câu mồi.
+
+**Câu mồi cố định** ([`configs/asr_prompts/en_full_v1.txt`](../../configs/asr_prompts/en_full_v1.txt), 94 từ, 183 token
+của large-v3):
+
+```text
+QR trên app mờ quá. Email của Grace Nakamura tới, Peter Hale mượn laptop chạy demo cho Nexora Labs, nhớ viết note. Điểm MinhPoint cộng chậm, podcast vô playlist, meeting dời vì deadline. Xăng RON, bóng đá VTV với HTV. Tivi phát cả list chill. Camera gara thấy shipper, mail báo tour biển và workshop gốm của Greenhaven Foods. Brightpath tặng điểm, MinhMart giảm sâu. Ok, robot đồ chơi hết pin. File ảnh Sarah giữ, tối book bàn online. Voucher nằm trong SMS, check kỹ rồi gửi Zalo cả xóm, coi miếng SJC luôn.
+```
+
+Câu mồi chứa 44 từ tiếng Anh, tên riêng và từ mượn: app, book, brightpath, camera, check, chill, deadline, demo, email,
+file, foods, gara, grace, greenhaven, hale, htv, labs, laptop, list, mail, meeting, minhmart, minhpoint, nakamura, nexora,
+note, ok, online, peter, playlist, podcast, qr, robot, ron, sarah, shipper, sjc, sms, tivi, tour, voucher, vtv, workshop,
+zalo.
+
+Cách viết (benchmark ASR lần 2, [`asr_v2.md`](../reports/benchmark/asr_v2.md) mục 4;
+[`configs/asr_prompts/README.md`](../../configs/asr_prompts/README.md)):
+
+- Chọn từ: các từ tiếng Anh whisper-large-v3 chép sai nhiều nhất trên 793 mẫu train ngoài tập dò. Mười từ sai nhiều nhất
+  đặt ở cuối, vì phần cuối gần âm thanh nhất, và Whisper chỉ dùng 223 token cuối của câu mồi.
+- Câu tự viết, giữ đúng từ khoá nhưng đặt trong ngữ cảnh khác dữ liệu thi, không chép câu nào của dữ liệu. Nhờ vậy bảo vệ
+  g4 (so câu chép với câu mồi) ít báo nhầm: `tests/test_asr_prompts.py` kiểm tra trên 5 036 câu đáp án rằng không cụm 4
+  từ nào của câu mồi trùng câu nào.
+- Viết thành câu nói tự nhiên, không liệt kê; không để chữ số đi liền tên ("VTV3" trong câu mồi từng làm large-v3 đếm tiếp
+  "VTV4 VTV5…").
+- Tên riêng (Sarah, Grace Nakamura, MinhMart…) là dữ liệu tổng hợp của cuộc thi.
+
+**Câu mồi E2**, dựng riêng cho từng câu người dùng (`lifemate/backends/asr_prompt.py › build_sample_prompts`), ghép ba
+phần theo thứ tự, cách nhau một dấu cách:
+
+1. Câu mồi cố định ở trên.
+2. `Ứng dụng đã cài: <tên tiếng Việt của các app đã cài, theo thứ tự trong installed_apps>.` (bỏ khi mẫu không có app nào)
+3. Lời đáp của trợ lý ở lượt ngay trước câu đó, nếu lượt trước là lượt trợ lý có lời đáp (câu đầu tiên không có phần
+   này).
+
+Bảo vệ g4 (bước ⑤) chỉ so câu chép với **phần cố định**: nếu câu chép lặp 4 từ liền của câu mồi cố định, hoặc lặp vô hạn,
+câu được chép lại không câu mồi. Phần lời trợ lý không được so, nên Whisper đôi khi chép lại lời trợ lý mà không bị bắt
+(báo cáo [`asr_v4.md`](../reports/benchmark/asr_v4.md) mục 6b.4).
 
 ## Hai bộ chọn H-Anh và H-Việt: vấn đề, mục tiêu, cách làm
 
