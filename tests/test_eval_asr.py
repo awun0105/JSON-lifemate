@@ -315,3 +315,5 @@ def test_read_number_round_trips_and_canonical_numbers() -> None:
     assert digitized_text("lúc 9h30") == digitized_text("lúc chín giờ ba mươi")
     assert digitized_text("số 095-0536-0367") == digitized_text("số không chín năm không năm ba sáu không ba sáu bảy")
     assert digitized_text("mua 2 cái") == digitized_text("mua hai cái")
+    assert digitized_text("gọi số 0988 999 0002 nhé") == digitized_text("gọi số 09889990002 nhé")
+    assert digitized_text("lúc 0 giờ 15") == digitized_text("lúc không giờ mười lăm")

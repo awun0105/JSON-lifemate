@@ -190,6 +190,8 @@ _READ_GROUPS = ("", "nghìn", "triệu", "tỷ")
 _THOUSANDS_SEP = re.compile(r"\b\d{1,3}(?:[.,]\d{3})+\b")  # 50.000, 1,500,000
 _CLOCK = re.compile(r"\b(\d{1,2})[h:](\d{2})?\b")  # 9h, 9h30, 8:00
 _HYPHENATED = re.compile(r"\d+(?:-\d+)+")  # 095-0536-0367
+# Số điện thoại, mã viết thành cụm: "0988 999 0002", "0988.999.0002" (bắt đầu bằng 0, cụm 2 đến 4 chữ số).
+_GROUPED_CODE = re.compile(r"\b0\d{1,4}(?:[ .]\d{2,4})+\b")
 _DIGIT_RUN = re.compile(r"\d+")
 
 
@@ -227,11 +229,14 @@ def read_number(digits: str) -> str:
 
 
 def verbalize_numbers(text: str) -> str:
-    """Viết mọi chữ số thành chữ: bỏ dấu phân cách hàng nghìn, "9h30" / "9:30" thành "9 giờ 30", nối số có gạch ngang,
+    """Viết mọi chữ số thành chữ: bỏ dấu phân cách hàng nghìn, "9h30" / "9:30" thành "9 giờ 30", nối số có gạch ngang và
+    số điện thoại viết thành cụm ("0988 999 0002", tổng từ 8 chữ số),
     "%" thành "phần trăm", rồi đọc từng dãy chữ số (`read_number`)."""
     text = _THOUSANDS_SEP.sub(lambda m: re.sub(r"[.,]", "", m.group()), text)
     text = _CLOCK.sub(lambda m: f"{m.group(1)} giờ " + (m.group(2) if m.group(2) not in (None, "00") else ""), text)
     text = _HYPHENATED.sub(lambda m: m.group().replace("-", ""), text).replace("%", " phần trăm ")
+    text = _GROUPED_CODE.sub(lambda m: re.sub(r"[ .]", "", m.group()) if sum(c.isdigit() for c in m.group()) >= 8
+                             else m.group(), text)  # fmt: skip
     return _DIGIT_RUN.sub(lambda m: f" {read_number(m.group())} ", text)
 
 

@@ -339,6 +339,11 @@ vì vậy là thời gian khi ASR có GPU riêng. Thời gian của cả hệ th
 
 Gom theo loại máy: bước 1 chỉ cần ASR, các bước 2 đến 4 cùng dựng vLLM một lần.
 
+**J5 thu nhỏ đã chạy** (01/11/2026, Colab T4, `asr_cache` với `configs/v0.toml`, 8 mẫu `val_seen` chọn theo kiểu câu
+khó: chêm tiếng Anh, số dài, giờ tương đối, nhiều lượt, phải hỏi lại, không cần tool, tên riêng, câu ngắn): chữ chạy thật
+trùng chữ offline của bản 2 ở 16/16 câu người dùng; 8 mẫu mất 26,5 s (1,4 đến 8,5 s mỗi mẫu), bộ nhớ GPU đỉnh 3,5 GB. J5
+đầy đủ trên 274 mẫu vẫn cần chạy để đếm câu khác trên cả tập và đo thời gian p95.
+
 ### 6b.3. Chỉ số và cách so
 
 Tổng hợp bằng `python -m lifemate.eval.agent_report` (D63): điểm `strict` và `canon`; chênh lệch so với run mốc kèm CI
@@ -574,8 +579,8 @@ này. Hai sửa lỗi môi trường trước khi chạy: gỡ `torchao` 0.10 c�
 | Hệ thống | WER thuần Việt | Recall tiếng Anh | Precision tiếng Anh | F1 tiếng Anh | F1 số |
 |---|---|---|---|---|---|
 | PhoWhisper-CS `N` | 24,98 | 54,82 | 40,67 | 46,70 | 79,81 |
-| **PhoWhisper-CS `E2`** | 24,90 [−1,04; +0,93] | 69,04 | 52,07 | 59,36 [+9,29; +16,03] | 79,69 |
-| large-v3 E2 (tham khảo) | 23,11 | 73,60 | 69,09 | 71,27 | 82,35 |
+| **PhoWhisper-CS `E2`** | 24,74 [−1,26; +0,79] | 69,04 | 52,07 | 59,36 [+9,29; +16,03] | 79,87 |
+| large-v3 E2 (tham khảo) | 22,92 | 73,60 | 69,09 | 71,27 | 83,01 |
 
 `E2` có F1 tiếng Anh cao hơn có ý nghĩa và WER thuần Việt hoà, nên được chọn. Ngay trên tập dò, PhoWhisper-CS đã kém
 large-v3 ở cả tiếng Việt và tiếng Anh. Precision tiếng Anh thấp là lỗi thật, không do thước đo: mô hình viết thành từ
@@ -623,9 +628,9 @@ khoảng dao động của chênh lệch qua 1 000 lần lấy mẫu lại; ch�
 
 | Hệ thống | WER thuần Việt | WER lượt cuối | F1 tiếng Anh | F1 số | Tham số thiếu, mọi lượt | Thời gian p50 / p95 (s) |
 |---|---|---|---|---|---|---|
-| Bản 2 (mốc) | 16,49 | 17,45 | 79,18 | 87,88 | 24,39 | 4,70 / 15,04 |
-| RNNT đứng riêng | 17,06 [+0,06; +0,99] | 19,05 [+0,83; +2,33] | 55,56 [−29,58; −18,01] | 86,21 [−3,77; +0,35] | 28,46 [−1,69; +9,38] | 1,51 / 3,57 |
-| large-v3 E2 đứng riêng | 24,27 [+6,45; +9,36] | 22,85 [+3,96; +7,00] | 72,24 [−10,28; −3,94] | 83,49 [−8,07; −1,07] | 28,46 [−1,59; +9,57] | 2,09 / 7,60 |
+| Bản 2 (mốc) | 16,34 | 17,24 | 79,18 | 88,09 | 23,58 | 4,70 / 15,04 |
+| RNNT đứng riêng | 17,06 [+0,31; +1,08] | 19,05 [+1,19; +2,46] | 55,56 [−29,58; −18,01] | 86,21 [−4,18; +0,28] | 28,46 | 1,51 / 3,57 |
+| large-v3 E2 đứng riêng | 23,88 [+6,29; +9,04] | 22,30 [+3,72; +6,62] | 72,24 [−10,28; −3,94] | 83,76 [−8,05; −0,97] | 27,64 | 2,09 / 7,60 |
 
 Chi tiết tiếng Anh: recall 76,42 / 49,85 / 74,93 và precision 82,14 / 62,74 / 69,75 (bản 2 / RNNT / large-v3). large-v3
 chép được gần đủ từ tiếng Anh như bản 2 (CI của recall chứa 0) nhưng viết sai nhiều hơn rõ rệt; nếu chỉ nhìn recall thì
@@ -645,8 +650,8 @@ mọi điều kiện "không tệ hơn" ở mục 6d, 6e, 6f dùng ngưỡng đ�
 | Tham số thiếu, mọi lượt | điểm đo không cao hơn mốc quá +2,0 điểm (không dùng CI: chỉ 123 giá trị, CI rộng khoảng 11 điểm) | khoảng 11 điểm |
 | Thời gian p95 | không cao hơn mốc | (không bootstrap) |
 
-"Tốt hơn có ý nghĩa" vẫn là CI của chênh lệch nằm hẳn về phía tốt. Theo bảng mốc, RNNT đứng riêng đạt ngưỡng WER (cận
-trên +0,99) nhưng trượt F1 tiếng Anh, nên không thay được bản 2: ngưỡng cho kết luận đúng với điều đã biết.
+"Tốt hơn có ý nghĩa" vẫn là CI của chênh lệch nằm hẳn về phía tốt. Theo bảng mốc, RNNT đứng riêng trượt cả ngưỡng WER
+(cận trên +1,08, vượt +1,0) lẫn F1 tiếng Anh, nên không thay được bản 2: ngưỡng cho kết luận đúng với điều đã biết.
 
 ### 6f.4. Tiêu chí đặt trước
 
@@ -689,11 +694,11 @@ trăm, chênh lệch so với bản 2 kèm CI 95%:
 
 | Hệ thống | WER thuần Việt | WER lượt cuối | F1 tiếng Anh | F1 số | Tham số thiếu, mọi lượt | Thời gian p50 / p95 (s) |
 |---|---|---|---|---|---|---|
-| Bản 2 (mốc) | 16,49 | 17,45 | 79,18 | 87,88 | 24,39 | 4,70 / 15,04 |
-| RNNT đứng riêng | 17,06 [+0,06; +0,99] | 19,05 [+0,83; +2,33] | 55,56 [−29,58; −18,01] | 86,21 [−3,77; +0,35] | 28,46 | 1,51 / 3,57 |
-| large-v3 E2 đứng riêng | 24,27 [+6,45; +9,36] | 22,85 [+3,96; +7,00] | 72,24 [−10,28; −3,94] | 83,49 [−8,07; −1,07] | 28,46 | 2,09 / 7,60 |
-| VieGem đứng riêng | 21,43 [+3,92; +6,06] | 23,99 [+5,17; +8,00] | 53,86 [−32,05; −18,87] | 86,86 [−4,18; +2,20] | 26,02 | 0,16 / 0,62 |
-| PhoWhisper-CS đứng riêng | 24,98 [+7,08; +10,00] | 25,28 [+6,31; +9,44] | 58,32 [−25,58; −16,62] | 82,95 [−8,83; −1,30] | 36,59 | 1,99 / 7,40 |
+| Bản 2 (mốc) | 16,34 | 17,24 | 79,18 | 88,09 | 23,58 | 4,70 / 15,04 |
+| RNNT đứng riêng | 17,06 [+0,31; +1,08] | 19,05 [+1,19; +2,46] | 55,56 [−29,58; −18,01] | 86,21 [−4,18; +0,28] | 28,46 | 1,51 / 3,57 |
+| large-v3 E2 đứng riêng | 23,88 [+6,29; +9,04] | 22,30 [+3,72; +6,62] | 72,24 [−10,28; −3,94] | 83,76 [−8,05; −0,97] | 27,64 | 2,09 / 7,60 |
+| VieGem đứng riêng | 21,43 [+4,13; +6,10] | 23,99 [+5,46; +8,14] | 53,86 [−32,05; −18,87] | 86,86 [−4,39; +2,01] | 26,02 | 0,16 / 0,62 |
+| PhoWhisper-CS đứng riêng | 24,98 [+7,25; +10,09] | 25,28 [+6,66; +9,63] | 58,32 [−25,58; −16,62] | 82,95 [−9,12; −1,44] | 36,59 | 1,99 / 7,40 |
 
 Chi tiết tiếng Anh (recall / precision): VieGem 41,19 / 77,78; PhoWhisper-CS 69,55 / 50,22. Thời gian của VieGem là thời
 gian chạy mô hình; giải mã KenLM thêm khoảng 0,06 s mỗi câu ở p95 (CPU). Không hệ thống mới nào có câu bị bộ lọc câu bịa
@@ -704,11 +709,11 @@ So trực tiếp với mô hình ở vai định thay:
 | So sánh | WER thuần Việt | F1 tiếng Anh | F1 số | Tham số thiếu, mọi lượt |
 |---|---|---|---|---|
 | VieGem − RNNT | +4,37 [+3,42; +5,38] | −1,70 [−7,58; +4,55] | +0,65 [−2,86; +4,29] | −2,44 [−10,53; +5,83] |
-| PhoWhisper-CS − large-v3 E2 | +0,71 [−0,89; +2,19] | −13,92 [−19,00; −9,22] | −0,54 [−4,16; +3,19] | +8,13 [+0,76; +15,67] |
+| PhoWhisper-CS − large-v3 E2 | +1,10 [−0,45; +2,56] | −13,92 [−19,00; −9,22] | −0,81 [−4,48; +3,03] | +8,94 [+1,59; +16,41] |
 
 **Áp tiêu chí mục 6f.4:**
 
-1. Thay cả pipeline: không mô hình nào đạt. VieGem tệ hơn bản 2 ở WER thuần Việt (cận dưới +3,92, vượt ngưỡng +1,0) và F1
+1. Thay cả pipeline: không mô hình nào đạt. VieGem tệ hơn bản 2 ở WER thuần Việt (cận dưới +4,13, vượt ngưỡng +1,0) và F1
    tiếng Anh (cận dưới −32,05); PhoWhisper-CS tệ hơn ở mọi thước đo.
 2. Thay vai: không đạt. VieGem không có WER thuần Việt thấp hơn RNNT mà còn cao hơn có ý nghĩa (+4,37); tiếng Việt là lý
    do duy nhất để thay RNNT. PhoWhisper-CS có F1 tiếng Anh thấp hơn large-v3 có ý nghĩa (−13,92), và tham số thiếu tăng
