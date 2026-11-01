@@ -5,7 +5,7 @@ Ngày lập kế hoạch: 31/10/2026. Trạng thái: **L1 đã đo và nhận (m
 
 Lần 3 ([`asr_v3.md`](asr_v3.md), mục "Nghiệm thu lần 3") kết thúc với ba số đếm trên `val_seen`:
 
-1. Bộ quyết định ghép hoàn hảo chỉ đạt 80,3% độ phủ từ tiếng Anh (H đang 76,7%); 66 trên 335 từ không có ở bên nào.
+1. Bộ quyết định ghép hoàn hảo chỉ đạt 80,3% recall (độ phủ) từ tiếng Anh (H đang 76,7%); 66 trên 335 từ không có ở bên nào.
 2. Tỉ lệ giá trị tham số của lời gọi đáp án vắng trong chữ ASR bằng nhau ở ba nguồn (RNNT 32,1%, large-v3 29,4%, ghép
    30,3%); phần lớn giá trị mất là chữ và tên Việt.
 3. 59% giá trị tham số có chữ số; chữ RNNT không có chữ số ở câu nào (bản ghép 6/95 câu).
@@ -21,7 +21,7 @@ Báo cáo lần 4 trả lời ba câu hỏi:
 
 ## Tóm tắt cho cả team
 
-Điểm thi chấm **lời gọi tool đúng tên và đúng giá trị tham số**. Ba lần trước đo chữ bằng WER và độ phủ từ tiếng Anh;
+Điểm thi chấm **lời gọi tool đúng tên và đúng giá trị tham số**. Ba lần trước đo chữ bằng WER và recall (độ phủ) từ tiếng Anh;
 lần 4 đo bằng **giá trị tham số có trong chữ** (`entity_miss_rate`, SPEC 6.1.1) và điểm thi. Lý do: hai thước đo cũ đã
 được tối ưu tới gần trần mà điểm thi gần như không đổi.
 
@@ -498,22 +498,22 @@ câu hai đầu từ, đổi số đọc thành chữ số; `asr_compare --prepa
 g4 (chữ đã lưu của large-v3 E2 đã qua hai bước này). VieGem là CTC, không bịa câu phụ đề và không dùng câu mồi, nên không
 cần hai bước đó.
 
-**Thước đo từ tiếng Anh.** Độ phủ (`en_word_recall`: phần từ tiếng Anh của đáp án mà ASR chép đúng) không phạt việc ASR
-viết thêm từ tiếng Anh sai, ví dụ "phòng" thành "phone". Vì vậy thêm độ chính xác (`en_word_precision`: phần từ tiếng Anh
+**Thước đo từ tiếng Anh.** Recall, tức độ phủ (`en_word_recall`: phần từ tiếng Anh của đáp án mà ASR chép đúng) không phạt việc ASR
+viết thêm từ tiếng Anh sai, ví dụ "phòng" thành "phone". Vì vậy thêm precision, tức độ chính xác (`en_word_precision`: phần từ tiếng Anh
 ASR viết ra, ở mọi câu kể cả câu thuần Việt, có trong đáp án của cùng câu) và F1 (`en_word_f1`: trung bình điều hoà của
-hai số trên, chỉ cao khi cả hai cùng cao). F1 là thước đo tiếng Anh dùng để quyết định ở mục 6d, 6e và mục này. Bootstrap
-tính F1 từ độ phủ và độ chính xác đã cộng dồn của mỗi vòng.
+recall và precision, chỉ cao khi cả hai cùng cao). F1 là thước đo tiếng Anh dùng để quyết định ở mục 6d, 6e và mục này. Bootstrap
+tính F1 từ recall và precision đã cộng dồn của mỗi vòng.
 
 **Mốc đã có** (`val_seen`, chấm lại chữ đã lưu, không chạy mô hình; phần trăm, chênh lệch so với bản 2 kèm CI 95%):
 
-| Hệ thống | WER câu thuần Việt | WER | Độ phủ tiếng Anh | Độ chính xác tiếng Anh | F1 tiếng Anh | Tham số thiếu |
+| Hệ thống | WER câu thuần Việt | WER | Recall (độ phủ) tiếng Anh | Precision (độ chính xác) tiếng Anh | F1 tiếng Anh | Tham số thiếu |
 |---|---|---|---|---|---|---|
 | Bản 2 (mốc) | 18,56 | 19,62 | 76,42 | 82,14 | 79,18 | 23,85 |
 | RNNT đứng riêng | 19,16 [+0,20; +0,95] | 21,28 [+1,18; +2,14] | 49,85 [−32,56; −21,02] | 62,74 [−26,11; −13,20] | 55,56 [−29,58; −18,01] | 28,44 [−1,77; +10,92] |
 | large-v3 E2 đứng riêng | 26,75 [+7,11; +9,44] | 26,77 [+6,29; +8,14] | 74,93 [−4,61; +1,25] | 69,75 [−17,19; −7,88] | 72,24 [−10,28; −3,94] | 29,36 [−1,00; +12,04] |
 
-large-v3 chép được gần đủ từ tiếng Anh như bản 2 (CI của độ phủ chứa 0) nhưng viết sai nhiều hơn rõ rệt (độ chính xác
-thấp hơn 12 điểm). Nếu chỉ nhìn độ phủ thì mô hình này bị đánh giá sai. Đó là lý do mục này dùng F1.
+large-v3 chép được gần đủ từ tiếng Anh như bản 2 (CI của recall chứa 0) nhưng viết sai nhiều hơn rõ rệt (precision
+thấp hơn 12 điểm). Nếu chỉ nhìn recall thì mô hình này bị đánh giá sai. Đó là lý do mục này dùng F1.
 
 **Tiêu chí đặt trước** (đo một lần trên `val_seen`, mốc là bản 2; "không tệ hơn có ý nghĩa" nghĩa là CI của chênh lệch
 không nằm hẳn về phía tệ):
