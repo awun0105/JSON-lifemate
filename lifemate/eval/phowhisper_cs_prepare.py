@@ -1,7 +1,7 @@
 """Chuẩn bị PhoWhisper-large-CS (`rinhoooo/phowhisper-large-vien-cs-asr`) cho engine `faster_whisper` (mục 6e).
 
 Cách dùng (trên máy có GPU, vì cần tải khoảng 6,4 GB và bước kiểm tra chạy mô hình):
-  python -m lifemate.eval.phowhisper_cs_prepare --out /content/models/phowhisper-cs --check-wavs <wav> <wav> ...
+  python -m lifemate.eval.phowhisper_cs_prepare --out <thư mục mô hình> --check-wavs <wav> <wav> ...
 
 Nội dung chính:
 - `prepare`: tải PhoWhisper-large và bộ LoRA ở đúng commit, gộp LoRA vào mô hình gốc (`merge_and_unload`), lưu

@@ -40,7 +40,7 @@ MODEL = "5CD-AI/VieGem-ASR"
 MODEL_REVISION = "95eae70b21fb0ef640e3ac4ea8cfa2380872ed20"
 TOP_K = 32
 CANDIDATE_ORDER = ("greedy", "lm_w0", "lm_w2", "lm_w4", "lm_w8")  # từ đơn giản tới phức tạp (tiêu chí mục 6d)
-METRICS = ("wer", "vi_only_wer", "wer_nonum", "en_word_recall", "entity_miss_rate")
+METRICS = ("wer", "vi_only_wer", "wer_nonum", "en_word_recall", "en_word_precision", "en_word_f1", "entity_miss_rate")
 
 
 def _cfg(decoder: str = "greedy", dtype: str = "auto") -> Any:

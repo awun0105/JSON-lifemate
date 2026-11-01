@@ -241,3 +241,32 @@ def test_compare_counts_add_up_and_ci_contains_value() -> None:
     lo, hi = res["a"]["ci"]["en_word_recall"]
     assert lo <= full.en_word_recall <= hi
     assert res["b"]["diff_ci"]["wer"] == [0.0, 0.0]
+
+
+def test_en_word_precision_and_f1() -> None:
+    """Từ tiếng Anh ASR viết thêm, kể cả ở câu thuần Việt, hạ độ chính xác; F1 là trung bình điều hoà."""
+    from lifemate.eval.eval_asr import f1
+
+    samples = [_sample("s0", "Check mail nha", []), _sample("s1", "Bật đèn phòng khách", [])]
+    # s0: đúng "check", sai "mail" thành "meo"; s1: "phòng" bị viết thành "phone".
+    rep = evaluate(samples, _Fixed({"s0": "check meo nha", "s1": "bật đèn phone khách"}))
+    assert (rep.en_words, rep.en_words_hit) == (2, 1)
+    assert (rep.en_hyp_words, rep.en_hyp_hits) == (2, 1)
+    assert rep.en_word_precision == pytest.approx(0.5) and rep.en_word_f1 == pytest.approx(0.5)
+    assert f1(0.0, 0.0) == 0.0 and f1(1.0, 0.5) == pytest.approx(2 / 3)
+
+
+def test_compare_f1_from_pooled_counts_and_prepare() -> None:
+    """F1 trong `compare` tính từ độ phủ và độ chính xác đã cộng dồn; `prepared` đổi số đọc thành chữ số."""
+    from lifemate.eval.asr_compare import compare, prepared
+
+    samples = [_sample("s0", "Check mail nha", []), _sample("s1", "Bật đèn", [])]
+    asr = _Fixed({"s0": "check meo nha", "s1": "bật đèn phone"})
+    hyps: list[dict[str, Any]] = []
+    full = evaluate(samples, asr, hyps)
+    res = compare(samples, {"a": (hyps, "")}, rounds=20)
+    assert res["a"]["report"]["en_word_f1"] == pytest.approx(full.en_word_f1)
+    lo, hi = res["a"]["ci"]["en_word_f1"]
+    assert lo <= hi
+    row = prepared([{"id": "s0", "turn": "final", "hyp": "Hẹn lúc hai giờ."}])[0]
+    assert row["hyp"] == "hẹn lúc 2 giờ" and row["raw"] == row["hyp"]

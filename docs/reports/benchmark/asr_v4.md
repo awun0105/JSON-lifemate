@@ -450,11 +450,9 @@ pipeline ghép bản 2 bằng bootstrap ghép cặp theo mẫu.
    thời gian giải mã thêm p95 ≤ 1 s mỗi câu; lấy cấu hình có WER thấp nhất; nếu CI của chênh lệch so với cấu hình đơn
    giản hơn chứa 0 thì lấy cấu hình đơn giản hơn.
 3. Đo một lần trên `val_seen` với cấu hình đã chọn:
-   - **Thay RNNT** khi WER câu thuần Việt thấp hơn RNNT có ý nghĩa, chép đúng từ tiếng Anh không thấp hơn có ý nghĩa,
-     giá trị tham số thiếu không cao hơn có ý nghĩa. Khi đó phải làm lại K5 và học lại H với VieGem làm phía A.
-   - **Thay cả pipeline ghép** (bỏ whisper-large-v3, H-Anh, H-Việt) khi so với pipeline ghép bản 2, cả WER, chép đúng
-     từ tiếng Anh và giá trị tham số thiếu đều không tệ hơn có ý nghĩa (không thua), vì VieGem đứng riêng nhanh hơn và
-     ít tham số hơn nhiều.
+   - **Thay RNNT** khi WER câu thuần Việt thấp hơn RNNT có ý nghĩa, F1 từ tiếng Anh (mục 6f) không thấp hơn có ý
+     nghĩa, giá trị tham số thiếu không cao hơn có ý nghĩa. Khi đó phải làm lại K5 và học lại H với VieGem làm phía A.
+   - **Thay cả pipeline ghép** (bỏ whisper-large-v3, H-Anh, H-Việt): theo tiêu chí chung của mục 6f.
 
 ## 6e. PhoWhisper-large-CS dùng nguyên bản (chưa chạy)
 
@@ -481,12 +479,63 @@ biến thể câu mồi đặt trước: `N` và `E2`.
 
 1. Kiểm tra chuyển đổi: chữ bản gộp (transformers) và bản CTranslate2 trùng nhau ở ít nhất 9/10 file; chữ thô không có
    thẻ ngôn ngữ, hoặc có thì phải viết bước lọc trước khi benchmark.
-2. Trên `asr_tune` (chữ large-v3 E2 của phiên K1 làm mốc): chọn giữa `N` và `E2` theo chép đúng từ tiếng Anh, trừ khi
+2. Trên `asr_tune` (chữ large-v3 E2 của phiên K1 làm mốc): chọn giữa `N` và `E2` theo F1 từ tiếng Anh (mục 6f), trừ khi
    WER câu thuần Việt tệ hơn có ý nghĩa; hoà thì chọn `N` (đơn giản hơn).
-3. Thay large-v3 ở vai trò B khi, trên `val_seen` đo một lần, PhoWhisper-CS đứng riêng chép đúng từ tiếng Anh cao hơn có
+3. Thay large-v3 ở vai trò B khi, trên `val_seen` đo một lần, PhoWhisper-CS đứng riêng có F1 từ tiếng Anh cao hơn có
    ý nghĩa, hoặc không thua mà số câu bị bộ lọc câu bịa cắt ít hơn. Khi đó làm lại K5 với PhoWhisper-CS (vừa chép phía B
    vừa chấm điểm âm thanh), học lại H-Anh và H-Việt, kiểm định chéo với tiêu chí của D67, rồi so pipeline ghép mới với
    bản 2.
+
+## 6f. So chung bốn mô hình và pipeline ghép bản 2
+
+**Câu hỏi.** Ngoài việc thay từng vai A hoặc B (mục 6d, 6e), cần biết một mô hình đứng riêng có thay được cả pipeline
+ghép không. Nếu được, pipeline chỉ còn một mô hình nghe kèm bước hậu xử lý, không cần chấm điểm âm thanh và H-Anh, H-Việt.
+Vì vậy năm hệ thống được chấm trên cùng tập câu, cùng thước đo: RNNT, whisper-large-v3 E2, VieGem, PhoWhisper-CS (mỗi mô
+hình đứng riêng) và pipeline ghép bản 2.
+
+**Hậu xử lý của một mô hình đứng riêng** giống phần bản 2 làm với từng phía trước khi ghép: `prepare` (chữ thường, bỏ dấu
+câu hai đầu từ, đổi số đọc thành chữ số; `asr_compare --prepare`). Mô hình Whisper giữ thêm bộ lọc câu bịa và lớp bảo vệ
+g4 (chữ đã lưu của large-v3 E2 đã qua hai bước này). VieGem là CTC, không bịa câu phụ đề và không dùng câu mồi, nên không
+cần hai bước đó.
+
+**Thước đo từ tiếng Anh.** Độ phủ (`en_word_recall`: phần từ tiếng Anh của đáp án mà ASR chép đúng) không phạt việc ASR
+viết thêm từ tiếng Anh sai, ví dụ "phòng" thành "phone". Vì vậy thêm độ chính xác (`en_word_precision`: phần từ tiếng Anh
+ASR viết ra, ở mọi câu kể cả câu thuần Việt, có trong đáp án của cùng câu) và F1 (`en_word_f1`: trung bình điều hoà của
+hai số trên, chỉ cao khi cả hai cùng cao). F1 là thước đo tiếng Anh dùng để quyết định ở mục 6d, 6e và mục này. Bootstrap
+tính F1 từ độ phủ và độ chính xác đã cộng dồn của mỗi vòng.
+
+**Mốc đã có** (`val_seen`, chấm lại chữ đã lưu, không chạy mô hình; phần trăm, chênh lệch so với bản 2 kèm CI 95%):
+
+| Hệ thống | WER câu thuần Việt | WER | Độ phủ tiếng Anh | Độ chính xác tiếng Anh | F1 tiếng Anh | Tham số thiếu |
+|---|---|---|---|---|---|---|
+| Bản 2 (mốc) | 18,56 | 19,62 | 76,42 | 82,14 | 79,18 | 23,85 |
+| RNNT đứng riêng | 19,16 [+0,20; +0,95] | 21,28 [+1,18; +2,14] | 49,85 [−32,56; −21,02] | 62,74 [−26,11; −13,20] | 55,56 [−29,58; −18,01] | 28,44 [−1,77; +10,92] |
+| large-v3 E2 đứng riêng | 26,75 [+7,11; +9,44] | 26,77 [+6,29; +8,14] | 74,93 [−4,61; +1,25] | 69,75 [−17,19; −7,88] | 72,24 [−10,28; −3,94] | 29,36 [−1,00; +12,04] |
+
+large-v3 chép được gần đủ từ tiếng Anh như bản 2 (CI của độ phủ chứa 0) nhưng viết sai nhiều hơn rõ rệt (độ chính xác
+thấp hơn 12 điểm). Nếu chỉ nhìn độ phủ thì mô hình này bị đánh giá sai. Đó là lý do mục này dùng F1.
+
+**Tiêu chí đặt trước** (đo một lần trên `val_seen`, mốc là bản 2; "không tệ hơn có ý nghĩa" nghĩa là CI của chênh lệch
+không nằm hẳn về phía tệ):
+
+1. **Một mô hình thay cả pipeline** khi mô hình đó đứng riêng không tệ hơn bản 2 có ý nghĩa ở cả ba thước đo: WER câu
+   thuần Việt, F1 tiếng Anh, tham số thiếu. Nếu cả VieGem và PhoWhisper-CS đều đạt, chọn mô hình có WER thấp hơn; CI
+   chứa 0 thì chọn VieGem (ít tham số hơn, nhanh hơn).
+2. **Không mô hình nào đạt bước 1:** giữ pipeline ghép, xét thay vai theo mục 6d (VieGem thay RNNT) và 6e (PhoWhisper-CS
+   thay large-v3).
+3. **Cả hai cùng thay được vai đã định:** dựng đúng một pipeline VieGem (A) + PhoWhisper-CS (B), chấm điểm âm thanh lại,
+   học lại H-Anh và H-Việt một lần, kiểm định chéo theo tiêu chí D67, rồi so với bản 2. Không thử các cặp lẻ khác.
+4. Bảng đủ năm hệ thống, kèm so từng cặp mô hình đứng riêng, được ghi để tham khảo; quyết định chỉ theo ba bước trên.
+
+**Lệnh chấm** (CPU, sau khi có chữ của hai mô hình mới):
+
+```bash
+python -m lifemate.eval.asr_compare --env local --ids configs/splits/val_seen.txt \
+  --system ban2=<k5>/analysis/v2_val_seen.hyps.jsonl --system rnnt=<k2_val_seen>/rnnt.hyps.jsonl \
+  --system v3_E2=<k2_val_seen>/v3_E2.hyps.jsonl --system viegem=<viegem>/val_seen/<cấu hình>.hyps.jsonl \
+  --system phowhisper_cs=<phowhisper_cs>/<biến thể>.hyps.jsonl \
+  --prepare rnnt --prepare v3_E2 --prepare viegem --prepare phowhisper_cs --out <thư mục>/standalone_val_seen.json
+```
 
 ## 7. Kế hoạch
 

@@ -172,6 +172,11 @@ def _rate(errors: int, n: int) -> float:
     return errors / n
 
 
+def f1(recall: float, precision: float) -> float:
+    """Trung bình điều hoà của độ phủ và độ chính xác; 0 khi cả hai bằng 0."""
+    return 2 * recall * precision / (recall + precision) if recall + precision else 0.0
+
+
 def wer(ref: str, hyp: str) -> float:
     """Tính tỉ lệ lỗi từ (WER) của `hyp` so với `ref`, trên văn bản đã chuẩn hoá."""
     r, h = normalize_text(ref).split(), normalize_text(hyp).split()
@@ -310,6 +315,11 @@ class AsrReport:
         en_word_recall: `en_words_hit / en_words`; mỗi từ được tính đúng tối đa bằng số lần nó có trong chữ ASR.
         en_word_recall_lenient: như trên nhưng chấp nhận cách viết tương đương.
         vi_only_wer: WER trên các câu không có từ ngoại.
+        en_hyp_words: số từ ngoại trong chữ ASR, ở mọi câu (đếm lặp).
+        en_hyp_hits: số từ ngoại của chữ ASR có trong đáp án của cùng câu (tính cả cách viết tương đương).
+        en_word_precision: `en_hyp_hits / en_hyp_words`: phần từ tiếng Anh ASR viết ra là đúng; thấp khi ASR biến từ
+            tiếng Việt thành tiếng Anh hoặc chèn từ không có.
+        en_word_f1: trung bình điều hoà của `en_word_recall` và `en_word_precision`.
         en_groups: nhóm từ ngoại -> [số từ, số từ chép đúng].
         en_prompt: "in"/"out" -> [số từ, số từ chép đúng], theo từ có hay không có trong câu mồi.
         prompt_insertions: số lần từ ngoại của câu mồi xuất hiện trong chữ ASR mà đáp án không có.
@@ -344,6 +354,10 @@ class AsrReport:
     en_word_recall_lenient: float = (
         0.0  # chấp nhận cách viết tương đương (`foreign_words.EQUIVALENT_SPELLINGS`, tên ghép bị tách)
     )
+    en_hyp_words: int = 0
+    en_hyp_hits: int = 0
+    en_word_precision: float = 0.0
+    en_word_f1: float = 0.0
     vi_only_wer: float = 0.0  # WER trên các câu không có từ ngoại: câu mồi có làm hại câu thuần Việt không
     en_groups: dict[str, list[int]] = field(default_factory=dict)  # nhóm -> [số từ, số từ chép đúng]
     en_prompt: dict[str, list[int]] = field(default_factory=dict)  # "in"/"out" câu mồi -> [số từ, số từ chép đúng]
@@ -412,6 +426,7 @@ def evaluate(
     en_mixed_utterances = en_mixed_errors = en_mixed_words = vi_only_errors = vi_only_words = 0
     # Từ ngoại của đáp án: tổng số, số chép đúng (chặt / nới lỏng), số lần từ câu mồi bị chèn vào.
     en_words_total = en_hits = en_hits_lenient = prompt_insertions = 0
+    en_hyp_words = en_hyp_hits = 0  # từ ngoại của chữ ASR: tổng số, số có trong đáp án (độ chính xác)
     by_group = {g: [0, 0] for g in WORD_GROUPS}  # nhóm -> [số từ, số từ chép đúng]
     by_prompt = {"in": [0, 0], "out": [0, 0]}  # từ có / không có trong câu mồi -> [số từ, số từ chép đúng]
     for s, t in zip(samples, transcripts, strict=True):
@@ -459,6 +474,9 @@ def evaluate(
             # Từ câu mồi có trong chữ ASR mà đáp án không có, kể cả dưới cách viết khác ("ti vi", "TV" cho "tivi").
             reference_words = folded_words(ref)
             prompt_insertions += sum(not contains_word(w, reference_words) for w in prompt_words & folded_word_set(hyp))
+            hyp_foreign = find_foreign_words(hyp, lowercase_vocabulary)
+            en_hyp_words += len(hyp_foreign)
+            en_hyp_hits += sum(contains_word(w.folded, reference_words) for w in hyp_foreign)
             foreign = find_foreign_words(ref, lowercase_vocabulary)
             if not foreign:
                 vi_only_errors += word_errors
@@ -480,6 +498,7 @@ def evaluate(
                     prompt_side[1] += hit
     missed, total, rate, details = entity_miss_rate(samples, transcripts)
     secs = [t.seconds for t in transcripts]
+    recall, precision = _rate(en_hits, en_words_total), _rate(en_hyp_hits, en_hyp_words)
     return AsrReport(
         n_samples=len(samples),
         n_utterances=n_utt,
@@ -501,7 +520,11 @@ def evaluate(
         en_mixed_wer=_rate(en_mixed_errors, en_mixed_words),
         en_words=en_words_total,
         en_words_hit=en_hits,
-        en_word_recall=_rate(en_hits, en_words_total),
+        en_word_recall=recall,
+        en_hyp_words=en_hyp_words,
+        en_hyp_hits=en_hyp_hits,
+        en_word_precision=precision,
+        en_word_f1=f1(recall, precision),
         en_word_recall_lenient=_rate(en_hits_lenient, en_words_total),
         vi_only_wer=_rate(vi_only_errors, vi_only_words),
         en_groups={g: v for g, v in by_group.items() if v[0]},
@@ -520,6 +543,8 @@ def evaluate(
             "en_words": en_words_total,
             "en_hits": en_hits,
             "en_hits_lenient": en_hits_lenient,
+            "en_hyp_words": en_hyp_words,
+            "en_hyp_hits": en_hyp_hits,
             "entity_missed": missed,
             "entity_total": total,
         },

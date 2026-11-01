@@ -13,6 +13,8 @@ Nội dung chính:
 
 Cách hoạt động:
 - Mỗi hệ thống là `tên=đường_dẫn_hyps[:đường_dẫn_config]`; config (tuỳ chọn) để lấy câu mồi cho các chỉ số câu mồi.
+- `--prepare TÊN` (lặp được): áp `asr_merge_v2.prepare` (chữ thường, bỏ dấu câu hai đầu từ, đổi số đọc thành chữ số)
+  lên chữ của hệ thống đó, để mô hình đứng riêng được so cùng cách viết số với pipeline ghép bản 2 (vốn đã `prepare`).
 - Bootstrap có ghép cặp: mỗi vòng lấy ngẫu nhiên có hoàn lại `len(ids)` mẫu (seed cố định), chấm mọi hệ thống trên
   cùng các mẫu đó. Khoảng tin cậy là phân vị 2,5 và 97,5 qua các vòng. Chênh lệch có khoảng tin cậy không chứa 0 mới
   coi là khác biệt thật.
@@ -31,7 +33,7 @@ from typing import Any
 
 from lifemate.core.paths import REPO_ROOT, repo_path
 from lifemate.core.types import Sample
-from lifemate.eval.eval_asr import evaluate
+from lifemate.eval.eval_asr import evaluate, f1
 from lifemate.eval.rescore_asr import ReplayTranscriber
 
 # Chỉ số -> (tử số, mẫu số) trong `AsrReport.counts`.
@@ -42,12 +44,16 @@ METRICS: dict[str, tuple[str, str]] = {
     "vi_only_wer": ("vi_only_errors", "vi_only_words"),
     "en_word_recall": ("en_hits", "en_words"),
     "en_word_recall_lenient": ("en_hits_lenient", "en_words"),
+    "en_word_precision": ("en_hyp_hits", "en_hyp_words"),
+    "en_word_f1": ("", ""),  # tính từ `en_word_recall` và `en_word_precision`, không phải một tỉ lệ
     "entity_miss_rate": ("entity_missed", "entity_total"),
 }
 
 
 def _metric_value(counts: Mapping[str, int], metric: str) -> float:
     """Tính một chỉ số từ tử số và mẫu số đã cộng dồn; mẫu số 0 cho 0.0."""
+    if metric == "en_word_f1":
+        return f1(_metric_value(counts, "en_word_recall"), _metric_value(counts, "en_word_precision"))
     numerator, denominator = METRICS[metric]
     return counts[numerator] / counts[denominator] if counts[denominator] else 0.0
 
@@ -89,7 +95,7 @@ def compare(
         name: [evaluate([sample], ReplayTranscriber(rows), prompt=prompt).counts for sample in samples]
         for name, (rows, prompt) in systems.items()
     }
-    count_keys = sorted({key for pair in METRICS.values() for key in pair})
+    count_keys = sorted({key for pair in METRICS.values() for key in pair if key})
     rng = random.Random(seed)
     # Hệ thống -> chỉ số -> giá trị ở từng vòng bootstrap.
     bootstrap_values: dict[str, dict[str, list[float]]] = {name: {m: [] for m in METRICS} for name in names}
@@ -123,6 +129,13 @@ def to_markdown(result: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def prepared(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Các dòng `hyps.jsonl` sau `prepare` (cả `hyp` lẫn `raw`), như đầu vào của pipeline ghép bản 2."""
+    from lifemate.eval.asr_merge_v2 import prepare
+
+    return [{**r, "hyp": prepare(str(r["hyp"])), "raw": prepare(str(r.get("raw", r["hyp"])))} for r in rows]
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Chạy CLI so sánh và in bảng; trả về mã thoát 0."""
     from lifemate.core.config import load_config, load_profile
@@ -134,9 +147,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--split", default="train")
     ap.add_argument("--ids", type=Path, required=True)
     ap.add_argument("--system", action="append", required=True, metavar="NAME=HYPS[:CONFIG]")
+    ap.add_argument("--prepare", action="append", default=[], metavar="NAME", help="áp `prepare` lên hệ thống này")
     ap.add_argument("--rounds", type=int, default=1000)
     ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args(argv)
+    if "val_unseen" in str(args.ids):
+        raise SystemExit("val_unseen bị khoá (D53)")
     profile = load_profile(args.env, REPO_ROOT).with_overrides(root=args.root)
     root = repo_path(profile.data_root, REPO_ROOT)
     ids = [x.strip() for x in args.ids.read_text(encoding="utf-8").splitlines() if x.strip()]
@@ -146,6 +162,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         name, _, rest = item.partition("=")
         hyps, _, cfg = rest.partition(":")
         rows = [json.loads(x) for x in Path(hyps).read_text(encoding="utf-8").splitlines() if x.strip()]
+        if name in args.prepare:
+            rows = prepared(rows)
         prompt = str(load_config(Path(cfg)).asr.generate_kwargs.get("initial_prompt") or "") if cfg else ""
         systems[name] = (rows, prompt)
     result = compare(samples, systems, rounds=args.rounds)
