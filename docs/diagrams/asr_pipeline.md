@@ -91,14 +91,14 @@ flowchart LR
   end
 
   subgraph S2["Giai đoạn 2 · Ghép hai bản"]
-    prep[\"⑥ Chuẩn bị hai bản<br/>chữ thường, bỏ dấu câu,<br/>đổi số"/]
+    prep[\"⑥ Chuẩn bị hai bản<br/>chữ thường, bỏ dấu câu<br/>hai đầu từ, đổi số"/]
     align["⑦ Gióng A với B, tách vùng<br/>giữ dấu thanh"]
     has{{"Có vùng?"}}
     score[["⑧ Chấm điểm âm thanh<br/>mọi vùng"]]
     ctx["Từ điển ngữ cảnh"]
     hfile[("h_v2.json")]
-    Hen[["⑨a H-Anh<br/>vùng có từ tiếng Anh"]]
-    Hvi[["⑨b H-Việt<br/>vùng chỉ chữ Việt"]]
+    Hen[["⑨a H-Anh<br/>vùng en: Whisper có từ<br/>tiếng Anh mà RNNT không có"]]
+    Hvi[["⑨b H-Việt<br/>vùng vi: mọi vùng còn lại"]]
     asm["⑩ Lắp câu"]
   end
 
@@ -131,7 +131,7 @@ flowchart LR
   hfile --> Hen
   hfile --> Hvi
   Hen -- "lấy zalo" --> asm
-  Hvi -. "vùng chữ Việt (câu mẫu không có)" .-> asm
+  Hvi -. "vùng vi (câu mẫu không có)" .-> asm
   asm -- "nhắn <b>zalo</b> cho minh 5 rưỡi…" --> build
   build -- "messages" --> llm
 
