@@ -163,6 +163,236 @@ flowchart LR
 Lời trợ lý «Dạ, anh muốn nhắn cho ai ạ?» cũng là ví dụ minh hoạ. Điểm âm thanh và xác suất của H-Anh không ghi số vì
 không đo trên câu mẫu này.
 
+## Ví dụ thực tế: 8 mẫu chạy thử
+
+Tám mẫu của `val_seen`, mỗi mẫu một kiểu câu khó, đã chạy thật trên Colab T4 (mục "Kết quả benchmark", đoạn cuối). Các bước giữa dưới đây dựng lại từ chữ RNNT, chữ Whisper và điểm âm thanh đã lưu ở các phiên GPU trước, qua đúng các hàm của engine; chữ ra dựng lại trùng chữ của lần chạy thật ở cả 16 câu người dùng. Không câu Whisper nào phải chép lại không câu mồi hay bị bỏ ở bước ⑤ trong 8 mẫu này.
+
+Cách đọc mỗi bảng: **Đáp án** là lời chuẩn của BTC; **A** là chữ RNNT, **B** là chữ Whisper (câu mồi E2); **A′, B′** là hai bản sau bước ⑥ (chữ thường, bỏ dấu câu hai đầu từ, đổi số). Mỗi vùng ghi loại (`en`: H-Anh quyết định; `vi`: H-Việt), chữ hai bên, xác suất lấy chữ B của bộ chọn (ngưỡng 0,5) và quyết định. **Ra** là chữ ASR đưa cho LLM.
+
+### 1. train_0463: Chêm tiếng Anh, có gọi tool
+
+| Bước | Chữ |
+|---|---|
+| Đáp án | Mở giúp em đoạn chat Zalo với chị Lan, em muốn đọc lại tin nhắn chị ấy gửi. |
+| A (RNNT) | m giúp em đàn choắt zalo với chị lan em muốn đọc lại từ nhậm chị ấy gửi |
+| B (Whisper) | Mờ, giúp em đàn chất, Zalo vậy chỉ lán, em muộn đọc lại tí nhận chị ấy gửi. |
+| A′ | m giúp em đàn choắt zalo với chị lan em muốn đọc lại từ nhậm chị ấy gửi |
+| B′ | mờ giúp em đàn chất zalo vậy chỉ lán em muộn đọc lại tí nhận chị ấy gửi |
+| Vùng `vi` | m ↔ mờ: H-Việt 0,407 → **giữ A** |
+| Vùng `vi` | choắt ↔ chất: H-Việt 0,536 → **lấy B** |
+| Vùng `vi` | với chị lan ↔ vậy chỉ lán: H-Việt 0,189 → **giữ A** |
+| Vùng `vi` | muốn ↔ muộn: H-Việt 0,227 → **giữ A** |
+| Vùng `vi` | từ nhậm ↔ tí nhận: H-Việt 0,484 → **giữ A** |
+| **Ra** | **m giúp em đàn chất zalo với chị lan em muốn đọc lại từ nhậm chị ấy gửi** |
+
+Nhận xét: Cả hai mô hình đều nghe kém câu này. "Zalo" có ở cả hai bên nên không thành vùng `en`; năm vùng đều là vùng `vi`. H-Việt chỉ lấy "chất" (xác suất 0,536), vẫn sai so với "chat" trong đáp án; các vùng khác giữ RNNT ("với chị lan" đúng, "từ nhậm" sai). Chữ "Mở" đầu câu bị RNNT chép thành "m".
+
+### 2. train_0664: Số điện thoại trong tham số
+
+| Bước | Chữ |
+|---|---|
+| Đáp án | Xem hộ tôi có cảnh báo gì ở cửa kho phụ không, nếu báo là cửa đang mở thì khóa ngay lại, xong gọi cho số trực 09889990002 nhé. |
+| A (RNNT) | xem hộ tôi có cảnh báo gì ở cửa kho phụ không nếu báo là cửa đang mở thì khóa ngay lại xong gửi cho số trực không chín tám chín chín … (lặp «chín» 193 lần) … không không hai nhé |
+| A sau lọc câu bịa | xem hộ tôi có cảnh báo gì ở cửa kho phụ không nếu báo là cửa đang mở thì khóa ngay lại xong gửi cho số trực không chín tám chín không không hai nhé |
+| B (Whisper) | Xem hộ tôi có cảnh báo gì ở cửa kho phụ không? Nếu báo là cửa đang mở thì khóa ngay lại, xong gọi cho số trực 0988 999 0002 nhé. |
+| A′ | xem hộ tôi có cảnh báo gì ở cửa kho phụ không nếu báo là cửa đang mở thì khóa ngay lại xong gửi cho số trực 0989002 nhé |
+| B′ | xem hộ tôi có cảnh báo gì ở cửa kho phụ không nếu báo là cửa đang mở thì khóa ngay lại xong gọi cho số trực 0988 999 0002 nhé |
+| Vùng `vi` | gửi ↔ gọi: H-Việt 0,698 → **lấy B** |
+| Vùng `vi` | 0989002 ↔ 0988 999 0002: H-Việt 0,763 → **lấy B** |
+| **Ra** | **xem hộ tôi có cảnh báo gì ở cửa kho phụ không nếu báo là cửa đang mở thì khóa ngay lại xong gọi cho số trực 0988 999 0002 nhé** |
+
+Nhận xét: RNNT lặp vô hạn chữ "chín" khi đọc số điện thoại; bộ lọc câu bịa cắt đoạn lặp nhưng số còn lại (0989002) sai. Whisper chép đúng số (viết thành cụm 0988 999 0002) và đúng "gọi". H-Việt lấy cả hai vùng của Whisper (0,698 và 0,763), câu ra đúng nội dung; số viết thành cụm, bộ chấm coi là đúng sau khi đưa về dạng chung.
+
+### 3. train_0007: Giờ tương đối, người nói tự sửa lại
+
+| Bước | Chữ |
+|---|---|
+| Đáp án | Đặt báo thức 5 giờ nhé, à không, 5 rưỡi sáng mai đó |
+| A (RNNT) | tập báo thức năm giờ nhé à không năm rưỡi sáng mai đó |
+| B (Whisper) | Đặt báo thức 5 giờ nhé. À không, 5 rưỡi sáng mai đó. |
+| A′ | tập báo thức 5 giờ nhé à không 5 rưỡi sáng mai đó |
+| B′ | đặt báo thức 5 giờ nhé à không 5 rưỡi sáng mai đó |
+| Vùng `vi` | tập ↔ đặt: H-Việt 0,56 → **lấy B** |
+| **Ra** | **đặt báo thức 5 giờ nhé à không 5 rưỡi sáng mai đó** |
+
+Nhận xét: Sau bước chuẩn bị, "năm giờ" (RNNT) và "5 giờ" (Whisper) giống nhau nên không thành vùng. Chỉ còn một vùng "tập" ↔ "đặt"; H-Việt lấy "đặt" (0,56). Câu ra trùng đáp án.
+
+### 4. train_0008: Hội thoại nhiều lượt (3 lượt người dùng)
+
+**Lượt người dùng 1**
+
+| Bước | Chữ |
+|---|---|
+| Đáp án | Mai tôi có những báo thức nào vậy? |
+| A (RNNT) | mai tôi có những báo thích nào vậy |
+| B (Whisper) | Mai tôi có những báo thức nào vậy? |
+| A′ | mai tôi có những báo thích nào vậy |
+| B′ | mai tôi có những báo thức nào vậy |
+| Vùng `vi` | thích ↔ thức: H-Việt 0,419 → **giữ A** |
+| **Ra** | **mai tôi có những báo thích nào vậy** |
+
+**Lượt người dùng 2**
+
+| Bước | Chữ |
+|---|---|
+| Đáp án | Xóa cái sớm nhất giúp tôi nhé. |
+| A (RNNT) | xóa cái sớm nhất giúp tôi nhé |
+| B (Whisper) | Xóa cái sớm nhúc giúp tôi nhé. |
+| A′ | xóa cái sớm nhất giúp tôi nhé |
+| B′ | xóa cái sớm nhúc giúp tôi nhé |
+| Vùng `vi` | nhất ↔ nhúc: H-Việt 0,192 → **giữ A** |
+| **Ra** | **xóa cái sớm nhất giúp tôi nhé** |
+
+**Lượt người dùng 3 (lượt cuối)**
+
+| Bước | Chữ |
+|---|---|
+| Đáp án | Cái còn lại nếu mai mưa thì dời muộn nửa tiếng, không mưa giữ nguyên. |
+| A (RNNT) | cái còn lại nếu mai mưa thì giời muộn nửa tiếng không mưa rửa hoen |
+| B (Whisper) | Cái còn lại nếu mai mưa thì dòi muộn nửa tiếng, không mưa rửa nguyên. |
+| A′ | cái còn lại nếu mai mưa thì giời muộn nửa tiếng không mưa rửa hoen |
+| B′ | cái còn lại nếu mai mưa thì dòi muộn nửa tiếng không mưa rửa nguyên |
+| Vùng `vi` | giời ↔ dòi: H-Việt 0,286 → **giữ A** |
+| Vùng `vi` | hoen ↔ nguyên: H-Việt 0,677 → **lấy B** |
+| **Ra** | **cái còn lại nếu mai mưa thì giời muộn nửa tiếng không mưa rửa nguyên** |
+
+Nhận xét: Lượt 1: Whisper đúng ("báo thức") nhưng H-Việt không lấy (0,419 dưới ngưỡng 0,5), câu ra giữ lỗi của RNNT. Lượt 2: RNNT đúng ("nhất"), H-Việt giữ đúng. Lượt cuối: lấy "nguyên" của Whisper (đúng), giữ "giời" của RNNT (đáp án "dời", cả hai bên đều sai).
+
+### 5. train_0164: Thiếu thông tin, trợ lý phải hỏi lại (7 lượt người dùng)
+
+**Lượt người dùng 1**
+
+| Bước | Chữ |
+|---|---|
+| Đáp án | Mở tivi kênh VTV1 giúp anh. |
+| A (RNNT) | mở tivi trên vtv một giúp anh |
+| B (Whisper) | Mở Tivi trên VTV1 giúp anh. |
+| A′ | mở tivi trên vtv một giúp anh |
+| B′ | mở tivi trên vtv1 giúp anh |
+| Vùng `vi` | vtv một ↔ vtv1: H-Việt 0,156 → **giữ A** |
+| **Ra** | **mở tivi trên vtv một giúp anh** |
+
+**Lượt người dùng 2**
+
+| Bước | Chữ |
+|---|---|
+| Đáp án | Sáng mai 8 giờ nhắc anh mua sữa nhé. |
+| A (RNNT) | sáng mai tám giờ nhất anh mua sữa nhé |
+| B (Whisper) | Sáng mai 8 giờ, nhất ăn mua sữa nhé. |
+| A′ | sáng mai 8 giờ nhất anh mua sữa nhé |
+| B′ | sáng mai 8 giờ nhất ăn mua sữa nhé |
+| Vùng `vi` | anh ↔ ăn: H-Việt 0,356 → **giữ A** |
+| **Ra** | **sáng mai 8 giờ nhất anh mua sữa nhé** |
+
+**Lượt người dùng 3**
+
+| Bước | Chữ |
+|---|---|
+| Đáp án | Ở gần đây có chỗ nào bán bún bò hả? |
+| A (RNNT) | ở gần đây có chỗ nào bán bún bò hả |
+| B (Whisper) | Ở gần đây có chỗ nào bán bún bò à? Hả? |
+| A′ | ở gần đây có chỗ nào bán bún bò hả |
+| B′ | ở gần đây có chỗ nào bán bún bò à hả |
+| Vùng `vi` | (rỗng) ↔ à: H-Việt 0,453 → **giữ A** |
+| **Ra** | **ở gần đây có chỗ nào bán bún bò hả** |
+
+**Lượt người dùng 4**
+
+| Bước | Chữ |
+|---|---|
+| Đáp án | Chào em, sáng nay thế nào? |
+| A (RNNT) | chào em sáng nay thế nào |
+| B (Whisper) | Chào em, sáng nay thế nào? |
+| A′ | chào em sáng nay thế nào |
+| B′ | chào em sáng nay thế nào |
+| Vùng | Không có: A′ và B′ trùng nhau |
+| **Ra** | **chào em sáng nay thế nào** |
+
+**Lượt người dùng 5**
+
+| Bước | Chữ |
+|---|---|
+| Đáp án | Phát bài Bước qua nhau cho anh nghe. |
+| A (RNNT) | các bài bước qua nhau trang nghe |
+| B (Whisper) | Các bạn bước qua nhau chẳng nghe. |
+| A′ | các bài bước qua nhau trang nghe |
+| B′ | các bạn bước qua nhau chẳng nghe |
+| Vùng `vi` | bài ↔ bạn: H-Việt 0,502 → **lấy B** |
+| Vùng `vi` | trang ↔ chẳng: H-Việt 0,324 → **giữ A** |
+| **Ra** | **các bạn bước qua nhau trang nghe** |
+
+**Lượt người dùng 6**
+
+| Bước | Chữ |
+|---|---|
+| Đáp án | Mai có việc gì trong lịch không em? |
+| A (RNNT) | mai có việc gì trong lịch công an |
+| B (Whisper) | MyGov is dễ trong lịch không em. |
+| A′ | mai có việc gì trong lịch công an |
+| B′ | mygov is dễ trong lịch không em |
+| Vùng `en` | mai có việc gì ↔ mygov is dễ: H-Anh 0,025 → **giữ A** |
+| Vùng `vi` | công an ↔ không em: H-Việt 0,269 → **giữ A** |
+| **Ra** | **mai có việc gì trong lịch công an** |
+
+**Lượt người dùng 7 (lượt cuối)**
+
+| Bước | Chữ |
+|---|---|
+| Đáp án | Đặt báo thức 7 giờ sáng mai giúp anh, rồi chuyển ví cho Hương chút tiền nhé. |
+| A (RNNT) | tập đó của bảy giờ sáng nay giúp anh rồi chuyển ví cho hương tục thiện nghĩa |
+| B (Whisper) | Đặt báo phụ 7 giờ sáng mai, giúp anh rồi chuyển quý cho hơn chục tiền nhé. |
+| A′ | tập đó của 7 giờ sáng nay giúp anh rồi chuyển ví cho hương tục thiện nghĩa |
+| B′ | đặt báo phụ 7 giờ sáng mai giúp anh rồi chuyển quý cho hơn chục tiền nhé |
+| Vùng `vi` | tập đó của ↔ đặt báo phụ: H-Việt 0,233 → **giữ A** |
+| Vùng `vi` | nay ↔ mai: H-Việt 0,584 → **lấy B** |
+| Vùng `vi` | ví ↔ quý: H-Việt 0,314 → **giữ A** |
+| Vùng `vi` | hương tục thiện nghĩa ↔ hơn chục tiền nhé: H-Việt 0,23 → **giữ A** |
+| **Ra** | **tập đó của 7 giờ sáng mai giúp anh rồi chuyển ví cho hương tục thiện nghĩa** |
+
+Nhận xét: Vùng "vtv một" ↔ "vtv1" là vùng `vi` vì "vtv" có ở cả hai bên; H-Việt giữ RNNT (0,156), câu ra vẫn hiểu được. Lượt 5: H-Việt lấy nhầm "bạn" thay "bài" (0,502, sát ngưỡng). Lượt 6: Whisper bịa "MyGov is"; H-Anh từ chối (0,025), đúng. Lượt cuối: lấy đúng "mai" (0,584); đoạn "chút tiền nhé" cả hai bên đều sai.
+
+### 6. train_0038: Không cần gọi tool
+
+| Bước | Chữ |
+|---|---|
+| Đáp án | Em ơi, đừng tắt đèn bếp nhé, cứ để đó. |
+| A (RNNT) | em ơi đừng tắt bếp nhé cứ để đó |
+| B (Whisper) | Em ơi, đừng lắc bếp nhé, cứ để đó. |
+| A′ | em ơi đừng tắt bếp nhé cứ để đó |
+| B′ | em ơi đừng lắc bếp nhé cứ để đó |
+| Vùng `vi` | tắt ↔ lắc: H-Việt 0,223 → **giữ A** |
+| **Ra** | **em ơi đừng tắt bếp nhé cứ để đó** |
+
+Nhận xét: Cả hai mô hình đều bỏ mất chữ "đèn". Vùng "tắt" ↔ "lắc": H-Việt giữ "tắt" của RNNT (0,223), đúng.
+
+### 7. train_0017: Tên riêng trong tham số (tên kênh TV)
+
+| Bước | Chữ |
+|---|---|
+| Đáp án | Ơi, chuyển sang kênh S+ Sport dùm em nha. |
+| A (RNNT) | ơi chuyển sang kênh s tp giùm em nha |
+| B (Whisper) | Ơi, chuyển sang kênh S-Kong Spot chừng em nha. |
+| A′ | ơi chuyển sang kênh s tp giùm em nha |
+| B′ | ơi chuyển sang kênh s-kong spot chừng em nha |
+| Vùng `en` | s tp giùm ↔ s-kong spot chừng: H-Anh 0,176 → **giữ A** |
+| **Ra** | **ơi chuyển sang kênh s tp giùm em nha** |
+
+Nhận xét: Tên kênh "S+ Sport" khó với cả hai mô hình. Whisper có từ tiếng Anh mới (như "spot") nên vùng là `en`; H-Anh từ chối (0,176). Câu ra giữ chữ RNNT, tên kênh vẫn sai.
+
+### 8. train_0018: Câu ngắn thuần Việt
+
+| Bước | Chữ |
+|---|---|
+| Đáp án | Gọi dùm tôi Bố nha. |
+| A (RNNT) | gọi giùm tôi bố nha |
+| B (Whisper) | Gọi dùm tôi bố nha. |
+| A′ | gọi giùm tôi bố nha |
+| B′ | gọi dùm tôi bố nha |
+| Vùng `vi` | giùm ↔ dùm: H-Việt 0,154 → **giữ A** |
+| **Ra** | **gọi giùm tôi bố nha** |
+
+Nhận xét: Chỉ khác "giùm" (RNNT) và "dùm" (Whisper), hai cách nói cùng nghĩa; H-Việt giữ RNNT (0,154). Câu ra khác đáp án đúng một từ.
+
 ## Code của từng khối
 
 | Khối | Code |
