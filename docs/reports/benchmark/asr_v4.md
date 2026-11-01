@@ -400,6 +400,17 @@ thanh K5, vector tín hiệu có tên, nhãn (1 lấy large-v3, 0 giữ RNNT, `n
 các dòng mà `cv` và `export` dùng để học; `val_seen` chỉ dùng để đo. Kèm `regions.meta.json` (số dòng theo loại và nhãn,
 10 mẫu chưa chấm bị bỏ).
 
+**Phân tích lỗi trên `val_seen` và kiểm tra lại trên train.** Theo loại vùng (vùng có nhãn của `val_seen`): vùng có từ
+tiếng Anh mới 87,6% đúng; vùng chữ Việt khác nhiều 74,9% (bỏ sót 180 vùng large-v3 đúng, ví dụ "chín lâm nay"/"95
+này"); khác ít chữ cái 68,6%; RNNT thiếu từ 61,9% (15 lần lấy từ large-v3 tự thêm); chỉ khác dấu thanh 56,4% (luôn giữ
+RNNT sẽ đúng 68%). Hai cách sửa rút ra từ đó (luôn giữ RNNT ở vùng chỉ khác dấu thanh; luôn giữ RNNT khi phía RNNT có từ
+tiếng Anh mà large-v3 làm mất, kiểu "team"/"tim") được kiểm tra bằng quyết định ngoài phần trên train, không đo lại trên
+`val_seen`: vùng chỉ khác dấu thanh (476 vùng) H-Việt 62,4%, luôn giữ RNNT 62,0%; vùng RNNT có từ tiếng Anh bị mất (93
+vùng) H-Việt 71,0%, luôn giữ RNNT 61,3%; các vùng chữ Việt còn lại (4 920) H-Việt 74,0%, luôn giữ RNNT 65,8%. Cách sửa
+thứ nhất không có lợi (khác biệt trên `val_seen` là dao động của 101 vùng), cách thứ hai sẽ làm hại; giữ `h_v2.json`.
+Vùng chỉ khác dấu thanh vẫn gần như không được cải thiện vì điểm âm thanh của large-v3 không tách được dấu thanh; hướng
+tiếp theo là thêm điểm âm thanh của chính RNNT (`chunkformer` có sẵn `Transducer._cal_transducer_score`), làm sau J6.
+
 **Giới hạn.** Thời gian chấm điểm âm thanh tăng vì số vùng tăng khoảng 10 lần: trên T4, p50 1,0 s, p95 4,1 s mỗi mẫu
 (so với dưới 1 s khi chỉ chấm vùng tiếng Anh); `score_texts` chấm từng câu ứng viên một, chấm theo lô chưa làm vì cần đo
 trên GPU. J5 đo thời gian thật của `MergedASR` bản 2. `val_unseen` chưa đo (D53).
