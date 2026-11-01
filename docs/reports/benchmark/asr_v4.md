@@ -462,7 +462,7 @@ pipeline ghép bản 2 bằng bootstrap ghép cặp theo mẫu.
 số trên q, k, v, out, fc1, fc2) trên `vinai/PhoWhisper-large` (commit `b9136a44`, BSD-3, kiến trúc Whisper large-v2:
 80 kênh mel, 32 + 32 tầng, từ vựng 51 865), fine-tune cho câu tiếng Việt chêm tiếng Anh. Gộp LoRA vào mô hình gốc thì vẫn
 1,55B tham số: chỉ thay được whisper-large-v3 ở vai trò mô hình phụ B (ngân sách không đổi). Tác giả báo WER 4,56% trên
-tập giữ lại của bộ dữ liệu chêm tiếng Anh của họ (chưa công bố), và kém PhoWhisper gốc trên tiếng Việt thuần (VIVOS 7,20%
+tập giữ lại của bộ dữ liệu chêm tiếng Anh do tác giả tự thu (chưa công bố), và kém PhoWhisper gốc trên tiếng Việt thuần (VIVOS 7,20%
 so với 4,61%). Model card không nói dạng chữ lúc fine-tune (dấu câu, cách viết số, thẻ ngôn ngữ; chỉ ghi "language tags
 stripped" khi chấm) và không nói cấu hình giải mã; `generation_config` gốc không ép ngôn ngữ.
 
