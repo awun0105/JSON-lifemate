@@ -273,6 +273,106 @@ Số đo theo cách chấm lúc đó (WER chưa đưa số về dạng chung; th
   do chính Whisper chấm nên thiên vị chữ Whisper.
 - Hướng tiếp theo: thêm điểm do RNNT chấm cho từng câu ứng viên, để có một tín hiệu âm thanh không thiên vị phía Whisper.
 
+## Bước ⑧: chấm điểm âm thanh hoạt động thế nào
+
+**Mục đích.** Ở mỗi vùng, hỏi lại chính âm thanh: câu nào khớp tiếng nói hơn, câu giữ chữ RNNT hay câu lấy chữ Whisper ở
+đúng vùng đó. Điểm này là một tín hiệu cho H-Anh và H-Việt, không tự quyết định.
+
+**Mô hình chấm.** Dùng lại whisper-large-v3 đã nạp cho bước ④, nên không tốn thêm bộ nhớ hay tham số; khi chấm thì
+**không** dùng câu mồi, để các từ có trong câu mồi không được lợi khi chấm. Code: `lifemate/backends/asr.py ›
+FasterWhisperASR.score_texts`, gọi từ `MergedASR._merge_v2`.
+
+**Các bước cho một câu nói** (ví dụ vùng `{xét | chat}` của mẫu train_0211 trong `val_seen`):
+
+1. **Dựng câu ứng viên** (`asr_merge_v2.candidate_pairs_v2`). Câu A′ giữ chữ RNNT ở mọi vùng; với mỗi vùng k, câu B_k
+   giống A′ nhưng lấy chữ Whisper ở đúng vùng k. Một câu nói có n vùng thì có n + 1 câu cần chấm. Cả hai được viết lại ở
+   dạng chấm điểm (`scoring_text`: chữ thường, chỉ giữ chữ và chữ số).
+
+   ```
+   A′  = đại bún bò giò ở quán bún bò huế có ba cho em mỗi người trong nhóm xét gia đình 1 phần không tính em nhé
+   B_k = đại bún bò giò ở quán bún bò huế có ba cho em mỗi người trong nhóm chat gia đình 1 phần không tính em nhé
+   ```
+
+2. **Mã hoá âm thanh một lần.** Tính đặc trưng mel của câu nói, chỉ lấy **30 giây đầu** (cửa sổ của Whisper), cho qua bộ
+   mã hoá (encoder) của large-v3 đúng một lần, dùng chung cho mọi câu ứng viên của câu nói đó.
+3. **Ép từng câu qua bộ giải mã** (decoder) bằng hàm `align` của CTranslate2, với các token mở đầu
+   `<|startoftranscript|><|vi|><|transcribe|>`. Bộ giải mã không tự sinh chữ, mà đọc lần lượt từng token của câu ứng viên
+   và cho biết xác suất của token đó khi nghe đoạn âm thanh và các token đứng trước.
+4. **Điểm của một câu** = tổng log xác suất các token của câu, kèm số token. Điểm luôn âm; càng gần 0 thì câu càng khớp
+   âm thanh.
+
+   | Câu | Điểm | Số token |
+   |---|---|---|
+   | A′ (có "xét") | −27,32 | 41 |
+   | B_k (có "chat") | −25,40 | 40 |
+
+5. **Tín hiệu đưa sang bộ chọn.** Chênh điểm = điểm B_k − điểm A′ = **+1,91** (câu có "chat" khớp hơn). H-Việt dùng thêm
+   chênh số token (B − A), vì điểm là tổng log xác suất nên câu nhiều token hơn bị điểm thấp hơn dù đúng. Câu nói dài hơn
+   30 giây thì đuôi câu không được nghe, nên chênh điểm đặt bằng 0 cho H-Anh.
+
+**Chi phí.** Mỗi câu nói một lần mã hoá và n + 1 lần giải mã ép chuỗi. Trên `val_seen` trung bình khoảng 2 vùng mỗi câu.
+Ở lần chạy thử 8 mẫu trên T4, bước này mất 0,32 s (mẫu một câu, một vùng) đến 2,13 s (mẫu 7 câu, 11 vùng).
+
+**Giới hạn: Whisper thiên vị chữ do chính Whisper chép.** Câu B_k chứa chữ do Whisper chép, nên được Whisper chấm cao hơn. Trên
+các vùng `en` của train, câu lấy chữ Whisper hơn câu giữ chữ RNNT trung bình 4,47 điểm; ở vùng chữ Việt có nhãn, điểm
+nghiêng về Whisper ở 71,6% số vùng trong khi Whisper chỉ đúng ở 34,6%. Vì vậy hai bộ chọn không lấy "điểm cao hơn thắng",
+mà dùng chênh điểm như một tín hiệu đã chuẩn hoá theo mức thường gặp (xem ví dụ dưới).
+
+## H-Anh quyết định một vùng thế nào: tính tay một ví dụ
+
+Tính lại bằng đúng trọng số trong `configs/asr_merge/h_v2.json` (hàm `asr_v3_analysis.predict`), cho vùng `{xét | chat}`
+ở trên. Đáp án của câu: `… mỗi người trong nhóm chat gia đình …`. Vùng là loại `en` vì "chat" là từ tiếng Anh có ở phía
+Whisper mà phía RNNT không có. Câu hỏi của H-Anh: Whisper viết "chat" có đúng là người dùng nói "chat" không?
+
+**Bước 1. Thu 10 tín hiệu** (đều có sẵn lúc chạy thật, không cần đáp án):
+
+| Tín hiệu | Giá trị | Nghĩa |
+|---|---|---|
+| Có trong ngữ cảnh mẫu | 1 | "chat" có trong catalog app, app đã cài hoặc lời trợ lý của mẫu |
+| Có trong câu mồi cố định | 0 | Câu mồi không có "chat" |
+| Độ tin cậy của từ câu mồi | 1,0 | Từ không có trong câu mồi thì mặc định là 1 |
+| Độ tin cậy trung bình của Whisper | −0,257 | Log xác suất trung bình của câu Whisper chép; càng gần 0 càng chắc |
+| Xác suất không có tiếng nói | 0,004 | Gần 0: câu có tiếng nói rõ |
+| Số từ phía RNNT / phía Whisper | 1 / 1 | "xét" / "chat" |
+| Phần từ phía RNNT là chữ Việt | 1,0 | "xét" là chữ Việt |
+| Lượt cuối | 1 | Câu cuối của mẫu |
+| Chênh điểm âm thanh | +1,91 | Từ bước ⑧ |
+
+**Bước 2. Chuẩn hoá** mỗi tín hiệu thành (giá trị − trung bình) / độ lệch chuẩn, với trung bình và độ lệch đo trên các
+vùng `en` của train. Kết quả cho biết vùng này cao hay thấp hơn một vùng `en` bình thường. Chênh điểm âm thanh +1,91
+thành **−0,265**, vì trên train câu Whisper thường hơn tới 4,47 điểm; hơn 1,91 điểm là yếu hơn mức thường gặp.
+
+**Bước 3. Nhân trọng số rồi cộng.** Trọng số dương đẩy về "lấy Whisper", âm đẩy về "giữ RNNT".
+
+| Tín hiệu | Sau chuẩn hoá | Trọng số | Đóng góp |
+|---|---|---|---|
+| Có trong ngữ cảnh mẫu | +1,137 | +0,700 | **+0,796** |
+| Có trong câu mồi | −0,840 | +0,893 | **−0,750** |
+| Độ tin cậy của từ câu mồi | +0,639 | +0,377 | +0,241 |
+| Độ tin cậy trung bình của Whisper | +0,666 | +0,575 | **+0,383** |
+| Xác suất không có tiếng nói | −0,467 | −0,034 | +0,016 |
+| Số từ phía RNNT | −0,881 | −0,142 | +0,125 |
+| Số từ phía Whisper | −0,703 | −0,377 | +0,265 |
+| Phần chữ Việt phía RNNT | +0,752 | −0,291 | −0,219 |
+| Lượt cuối | +1,044 | +0,179 | +0,187 |
+| Chênh điểm âm thanh | −0,265 | +0,746 | −0,198 |
+| Hệ số chặn | | | +0,304 |
+| **Tổng** | | | **+1,149** |
+
+**Bước 4. Đổi tổng thành xác suất** bằng hàm sigmoid: 1 / (1 + e^(−1,149)) = **0,759**, là xác suất "nên lấy chữ
+Whisper".
+
+**Bước 5. So với ngưỡng 0,5:** 0,759 ≥ 0,5 nên H-Anh **lấy "chat"**. Câu ra có "nhóm chat gia đình", đúng như đáp án (nhãn
+của vùng này trong dữ liệu cũng là "nên lấy Whisper"). Kéo về phía "lấy Whisper" mạnh nhất: "chat" có trong ngữ cảnh mẫu,
+Whisper khá chắc, mỗi bên chỉ một từ. Kéo ngược mạnh nhất: "chat" không có trong câu mồi.
+
+**So sánh với một vùng bị từ chối:** `{mai có việc gì | mygov is dễ}` ở lượt 6 của mẫu train_0164, Whisper bịa "MyGov
+is". Tổng **−3,673**, xác suất **0,025**, nên giữ RNNT (đúng). Kéo về "giữ RNNT" mạnh nhất: độ tin cậy trung bình của
+Whisper rất thấp (−0,784, đóng góp −1,342); câu của Whisper khớp âm thanh **kém hơn** (chênh −5,69, đóng góp −0,784);
+không có trong câu mồi (−0,750) và không có trong ngữ cảnh mẫu (−0,615).
+
+H-Việt làm đúng các bước như vậy với 11 tín hiệu và trọng số riêng (`vi_model` trong cùng file).
+
 ## Ví dụ thực tế: 8 mẫu chạy thử
 
 Tám mẫu của `val_seen`, mỗi mẫu một kiểu câu khó, đã chạy thật trên Colab T4 (mục "Kết quả benchmark", đoạn cuối). Các bước giữa dưới đây dựng lại từ chữ RNNT, chữ Whisper và điểm âm thanh đã lưu ở các phiên GPU trước, qua đúng các hàm của engine; chữ ra dựng lại trùng chữ của lần chạy thật ở cả 16 câu người dùng. Không câu Whisper nào phải chép lại không câu mồi hay bị bỏ ở bước ⑤ trong 8 mẫu này.
