@@ -90,7 +90,16 @@ def check(out: Path, wavs: Sequence[Path]) -> dict[str, Any]:
     fw = FasterWhisperASR(ASRConfig(backend="asr", engine="faster_whisper", model=str(out / "ct2"), revision="",
                                     generate_kwargs={"language": "vi", "task": "transcribe", "temperature": 0.0,
                                                      "beam_size": 1, "condition_on_previous_text": False}))  # fmt: skip
-    rows, same = [], 0
+    import ctranslate2
+    import numpy as np
+
+    # Cùng đặc trưng mel của transformers đưa thẳng vào mô hình CTranslate2: tách lỗi chuyển đổi trọng số khỏi khác
+    # biệt của bộ tính đặc trưng và VAD trong faster-whisper.
+    ct2 = ctranslate2.models.Whisper(str(out / "ct2"), device="cuda", compute_type="float16")
+    prompt = proc.tokenizer.convert_tokens_to_ids(
+        ["<|startoftranscript|>", "<|vi|>", "<|transcribe|>", "<|notimestamps|>"]
+    )
+    rows, same, same_feats = [], 0, 0
     for p in wavs:
         x = read_wav(p, 16000)
         feats = proc(x, sampling_rate=16000, return_tensors="pt").input_features.to("cuda", torch.float16)
@@ -100,8 +109,12 @@ def check(out: Path, wavs: Sequence[Path]) -> dict[str, Any]:
         h_hf_clean = proc.batch_decode(ids, skip_special_tokens=True)[0].strip()
         h_fw = fw.transcribe_one(x, "")[0]
         same += " ".join(h_hf_clean.split()) == " ".join(h_fw.split())
-        rows.append({"wav": str(p), "hf_raw": h_hf, "hf": h_hf_clean, "faster_whisper": h_fw})
-    res = {"n": len(rows), "hf_equals_ct2": same, "rows": rows}
+        sv = ctranslate2.StorageView.from_array(np.ascontiguousarray(feats.float().cpu().numpy()))
+        seq = ct2.generate(sv, [prompt], beam_size=1, max_length=448)[0].sequences_ids[0]
+        h_ct2 = proc.tokenizer.decode(seq, skip_special_tokens=True).strip()
+        same_feats += " ".join(h_hf_clean.split()) == " ".join(h_ct2.split())
+        rows.append({"wav": str(p), "hf_raw": h_hf, "hf": h_hf_clean, "faster_whisper": h_fw, "ct2_hf_features": h_ct2})
+    res = {"n": len(rows), "hf_equals_ct2": same, "hf_equals_ct2_same_features": same_feats, "rows": rows}
     (out / "check.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
     return res
 
@@ -118,9 +131,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(prepare(args.out), ensure_ascii=False))
     if args.check_wavs:
         res = check(args.out, args.check_wavs)
-        print(json.dumps({k: res[k] for k in ("n", "hf_equals_ct2")}, ensure_ascii=False))
+        keys = ("n", "hf_equals_ct2", "hf_equals_ct2_same_features")
+        print(json.dumps({k: res[k] for k in keys}, ensure_ascii=False))
         for r in res["rows"][:10]:
-            print("HF raw:", r["hf_raw"][:200], "\n   CT2:", r["faster_whisper"][:200])
+            print("HF raw:", r["hf_raw"][:200], "\n   CT2:", r["faster_whisper"][:200], "\n   CT2 (đặc trưng HF):",
+                  r["ct2_hf_features"][:200])  # fmt: skip
     return 0
 
 
