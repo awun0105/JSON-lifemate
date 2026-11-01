@@ -456,6 +456,38 @@ pipeline ghép bản 2 bằng bootstrap ghép cặp theo mẫu.
      từ tiếng Anh và giá trị tham số thiếu đều không tệ hơn có ý nghĩa (không thua), vì VieGem đứng riêng nhanh hơn và
      ít tham số hơn nhiều.
 
+## 6e. PhoWhisper-large-CS dùng nguyên bản (chưa chạy)
+
+**Mô hình.** Bộ LoRA `rinhoooo/phowhisper-large-vien-cs-asr` (commit `a98f55e0`, CC-BY-4.0, r 32, alpha 64, 57,7M tham
+số trên q, k, v, out, fc1, fc2) trên `vinai/PhoWhisper-large` (commit `b9136a44`, BSD-3, kiến trúc Whisper large-v2:
+80 kênh mel, 32 + 32 tầng, từ vựng 51 865), fine-tune cho câu tiếng Việt chêm tiếng Anh. Gộp LoRA vào mô hình gốc thì vẫn
+1,55B tham số: chỉ thay được whisper-large-v3 ở vai trò mô hình phụ B (ngân sách không đổi). Tác giả báo WER 4,56% trên
+tập giữ lại của bộ dữ liệu chêm tiếng Anh của họ (chưa công bố), và kém PhoWhisper gốc trên tiếng Việt thuần (VIVOS 7,20%
+so với 4,61%). Model card không nói dạng chữ lúc fine-tune (dấu câu, cách viết số, thẻ ngôn ngữ; chỉ ghi "language tags
+stripped" khi chấm) và không nói cấu hình giải mã; `generation_config` gốc không ép ngôn ngữ.
+
+**Cách dùng trong pipeline.** `lifemate/eval/phowhisper_cs_prepare.py` (chạy trên máy GPU): tải đúng commit, gộp LoRA
+(`merge_and_unload`), lưu float16, chuyển sang CTranslate2 float16 kèm `tokenizer.json` và `preprocessor_config.json` (80
+kênh mel, faster-whisper đọc từ file này). Như vậy mô hình chạy bằng engine `faster_whisper` sẵn có, dùng chung câu mồi,
+lớp bảo vệ g4, bộ lọc câu bịa và chấm điểm âm thanh. Bước `--check-wavs` so chữ của bản gộp chạy trong transformers với
+bản CTranslate2 và in chữ thô để thấy thẻ ngôn ngữ nếu có. Bộ chạy benchmark nhận `--whisper-model` (`asr_v3 transcribe`,
+`score`) và biến thể câu mồi mới `N` (không câu mồi), vì bộ LoRA nhiều khả năng được học không có câu mồi.
+
+**Cấu hình cố định, như large-v3 đang dùng:** ép `language = vi`, `task = transcribe`, tham lam (beam 1), nhiệt độ 0,
+VAD (khoảng lặng 500 ms), `condition_on_previous_text = false`, bộ lọc câu bịa, lớp bảo vệ g4 khi có câu mồi. Chỉ so hai
+biến thể câu mồi đặt trước: `N` và `E2`.
+
+**Tiêu chí đặt trước:**
+
+1. Kiểm tra chuyển đổi: chữ bản gộp (transformers) và bản CTranslate2 trùng nhau ở ít nhất 9/10 file; chữ thô không có
+   thẻ ngôn ngữ, hoặc có thì phải viết bước lọc trước khi benchmark.
+2. Trên `asr_tune` (chữ large-v3 E2 của phiên K1 làm mốc): chọn giữa `N` và `E2` theo chép đúng từ tiếng Anh, trừ khi
+   WER câu thuần Việt tệ hơn có ý nghĩa; hoà thì chọn `N` (đơn giản hơn).
+3. Thay large-v3 ở vai trò B khi, trên `val_seen` đo một lần, PhoWhisper-CS đứng riêng chép đúng từ tiếng Anh cao hơn có
+   ý nghĩa, hoặc không thua mà số câu bị bộ lọc câu bịa cắt ít hơn. Khi đó làm lại K5 với PhoWhisper-CS (vừa chép phía B
+   vừa chấm điểm âm thanh), học lại H-Anh và H-Việt, kiểm định chéo với tiêu chí của D67, rồi so pipeline ghép mới với
+   bản 2.
+
 ## 7. Kế hoạch
 
 | Bước | Việc | Cần GPU | Trạng thái |

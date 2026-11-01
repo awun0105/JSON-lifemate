@@ -34,3 +34,15 @@ def test_bias_words_are_english_words_from_sample_context() -> None:
     catalog = {"chat_ott": {"name_vi": "Nhắn tin", "description": "Gửi tin qua Messenger"}}
     words = bias_words(s, catalog)
     assert {"zalo", "olivia", "messenger"} <= set(words) and "nội" not in words
+
+
+def test_prompt_variant_n_gives_empty_prompts() -> None:
+    """Biến thể N (mục 6e): một câu mồi rỗng cho mỗi câu người dùng."""
+    from lifemate.backends.asr_prompt import build_sample_prompts
+
+    hist = (
+        Turn(role="user", audio="u.wav", audio_text="a", text=None, tool_calls=(), tool_results=()),
+        Turn(role="assistant", audio=None, audio_text=None, text="Đã xong.", tool_calls=(), tool_results=()),
+    )
+    s = Sample(id="s", split="train", audio="a.wav", audio_text=None, context={}, history=hist, label=None)
+    assert build_sample_prompts(s, {}, "Zalo email", "N") == ["", ""]

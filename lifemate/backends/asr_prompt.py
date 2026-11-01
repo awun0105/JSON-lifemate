@@ -8,6 +8,7 @@ Cách hoạt động:
 - E0: câu mồi cố định (`en_full_v1`) cho mọi câu.
 - E1: câu mồi cố định, rồi câu trả lời (`text`) của lượt trợ lý **liền trước** câu đó.
 - E2: câu mồi cố định, rồi một câu nêu tên tiếng Việt (`name_vi`) của các app đã cài, rồi lời trợ lý liền trước.
+- N: không câu mồi (để so mô hình được fine-tune không có câu mồi, benchmark lần 4 mục 6e).
 - Câu không có lượt trợ lý liền trước (lượt đầu của hội thoại) chỉ nhận phần cố định, cộng tên app ở E2.
 - Phần riêng theo mẫu đặt **cuối**, vì Whisper chỉ giữ 223 token cuối của câu mồi và phần cuối gần âm thanh nhất.
 
@@ -24,7 +25,7 @@ from typing import Any
 
 from lifemate.core.types import Sample
 
-PROMPT_VARIANTS = ("E0", "E1", "E2")
+PROMPT_VARIANTS = ("E0", "E1", "E2", "N")  # N: không câu mồi (so mô hình fine-tune không học với câu mồi, mục 6e)
 
 
 def _app_sentence(sample: Sample, catalog_apps: Mapping[str, Mapping[str, Any]]) -> str:
@@ -53,6 +54,8 @@ def build_sample_prompts(
     """
     if variant not in PROMPT_VARIANTS:
         raise ValueError(f"unknown prompt variant {variant!r}; expected one of {PROMPT_VARIANTS}")
+    if variant == "N":
+        return [""] * (sum(t.role == "user" for t in sample.history) + 1)
     fixed = fixed_prompt.strip()
     apps = _app_sentence(sample, catalog_apps) if variant == "E2" else ""
 

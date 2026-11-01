@@ -72,13 +72,20 @@ RNNT_CFG = ASRConfig(
 )
 
 
-def whisper_cfg(fixed_prompt: str) -> ASRConfig:
-    """Cấu hình large-v3 thắng của lần 2: tham lam, VAD, câu mồi cố định `fixed_prompt` (lớp bảo vệ chạy ở đây)."""
+WHISPER_MODEL = "Systran/faster-whisper-large-v3"
+WHISPER_REVISION = "edaa852ec7e145841d8ffdb056a99866b5f0a478"
+
+
+def whisper_cfg(fixed_prompt: str, model: str = WHISPER_MODEL, revision: str = WHISPER_REVISION) -> ASRConfig:
+    """Cấu hình large-v3 thắng của lần 2: tham lam, VAD, câu mồi cố định `fixed_prompt` (lớp bảo vệ chạy ở đây).
+
+    `model` khác thì dùng mô hình Whisper khác ở cùng cấu hình giải mã (ví dụ PhoWhisper-large-CS đã chuyển sang
+    CTranslate2, mục 6e); `revision` rỗng khi `model` là thư mục trên máy."""
     return ASRConfig(
         backend="asr",
         engine="faster_whisper",
-        model="Systran/faster-whisper-large-v3",
-        revision="edaa852ec7e145841d8ffdb056a99866b5f0a478",
+        model=model,
+        revision=revision,
         generate_kwargs={
             **BASE_GENERATE_KWARGS,
             "vad_filter": True,
@@ -158,6 +165,12 @@ def _whisper_utterance(
     return sanitize(raw, is_history=is_history), raw, retried, scores
 
 
+def _whisper_model(args: argparse.Namespace) -> tuple[str, str]:
+    """(mô hình, revision) Whisper của lần chạy: `--whisper-model` nếu có, không thì large-v3 đã chọn."""
+    model = getattr(args, "whisper_model", None)
+    return (model, getattr(args, "whisper_revision", "") or "") if model else (WHISPER_MODEL, WHISPER_REVISION)
+
+
 def transcribe_variants(args: argparse.Namespace) -> int:
     """Lệnh `transcribe`: xem docstring module."""
     from lifemate.backends.asr import ASRTranscriber, FasterWhisperASR, make_backend, read_wav
@@ -173,7 +186,7 @@ def transcribe_variants(args: argparse.Namespace) -> int:
     summary: dict[str, Any] = {"ids": args.ids, "variants": list(args.variants), "n_samples": len(samples)}
     with GpuMemoryMonitor(out / "gpu_memory.csv") as monitor:
         t0 = time.perf_counter()
-        wcfg = whisper_cfg(fixed_prompt)
+        wcfg = whisper_cfg(fixed_prompt, *_whisper_model(args))
         whisper = FasterWhisperASR(wcfg)
         # Chỉ dùng để lấy đường dẫn file âm thanh của mẫu theo đúng thứ tự.
         locator = ASRTranscriber(wcfg, data_root=data_root, split=args.split, backend=whisper)
@@ -293,7 +306,7 @@ def score_candidates(args: argparse.Namespace) -> int:
     summary: dict[str, Any] = {"ids": args.ids, "rnnt": str(args.rnnt), "v3": str(args.v3)}
     with GpuMemoryMonitor(Path(f"{out}.gpu_memory.csv")) as monitor:
         t0 = time.perf_counter()
-        cfg = whisper_cfg("")
+        cfg = whisper_cfg("", *_whisper_model(args))
         whisper = FasterWhisperASR(cfg)
         locator = ASRTranscriber(cfg, data_root=data_root, split=args.split, backend=whisper)
         whisper.warmup()
@@ -381,6 +394,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         p.add_argument("--rerun", type=int, default=0, help="kiểm tra tất định trên N mẫu (transcribe) hoặc N vùng")
         p.add_argument("--out", type=Path, required=True)
         p.add_argument("--resume", action="store_true", help="giữ kết quả đã có, chỉ chạy các mẫu chưa xong")
+        p.add_argument("--whisper-model", default=None, help="mô hình Whisper khác (repo hoặc thư mục CTranslate2)")
+        p.add_argument("--whisper-revision", default="", help="revision của --whisper-model (rỗng khi là thư mục)")
         if name == "transcribe":
             p.add_argument("--variants", nargs="+", choices=PROMPT_VARIANTS, default=["E0"])
             p.add_argument("--rnnt", action="store_true", help="chép cả bằng RNNT")
