@@ -152,7 +152,7 @@ class ASRConfig:
     secondary: dict[str, Any] = dataclasses.field(default_factory=dict)  # mô hình phụ của engine ghép
 
 
-ASR_ENGINE_NAMES = frozenset({"faster_whisper", "hf_seq2seq", "chunkformer", "nemo_ctc"})
+ASR_ENGINE_NAMES = frozenset({"faster_whisper", "hf_seq2seq", "chunkformer", "nemo_ctc", "viegem"})
 ASR_DTYPES = frozenset({"auto", "float32", "float16", "bfloat16"})
 # Phải khớp với các trường có giá trị mặc định của `ASRConfig`; thiếu tên nào thì `_build` sẽ bắt buộc khoá đó
 # trong TOML.

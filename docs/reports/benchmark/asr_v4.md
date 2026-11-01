@@ -415,6 +415,47 @@ tiếp theo là thêm điểm âm thanh của chính RNNT (`chunkformer` có s�
 (so với dưới 1 s khi chỉ chấm vùng tiếng Anh); `score_texts` chấm từng câu ứng viên một, chấm theo lô chưa làm vì cần đo
 trên GPU. J5 đo thời gian thật của `MergedASR` bản 2. `val_unseen` chưa đo (D53).
 
+## 6d. VieGem-ASR dùng nguyên bản (chưa chạy)
+
+**Mô hình.** `5CD-AI/VieGem-ASR` (commit `95eae70b`): CTC streaming 0,36B trên encoder âm thanh của
+`google/embeddinggemma-2` (commit `f9972ac2`, Apache-2.0); đầu ra chữ thường, không dấu câu, số viết bằng chữ (như
+RNNT). Tác giả báo WER tiếng Việt trung bình 6,34 trên 8 bộ, ViMedCSS (y tế, chêm tiếng Anh) 14,3, viết đúng 66% thuật
+ngữ tiếng Anh. Giấy phép CC-BY-NC-SA-4.0 (phi thương mại) và điều khoản Gemma: dùng để nộp bài cần BTC xác nhận (SPEC
+Q2). Ngân sách: chỉ thay được RNNT (hệ thống 5,93B) hoặc thay cả pipeline ghép (khoảng 4,4B khi bỏ whisper-large-v3);
+thêm làm mô hình thứ ba là 6,04B, vượt giới hạn.
+
+**Đã đọc mã nguồn trước khi dùng** (`asr/model.py`, `text.py`, `features.py`, `lm_decode.py`, app demo): không có `eval`,
+`exec` hay gọi mạng ngoài tải mô hình. Ba chỗ dễ sai của code mẫu được xử lý trong engine `viegem`
+(`lifemate/backends/asr_viegem.py`): `load_state_dict(strict=False)` bỏ qua im lặng khoá thiếu (engine báo lỗi khi có khoá
+thiếu ngoài `encoder.` hoặc khoá thừa); `autocast(bfloat16)` không hợp với T4 (bf16 trên sm80 trở lên, float32 trên GPU
+cũ hơn); `torch.load` đọc pickle (nạp bằng `weights_only=True`); code của repo được nạp ở đúng commit, mô hình gốc ở đúng
+revision.
+
+**Cấu hình theo tác giả, không dò:** không streaming; cắt đoạn ≤ 20 s tại chỗ im lặng nhất (như app); giải mã tham
+lam, hoặc KenLM của tác giả với alpha 0,35, beta 1,5, chùm 32, `token_min_logp` −5, `beam_prune_logp` −10. Thêm gợi ý
+từ theo ngữ cảnh (`bias_words` của chính bộ giải mã KenLM): từ tiếng Anh có trong ngữ cảnh mẫu, cùng nguồn với từ điển
+ngữ cảnh của H-Anh; trọng số dò trên lưới đặt trước {0, 2, 4, 8}.
+
+**Cách chạy** (`lifemate/eval/viegem_bench.py`): `check` (GPU) trên 10 file mẫu kèm lời chuẩn của Space tác giả; `dump`
+(GPU, chạy mô hình một lần cho mỗi tập) lưu chữ tham lam và 32 token log xác suất cao nhất mỗi khung; `decode` (CPU,
+KenLM là mô hình n-gram) giải mã lại với từng trọng số gợi ý mà không chạy lại mô hình; `score` so với RNNT và với
+pipeline ghép bản 2 bằng bootstrap ghép cặp theo mẫu.
+
+**Tiêu chí đặt trước:**
+
+1. `check` đạt khi: mọi khoá thiếu thuộc `encoder.`, không có khoá thừa; WER tham lam trên 10 file mẫu (chuẩn hoá theo
+   `text.normalize` của tác giả) dưới 25%; chữ float32 trùng chữ kiểu số thấp ở ít nhất 9/10 file. Không đạt thì dừng,
+   tìm lỗi cấu hình, không chạy dữ liệu thi.
+2. Chọn cấu hình trên `asr_tune` (thứ tự từ đơn giản: tham lam, KenLM không gợi ý, gợi ý 2, 4, 8): chỉ xét cấu hình có
+   thời gian giải mã thêm p95 ≤ 1 s mỗi câu; lấy cấu hình có WER thấp nhất; nếu CI của chênh lệch so với cấu hình đơn
+   giản hơn chứa 0 thì lấy cấu hình đơn giản hơn.
+3. Đo một lần trên `val_seen` với cấu hình đã chọn:
+   - **Thay RNNT** khi WER câu thuần Việt thấp hơn RNNT có ý nghĩa, chép đúng từ tiếng Anh không thấp hơn có ý nghĩa,
+     giá trị tham số thiếu không cao hơn có ý nghĩa. Khi đó phải làm lại K5 và học lại H với VieGem làm phía A.
+   - **Thay cả pipeline ghép** (bỏ whisper-large-v3, H-Anh, H-Việt) khi so với pipeline ghép bản 2, cả WER, chép đúng
+     từ tiếng Anh và giá trị tham số thiếu đều không tệ hơn có ý nghĩa (không thua), vì VieGem đứng riêng nhanh hơn và
+     ít tham số hơn nhiều.
+
 ## 7. Kế hoạch
 
 | Bước | Việc | Cần GPU | Trạng thái |

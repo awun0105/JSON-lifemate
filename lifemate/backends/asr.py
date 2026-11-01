@@ -607,6 +607,8 @@ ASR_ENGINES: dict[str, Callable[[ASRConfig], ASRBackend]] = {
     "hf_seq2seq": HFSeq2SeqASR,
     "chunkformer": ChunkFormerASR,
     "nemo_ctc": NemoCTCASR,
+    # VieGem nằm ở module riêng (code của repo mô hình nạp lúc chạy); import muộn để không vòng import.
+    "viegem": lambda cfg: __import__("lifemate.backends.asr_viegem", fromlist=["ViegemASR"]).ViegemASR(cfg),
 }
 
 
