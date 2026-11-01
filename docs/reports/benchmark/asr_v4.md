@@ -473,6 +473,21 @@ pipeline ghép bản 2 bằng bootstrap ghép cặp theo mẫu.
 "float32 trùng kiểu số thấp" không áp dụng trên T4; bước kiểm tra ghi lỗi này và đi tiếp. Giải mã KenLM chạy trong một
 môi trường Python 3.12 riêng, vì KenLM không biên dịch được trên Python 3.13 của Colab.
 
+**Chọn cấu hình trên `asr_tune`** (300 mẫu, 1 024 câu; chênh lệch so với giải mã tham lam, CI 95%):
+
+| Cấu hình | Giải mã thêm p95 (s/câu) | WER thuần Việt | WER | F1 tiếng Anh | F1 số |
+|---|---|---|---|---|---|
+| Tham lam | 0 | 22,88 | 25,76 | 36,56 | 83,10 |
+| KenLM, không gợi ý | 0,055 | 19,92 [−3,57; −2,41] | 22,83 | 42,49 [+3,10; +9,03] | 87,37 |
+| KenLM, gợi ý 2 | 0,050 | 19,94 | 22,74 | 46,42 | 87,20 |
+| **KenLM, gợi ý 4** | 0,052 | 19,94 | **22,64** [−3,62; −2,67] | 50,17 [+9,98; +17,30] | 87,20 |
+| KenLM, gợi ý 8 | 0,054 | 20,00 | 22,73 | 52,04 | 87,02 |
+
+Mọi cấu hình đều dưới 1 s giải mã thêm. Gợi ý 4 có WER (đã đổi số) thấp nhất, và thấp hơn có ý nghĩa so với cả ba cấu
+hình đơn giản hơn (so với KenLM không gợi ý: [−0,33; −0,08]; so với gợi ý 2: [−0,19; −0,02]), nên được chọn. KenLM sửa
+chủ yếu tiếng Việt và precision tiếng Anh (48,9 lên 74,5); gợi ý từ ngữ cảnh nâng recall tiếng Anh (29,9 lên 37,8 ở gợi ý
+4). Bộ nhớ GPU đỉnh khi chép: 1,8 GB.
+
 ## 6e. PhoWhisper-large-CS dùng nguyên bản
 
 **Mô hình.** Bộ LoRA `rinhoooo/phowhisper-large-vien-cs-asr` (commit `a98f55e0`, CC-BY-4.0, r 32, alpha 64, 57,7M tham
@@ -521,6 +536,19 @@ có dấu câu, chữ hoa và **viết số bằng chữ** ("năm mươi nghìn"
 này. Hai sửa lỗi môi trường trước khi chạy: gỡ `torchao` 0.10 có sẵn của Colab (peft từ chối chạy với bản này) và chép
 `preprocessor_config.json`, `tokenizer.json` từ mô hình gốc (transformers 5 lưu cấu hình processor thành
 `processor_config.json`).
+
+**Chọn câu mồi trên `asr_tune`** (mốc là `N`; large-v3 E2 của phiên K1 để tham khảo):
+
+| Hệ thống | WER thuần Việt | Recall tiếng Anh | Precision tiếng Anh | F1 tiếng Anh | F1 số |
+|---|---|---|---|---|---|
+| PhoWhisper-CS `N` | 24,98 | 54,82 | 40,67 | 46,70 | 79,81 |
+| **PhoWhisper-CS `E2`** | 24,90 [−1,04; +0,93] | 69,04 | 52,07 | 59,36 [+9,29; +16,03] | 79,69 |
+| large-v3 E2 (tham khảo) | 23,11 | 73,60 | 69,09 | 71,27 | 82,35 |
+
+`E2` có F1 tiếng Anh cao hơn có ý nghĩa và WER thuần Việt hoà, nên được chọn. Ngay trên tập dò, PhoWhisper-CS đã kém
+large-v3 ở cả tiếng Việt và tiếng Anh. Precision tiếng Anh thấp là lỗi thật, không do thước đo: mô hình viết thành từ
+tiếng Anh thông dụng những chỗ người nói không nói tiếng Anh ("high", "check", "mind", "send"), 255 từ sai trên tập dò so
+với 132 của large-v3. Chép 300 mẫu với hai biến thể mất 1 495 s; bộ nhớ GPU đỉnh 3,5 GB.
 
 ## 6f. So chung bốn mô hình và pipeline ghép bản 2
 
