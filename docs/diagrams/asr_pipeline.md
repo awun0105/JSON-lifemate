@@ -7,9 +7,15 @@ trọng số hai bộ chọn ở [`configs/asr_merge/h_v2.json`](../../configs/a
 
 **Ý chính.** Hai mô hình cùng chép một câu. ChunkFormer RNNT chép tiếng Việt tốt nhưng hay sai từ tiếng Anh;
 whisper-large-v3 chép từ tiếng Anh tốt hơn nhưng kém hơn ở tiếng Việt. Hai bản được đưa về cùng một dạng (chữ thường,
-bỏ dấu câu, đổi số đọc thành chữ số), đặt cạnh nhau từng từ, và mỗi chỗ hai bên khác nhau là một **vùng**. Kết quả lấy
-chữ của RNNT làm nền; ở từng vùng, một bộ chọn quyết định có lấy chữ của Whisper không: **H-Anh** cho vùng mà Whisper có
-từ tiếng Anh, **H-Việt** cho các vùng còn lại (chỉ khác ở chữ Việt, kể cả chỉ khác dấu thanh như "tắt" và "tất").
+bỏ dấu câu dính ở hai đầu mỗi từ, đổi số đọc thành chữ số), đặt cạnh nhau từng từ, và mỗi chỗ hai bên khác nhau (một
+hoặc nhiều từ liền nhau) là một **vùng**. Kết quả lấy chữ của RNNT làm nền; ở từng vùng, một bộ chọn quyết định có lấy
+chữ của Whisper không:
+
+- **H-Anh** cho vùng `en`: phía Whisper có từ tiếng Anh mà phía RNNT trong cùng vùng không có (ví dụ RNNT "da lô",
+  Whisper "zalo").
+- **H-Việt** cho mọi vùng còn lại (vùng `vi`). Phần lớn là chữ Việt khác nhau, kể cả hai từ chỉ khác dấu thanh như "tắt"
+  và "tất"; ngoài ra còn có vùng Whisper bỏ bớt từ, vùng RNNT có từ tiếng Anh mà Whisper không có, và vùng hai bên cùng
+  có một từ tiếng Anh nhưng khác nhau ở từ khác.
 
 | Tên | Nghĩa |
 |---|---|
