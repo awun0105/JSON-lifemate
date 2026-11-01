@@ -427,7 +427,7 @@ tiếp theo là thêm điểm âm thanh của chính RNNT (`chunkformer` có s�
 (so với dưới 1 s khi chỉ chấm vùng tiếng Anh); `score_texts` chấm từng câu ứng viên một, chấm theo lô chưa làm vì cần đo
 trên GPU. J5 đo thời gian thật của `MergedASR` bản 2. `val_unseen` chưa đo (D53).
 
-## 6d. VieGem-ASR dùng nguyên bản (chưa chạy)
+## 6d. VieGem-ASR dùng nguyên bản
 
 **Mô hình.** `5CD-AI/VieGem-ASR` (commit `95eae70b`): CTC streaming 0,36B trên encoder âm thanh của
 `google/embeddinggemma-2` (commit `f9972ac2`, Apache-2.0); đầu ra chữ thường, không dấu câu, số viết bằng chữ (như
@@ -466,7 +466,14 @@ pipeline ghép bản 2 bằng bootstrap ghép cặp theo mẫu.
      tham số thiếu không tệ hơn theo ngưỡng của mục 6f.3. Khi đó phải làm lại K5 và học lại H với VieGem làm phía A.
    - **Thay cả pipeline ghép** (bỏ whisper-large-v3, H-Anh, H-Việt): theo tiêu chí chung của mục 6f.
 
-## 6e. PhoWhisper-large-CS dùng nguyên bản (chưa chạy)
+**Kết quả kiểm tra** (Colab T4, 01/11/2026, `viegem_bench check`): đạt. Mô hình nạp đủ khoá (mọi khoá thiếu thuộc
+`encoder.`, không khoá thừa), 359 337 557 tham số. WER tham lam float32 trên 10 file mẫu của Space là 0,56%, dưới ngưỡng
+25%. Float16 không chạy được trên T4: attention của encoder Gemma che mặt nạ bằng một giá trị vượt giới hạn float16 (lỗi
+`value cannot be converted to type c10::Half without overflow`). Engine vốn dùng float32 trên GPU dưới sm80, nên điều kiện
+"float32 trùng kiểu số thấp" không áp dụng trên T4; bước kiểm tra ghi lỗi này và đi tiếp. Giải mã KenLM chạy trong một
+môi trường Python 3.12 riêng, vì KenLM không biên dịch được trên Python 3.13 của Colab.
+
+## 6e. PhoWhisper-large-CS dùng nguyên bản
 
 **Mô hình.** Bộ LoRA `rinhoooo/phowhisper-large-vien-cs-asr` (commit `a98f55e0`, CC-BY-4.0, r 32, alpha 64, 57,7M tham
 số trên q, k, v, out, fc1, fc2) trên `vinai/PhoWhisper-large` (commit `b9136a44`, BSD-3, kiến trúc Whisper large-v2:
@@ -497,6 +504,23 @@ biến thể câu mồi đặt trước: `N` và `E2`.
    ý nghĩa, hoặc không tệ hơn (ngưỡng mục 6f.3, cả WER thuần Việt và F1 số) mà số câu bị bộ lọc câu bịa cắt ít hơn. Khi đó làm lại K5 với PhoWhisper-CS (vừa chép phía B
    vừa chấm điểm âm thanh), học lại H-Anh và H-Việt, kiểm định chéo với tiêu chí của D67, rồi so pipeline ghép mới với
    bản 2.
+
+**Kết quả kiểm tra** (Colab T4, 01/11/2026, 10 câu đầu của `asr_tune`): phép chuyển đổi đúng; tiêu chí 1 được làm rõ.
+
+| So sánh | Số file chữ trùng |
+|---|---|
+| transformers (bản gộp) với faster-whisper (CTranslate2) | 6/10 |
+| transformers với CTranslate2, cùng đặc trưng mel do transformers tính | 10/10 |
+
+Tiêu chí 1 đặt trước so chữ của transformers với faster-whisper, tức là gộp hai nguồn khác nhau: trọng số sau chuyển đổi
+và bộ tính đặc trưng mel (faster-whisper tự tính bằng cách riêng). Phép so thứ hai giữ đặc trưng cố định và cho 10/10,
+nên trọng số sau gộp LoRA và chuyển sang CTranslate2 là đúng; 4 file lệch ở phép so đầu chỉ khác 1 đến 2 từ ("Điều giả"
+và "Diều tả", "trong email" và "tramin"), do bộ tính đặc trưng. whisper-large-v3 trong pipeline cũng chạy qua đúng bộ tính
+này, nên benchmark bằng faster-whisper vẫn so cùng điều kiện với large-v3. Chữ thô không có thẻ ngôn ngữ. Mô hình viết
+có dấu câu, chữ hoa và **viết số bằng chữ** ("năm mươi nghìn", "sáu rưỡi"); dạng chung của số (mục 6f.1) xử lý được kiểu
+này. Hai sửa lỗi môi trường trước khi chạy: gỡ `torchao` 0.10 có sẵn của Colab (peft từ chối chạy với bản này) và chép
+`preprocessor_config.json`, `tokenizer.json` từ mô hình gốc (transformers 5 lưu cấu hình processor thành
+`processor_config.json`).
 
 ## 6f. So chung bốn mô hình và pipeline ghép bản 2
 
