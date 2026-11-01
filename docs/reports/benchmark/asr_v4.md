@@ -392,6 +392,14 @@ Giá trị tham số thiếu cùng chiều với train nhưng CI chứa 0 (chỉ
 (`tests/test_asr_merge_v2.py`). Dữ liệu SFT dựng lại từ chữ bản 2: `data/asr/train_asr_v4m2.json`,
 `data/sft/v2_asr.jsonl` (1 047 dòng).
 
+**Bộ dữ liệu học của H-Anh và H-Việt** (`merge_v2_report dataset`, chỉ trong `data/`, không commit vì chứa lời chuẩn của
+BTC): `data/derived/merge_v2/train_regions.jsonl` và `val_seen_regions.jsonl`, mỗi vùng một dòng gồm mã mẫu, lượt, phần
+kiểm định chéo, loại vùng (`en`, `vi`), chữ RNNT và large-v3 của vùng, hai câu ứng viên, lời chuẩn đã chuẩn hoá, điểm âm
+thanh K5, vector tín hiệu có tên, nhãn (1 lấy large-v3, 0 giữ RNNT, `null` hoà). Train (1 083 mẫu): 641 vùng `en` (294 /
+245 / 102 hoà), 6 827 vùng `vi` (1 900 / 3 589 / 1 338 hoà); `val_seen`: 173 vùng `en`, 1 791 vùng `vi`. Đây đúng là
+các dòng mà `cv` và `export` dùng để học; `val_seen` chỉ dùng để đo. Kèm `regions.meta.json` (số dòng theo loại và nhãn,
+10 mẫu chưa chấm bị bỏ).
+
 **Giới hạn.** Thời gian chấm điểm âm thanh tăng vì số vùng tăng khoảng 10 lần: trên T4, p50 1,0 s, p95 4,1 s mỗi mẫu
 (so với dưới 1 s khi chỉ chấm vùng tiếng Anh); `score_texts` chấm từng câu ứng viên một, chấm theo lô chưa làm vì cần đo
 trên GPU. J5 đo thời gian thật của `MergedASR` bản 2. `val_unseen` chưa đo (D53).

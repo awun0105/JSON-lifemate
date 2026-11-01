@@ -14,6 +14,8 @@ Nội dung chính:
   (vùng chữ Việt giữ RNNT), H-Anh cộng H-Việt; áp tiêu chí đặt trước (`asr_v4.md` mục 6c, D67).
 - `stage_export`: học trên cả train, ghi `configs/asr_merge/h_v2.json` cho `MergedASR` bản 2.
 - `stage_measure`: đo một lần trên một tập kiểm tra: bản 1 đang dùng (`h_v1` + đổi số), bản 2 chỉ H-Anh, bản 2 đủ.
+- `stage_dataset`: ghi bộ dữ liệu học của H-Anh và H-Việt ra file, mỗi vùng một dòng: mã mẫu, lượt, phần (fold), loại
+  vùng, chữ hai phía, hai câu ứng viên, điểm âm thanh, vector tín hiệu (tên theo `FEATURES` / `VI_FEATURES`), nhãn.
 
 Thư mục vào: K1 (`rnnt.hyps.jsonl`, `v3_E2.hyps.jsonl` của `asr_tune`), K2 (`k2_<tập>/`), K5 (`scores_<tập>.jsonl` do
 `asr_v3 score --v2` ghi, mỗi vùng một dòng có `kind`, `score_a`, `score_b`, `n_a`, `n_b`, `long`). `val_unseen` khoá
@@ -330,6 +332,79 @@ def stage_measure(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def region_rows(
+    utts: Sequence[Utt2], context: Mapping[str, frozenset[str]], rel: Mapping[str, float], prompt_words: frozenset[str]
+) -> list[dict[str, Any]]:
+    """Mỗi vùng `en` và `vi` của `utts` một dòng, đúng tín hiệu và nhãn mà bước học dùng (nhãn `None` là hoà, không
+    dùng để học). `rel` là bảng độ tin cậy câu mồi dùng cho tín hiệu `min_reliability` của H-Anh."""
+    out: list[dict[str, Any]] = []
+    for u in utts:
+        parts = u.en.parts
+        for kind, ks, labels in (("en", u.en.candidates, u.en.labels), ("vi", u.vi, u.vi_labels)):
+            for k, lab in zip(ks, labels, strict=True):
+                region = parts[k]
+                assert isinstance(region, Region)
+                if kind == "en":
+                    ctx = context.get(u.en.sample_id, frozenset())
+                    feats = A.region_features(u.en, region, k, ctx, prompt_words, rel)
+                    names = list(A.FEATURES)
+                else:
+                    feats = _vi_vec(u, k, context)
+                    names = list(VI_FEATURES)
+                ac = u.acoustic_full.get(k)
+                out.append(
+                    {
+                        "id": u.en.sample_id,
+                        "turn": u.en.turn,
+                        "fold": A.fold_of(u.en.sample_id),
+                        "part": k,
+                        "kind": kind,
+                        "rnnt": " ".join(region.primary),
+                        "whisper": " ".join(region.secondary),
+                        "sentence_keep_rnnt": assemble(parts, lambda _i, _r: False),
+                        "sentence_take_whisper": assemble(parts, lambda i, _r, k=k: i == k),
+                        "ref_prepared": prepare(str(u.row.get("ref") or "")),
+                        "acoustic": None
+                        if ac is None
+                        else {"score_a": ac[0], "score_b": ac[1], "n_a": ac[2], "n_b": ac[3], "long": ac[4]},
+                        "features": dict(zip(names, feats, strict=True)),
+                        "label": lab,
+                    }
+                )
+    return out
+
+
+def stage_dataset(args: argparse.Namespace) -> dict[str, Any]:
+    """Ghi `<out>/<tập>_regions.jsonl` cho train và `val_seen`; độ tin cậy câu mồi đếm trên cả train như lúc học."""
+    _, prompt_words = _fixed_prompt()
+    train = load(args, "train")
+    rel = A.reliability(A.count_prompt_words([u.en for u in train["utts"]], prompt_words))
+    out_dir: Path = args.out
+    out_dir.mkdir(parents=True, exist_ok=True)
+    summary: dict[str, Any] = {}
+    for split in ("train", "val_seen"):
+        data = train if split == "train" else load(args, split)
+        rows = region_rows(data["utts"], data["context"], rel, prompt_words)
+        path = out_dir / f"{split}_regions.jsonl"
+        path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+        summary[split] = {
+            "path": str(path),
+            "n_samples": len(data["samples"]),
+            "skipped_unscored": data["skipped"],
+            "rows": {
+                kind: {
+                    "total": sum(r["kind"] == kind for r in rows),
+                    "label_1": sum(r["kind"] == kind and r["label"] == 1 for r in rows),
+                    "label_0": sum(r["kind"] == kind and r["label"] == 0 for r in rows),
+                    "tie": sum(r["kind"] == kind and r["label"] is None for r in rows),
+                }
+                for kind in ("en", "vi")
+            },
+        }
+    (out_dir / "regions.meta.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    return summary
+
+
 def _markdown(res: Mapping[str, Any]) -> str:
     lines = [
         f"mốc: {res['baseline']}",
@@ -347,7 +422,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """CLI: lệnh `cv`, `export` hoặc `measure` (xem docstring module)."""
     ap = argparse.ArgumentParser(prog="lifemate.eval.merge_v2_report", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("cv", "export", "measure"):
+    for name in ("cv", "export", "measure", "dataset"):
         p = sub.add_parser(name)
         for k in ("--k1", "--k2", "--k5"):
             p.add_argument(k, type=Path, required=True)
@@ -362,6 +437,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(w, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
         print(json.dumps({k: w[k] for k in ("version", "vi_threshold", "trained_on")}, ensure_ascii=False))
+        return 0
+    if args.cmd == "dataset":
+        if not args.out.resolve().is_relative_to((Path(__file__).resolve().parents[2] / "data").resolve()):
+            raise SystemExit("bộ dữ liệu vùng có lời chuẩn của BTC: chỉ ghi trong data/ (git bỏ qua)")
+        print(json.dumps(stage_dataset(args), ensure_ascii=False, indent=1))
         return 0
     res = stage_cv(args) if args.cmd == "cv" else stage_measure(args)
     args.out.mkdir(parents=True, exist_ok=True)
