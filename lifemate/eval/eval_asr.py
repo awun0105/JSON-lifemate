@@ -32,6 +32,13 @@ Cách hoạt động:
   từ một lần mỗi câu), trên mọi câu. Đáp án viết khác ("ti vi", "TV" cho "tivi") vẫn tính là có
   (`foreign_words.contains_word`). Đo việc câu mồi làm model viết ra từ không được nói.
 - `n_prompt_retries`: số câu lớp bảo vệ câu mồi đã chép lại không câu mồi (`ASRTranscriber.n_prompt_retries`).
+- Chỉ số "đã đổi số" (benchmark ASR lần 4 mục 6f): cả đáp án lẫn chữ ASR qua `digitize` (số đọc thành chữ số) trước khi
+  chuẩn hoá, nên cách viết số không còn bị tính là lỗi. `wer_digits`, `vi_only_wer_digits`: WER như `wer`,
+  `vi_only_wer` trên chữ đã đổi số. `final_wer_digits`: WER đã đổi số chỉ trên lượt cuối (lượt quyết định lời gọi tool).
+  `number_recall`, `number_precision`, `number_f1`: so các từ có chữ số của đáp án và của chữ ASR trong cùng câu (đếm
+  lặp); đo việc nghe đúng số, giờ, ngày, số tiền.
+- `entity_miss_rate_all`: như `entity_miss_rate` nhưng xét giá trị tham số được nói ở bất kỳ lượt user nào (không chỉ
+  lượt cuối) và so cả trên chữ đã đổi số; giá trị bị coi là bỏ sót khi không có trong chữ ASR của lượt user nào.
 - `--set mục.khoá=giá_trị`: ghi đè config từ dòng lệnh (ví dụ `--set asr.dtype=float32`), dùng để chẩn đoán.
 """
 
@@ -42,6 +49,7 @@ import json
 import math
 import re
 import unicodedata
+from collections import Counter
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -177,6 +185,73 @@ def f1(recall: float, precision: float) -> float:
     return 2 * recall * precision / (recall + precision) if recall + precision else 0.0
 
 
+_READ_DIGITS = ("không", "một", "hai", "ba", "bốn", "năm", "sáu", "bảy", "tám", "chín")
+_READ_GROUPS = ("", "nghìn", "triệu", "tỷ")
+_THOUSANDS_SEP = re.compile(r"\b\d{1,3}(?:[.,]\d{3})+\b")  # 50.000, 1,500,000
+_CLOCK = re.compile(r"\b(\d{1,2})[h:](\d{2})?\b")  # 9h, 9h30, 8:00
+_HYPHENATED = re.compile(r"\d+(?:-\d+)+")  # 095-0536-0367
+_DIGIT_RUN = re.compile(r"\d+")
+
+
+def _read_triple(n: int, full: bool) -> list[str]:
+    """Đọc 0 <= n < 1000; `full`: có nhóm lớn hơn đứng trước, nên đọc cả "không trăm", "linh"."""
+    h, t, u = n // 100, n // 10 % 10, n % 10
+    out = [_READ_DIGITS[h], "trăm"] if h or full else []
+    if t == 0:
+        if u:
+            out += ["linh", _READ_DIGITS[u]] if out else [_READ_DIGITS[u]]
+    elif t == 1:
+        out += ["mười"] + (["lăm" if u == 5 else _READ_DIGITS[u]] if u else [])
+    else:
+        out += [_READ_DIGITS[t], "mươi"] + ([{1: "mốt", 4: "tư", 5: "lăm"}.get(u, _READ_DIGITS[u])] if u else [])
+    return out
+
+
+def read_number(digits: str) -> str:
+    """Đọc một dãy chữ số thành chữ tiếng Việt; dãy bắt đầu bằng 0 hoặc dài hơn 12 chữ số đọc rời từng chữ số (mã, số
+    điện thoại)."""
+    if (len(digits) > 1 and digits.startswith("0")) or len(digits) > 12:
+        return " ".join(_READ_DIGITS[int(c)] for c in digits)
+    n = int(digits)
+    if n == 0:
+        return "không"
+    groups: list[int] = []
+    while n:
+        groups.append(n % 1000)
+        n //= 1000
+    out: list[str] = []
+    for i in range(len(groups) - 1, -1, -1):
+        if groups[i]:
+            out += _read_triple(groups[i], full=bool(out)) + ([_READ_GROUPS[i]] if _READ_GROUPS[i] else [])
+    return " ".join(out)
+
+
+def verbalize_numbers(text: str) -> str:
+    """Viết mọi chữ số thành chữ: bỏ dấu phân cách hàng nghìn, "9h30" / "9:30" thành "9 giờ 30", nối số có gạch ngang,
+    "%" thành "phần trăm", rồi đọc từng dãy chữ số (`read_number`)."""
+    text = _THOUSANDS_SEP.sub(lambda m: re.sub(r"[.,]", "", m.group()), text)
+    text = _CLOCK.sub(lambda m: f"{m.group(1)} giờ " + (m.group(2) if m.group(2) not in (None, "00") else ""), text)
+    text = _HYPHENATED.sub(lambda m: m.group().replace("-", ""), text).replace("%", " phần trăm ")
+    return _DIGIT_RUN.sub(lambda m: f" {read_number(m.group())} ", text)
+
+
+def digitized_text(s: str) -> str:
+    """Dạng chung của số cho cả đáp án lẫn chữ ASR: viết mọi chữ số thành chữ (`verbalize_numbers`), chuẩn hoá, rồi đổi
+    số đọc thành chữ số bằng đúng một bộ luật (`asr_numbers.digitize`).
+
+    Nhờ đi qua dạng chữ, "50.000", "50 nghìn" và "năm mươi nghìn" cho cùng một kết quả, và "hai" đứng riêng (bộ luật
+    giữ là chữ) khớp "2"; chênh lệch còn lại là do nghe, không do cách viết số.
+    """
+    from lifemate.backends.asr_numbers import digitize
+
+    return normalize_text(digitize(normalize_text(verbalize_numbers(unicodedata.normalize("NFC", s.lower())))))
+
+
+def number_tokens(digitized: str) -> list[str]:
+    """Các từ có chữ số của chữ đã đổi số (`digitized_text`), theo thứ tự."""
+    return [w for w in digitized.split() if any(c.isdigit() for c in w)]
+
+
 def wer(ref: str, hyp: str) -> float:
     """Tính tỉ lệ lỗi từ (WER) của `hyp` so với `ref`, trên văn bản đã chuẩn hoá."""
     r, h = normalize_text(ref).split(), normalize_text(hyp).split()
@@ -278,6 +353,33 @@ def entity_miss_rate(
     return missed, total, _rate(missed, total), details
 
 
+def entity_miss_all(samples: Sequence[Sample], transcripts: Sequence[Transcript]) -> tuple[int, int]:
+    """Số giá trị tham số bỏ sót và tổng số, xét mọi lượt user (`entity_miss_rate_all`).
+
+    Giá trị được tính khi xuất hiện (theo ranh giới từ, chữ bỏ dấu) trong đáp án của một lượt user, ở dạng gốc hoặc đã
+    đổi số; bị coi là bỏ sót khi không có trong chữ ASR của lượt user nào, ở dạng gốc hoặc đã đổi số.
+    """
+    missed = total = 0
+    for s, t in zip(samples, transcripts, strict=True):
+        if s.label is None:
+            continue
+        refs = [s.audio_text] + [h.audio_text for h in s.history if h.role == "user"]
+        hyps = [t.final] + [x for h, x in zip(s.history, t.history, strict=True) if h.role == "user" and x]
+        gold = " ".join(_folded_tokens(x) + _folded_tokens(digitized_text(x)) for x in refs if x)
+        heard = " ".join(_folded_tokens(x) + _folded_tokens(digitized_text(x)) for x in hyps if x)
+        seen: set[str] = set()
+        for call in s.label.get("tool_calls") or []:
+            if call.get("name") == "sys.ask_missing_info":
+                continue
+            for v in _values(call.get("arguments") or {}):
+                fv = _folded_tokens(v).strip()
+                if fv and fv not in seen and f" {fv} " in gold:
+                    seen.add(fv)
+                    total += 1
+                    missed += f" {fv} " not in heard
+    return missed, total
+
+
 def percentile(values: Sequence[float], q: float) -> float:
     """Tính phân vị theo hạng gần nhất, với `q` trong khoảng 0..100; trả về 0.0 khi không có giá trị."""
     if not values:
@@ -315,6 +417,9 @@ class AsrReport:
         en_word_recall: `en_words_hit / en_words`; mỗi từ được tính đúng tối đa bằng số lần nó có trong chữ ASR.
         en_word_recall_lenient: như trên nhưng chấp nhận cách viết tương đương.
         vi_only_wer: WER trên các câu không có từ ngoại.
+        wer_digits, vi_only_wer_digits, final_wer_digits: WER trên chữ đã đổi số (cả kho, câu thuần Việt, lượt cuối).
+        number_recall, number_precision, number_f1: so các từ có chữ số giữa đáp án và chữ ASR đã đổi số.
+        entity_miss_rate_all: tỉ lệ giá trị tham số bỏ sót, xét mọi lượt user (`entity_miss_all`).
         en_hyp_words: số từ ngoại trong chữ ASR, ở mọi câu (đếm lặp).
         en_hyp_hits: số từ ngoại của chữ ASR có trong đáp án của cùng câu (tính cả cách viết tương đương).
         en_word_precision: `en_hyp_hits / en_hyp_words`: phần từ tiếng Anh ASR viết ra là đúng; thấp khi ASR biến từ
@@ -354,6 +459,13 @@ class AsrReport:
     en_word_recall_lenient: float = (
         0.0  # chấp nhận cách viết tương đương (`foreign_words.EQUIVALENT_SPELLINGS`, tên ghép bị tách)
     )
+    wer_digits: float = 0.0
+    vi_only_wer_digits: float = 0.0
+    final_wer_digits: float = 0.0
+    number_recall: float = 0.0
+    number_precision: float = 0.0
+    number_f1: float = 0.0
+    entity_miss_rate_all: float = 0.0
     en_hyp_words: int = 0
     en_hyp_hits: int = 0
     en_word_precision: float = 0.0
@@ -427,6 +539,9 @@ def evaluate(
     # Từ ngoại của đáp án: tổng số, số chép đúng (chặt / nới lỏng), số lần từ câu mồi bị chèn vào.
     en_words_total = en_hits = en_hits_lenient = prompt_insertions = 0
     en_hyp_words = en_hyp_hits = 0  # từ ngoại của chữ ASR: tổng số, số có trong đáp án (độ chính xác)
+    # Chữ đã đổi số: lỗi và số từ (cả kho, câu thuần Việt, lượt cuối); từ có chữ số của đáp án, của ASR, số khớp.
+    dig_errors = dig_words = vi_dig_errors = vi_dig_words = final_dig_errors = final_dig_words = 0
+    num_ref = num_hyp = num_hit = 0
     by_group = {g: [0, 0] for g in WORD_GROUPS}  # nhóm -> [số từ, số từ chép đúng]
     by_prompt = {"in": [0, 0], "out": [0, 0]}  # từ có / không có trong câu mồi -> [số từ, số từ chép đúng]
     for s, t in zip(samples, transcripts, strict=True):
@@ -474,11 +589,24 @@ def evaluate(
             # Từ câu mồi có trong chữ ASR mà đáp án không có, kể cả dưới cách viết khác ("ti vi", "TV" cho "tivi").
             reference_words = folded_words(ref)
             prompt_insertions += sum(not contains_word(w, reference_words) for w in prompt_words & folded_word_set(hyp))
+            rd, hd = digitized_text(ref).split(), digitized_text(hyp).split()
+            dig_err = _edit_distance(rd, hd)
+            dig_errors += dig_err
+            dig_words += len(rd)
+            if turn_key == "final":
+                final_dig_errors += dig_err
+                final_dig_words += len(rd)
+            nr, nh = number_tokens(" ".join(rd)), number_tokens(" ".join(hd))
+            num_ref += len(nr)
+            num_hyp += len(nh)
+            num_hit += sum((Counter(nr) & Counter(nh)).values())
             hyp_foreign = find_foreign_words(hyp, lowercase_vocabulary)
             en_hyp_words += len(hyp_foreign)
             en_hyp_hits += sum(contains_word(w.folded, reference_words) for w in hyp_foreign)
             foreign = find_foreign_words(ref, lowercase_vocabulary)
             if not foreign:
+                vi_dig_errors += dig_err
+                vi_dig_words += len(rd)
                 vi_only_errors += word_errors
                 vi_only_words += len(r.split())
             else:
@@ -499,6 +627,8 @@ def evaluate(
     missed, total, rate, details = entity_miss_rate(samples, transcripts)
     secs = [t.seconds for t in transcripts]
     recall, precision = _rate(en_hits, en_words_total), _rate(en_hyp_hits, en_hyp_words)
+    n_recall, n_precision = _rate(num_hit, num_ref), _rate(num_hit, num_hyp)
+    all_missed, all_total = entity_miss_all(samples, transcripts)
     return AsrReport(
         n_samples=len(samples),
         n_utterances=n_utt,
@@ -521,6 +651,13 @@ def evaluate(
         en_words=en_words_total,
         en_words_hit=en_hits,
         en_word_recall=recall,
+        wer_digits=_rate(dig_errors, dig_words),
+        vi_only_wer_digits=_rate(vi_dig_errors, vi_dig_words),
+        final_wer_digits=_rate(final_dig_errors, final_dig_words),
+        number_recall=n_recall,
+        number_precision=n_precision,
+        number_f1=f1(n_recall, n_precision),
+        entity_miss_rate_all=_rate(all_missed, all_total),
         en_hyp_words=en_hyp_words,
         en_hyp_hits=en_hyp_hits,
         en_word_precision=precision,
@@ -545,6 +682,17 @@ def evaluate(
             "en_hits_lenient": en_hits_lenient,
             "en_hyp_words": en_hyp_words,
             "en_hyp_hits": en_hyp_hits,
+            "wer_digits_errors": dig_errors,
+            "wer_digits_words": dig_words,
+            "vi_only_digits_errors": vi_dig_errors,
+            "vi_only_digits_words": vi_dig_words,
+            "final_digits_errors": final_dig_errors,
+            "final_digits_words": final_dig_words,
+            "num_ref": num_ref,
+            "num_hyp": num_hyp,
+            "num_hit": num_hit,
+            "entity_all_missed": all_missed,
+            "entity_all_total": all_total,
             "entity_missed": missed,
             "entity_total": total,
         },

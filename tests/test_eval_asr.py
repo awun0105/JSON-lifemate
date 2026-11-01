@@ -270,3 +270,48 @@ def test_compare_f1_from_pooled_counts_and_prepare() -> None:
     assert lo <= hi
     row = prepared([{"id": "s0", "turn": "final", "hyp": "Hẹn lúc hai giờ."}])[0]
     assert row["hyp"] == "hẹn lúc 2 giờ" and row["raw"] == row["hyp"]
+
+
+def test_digitized_wer_number_f1_and_entities_all_turns() -> None:
+    """Đổi số ở cả hai phía bỏ lỗi cách viết số; F1 số so từ có chữ số; giá trị nói ở lượt trước cũng được xét."""
+    hist = (
+        Turn(role="user", audio=None, audio_text="Đặt bàn ở Đà Nẵng", text=None, tool_calls=(), tool_results=()),
+        Turn(role="assistant", audio=None, audio_text=None, text="Vâng", tool_calls=(), tool_results=()),
+    )
+    s = _sample("s0", "Lúc tám giờ nhé", [{"name": "x.book", "arguments": {"city": "Đà Nẵng", "hour": 8}}], hist)
+
+    class _Hist(_Fixed):
+        def transcribe(self, sample: Sample) -> Transcript:
+            """Lượt cuối nghe đúng số, lượt trước nghe sai tên thành phố."""
+            return Transcript(final="lúc 8 giờ nhé", history=("đặt bàn ở đà lạt", None), seconds=0.1)
+
+    rep = evaluate([s], _Hist({}))
+    assert rep.final_wer_digits == 0.0 and rep.wer > 0.0
+    assert (rep.number_recall, rep.number_precision, rep.number_f1) == (1.0, 1.0, 1.0)
+    # "8" có trong đáp án đã đổi số và trong chữ ASR; "da nang" nói ở lượt trước, ASR viết "đà lạt".
+    assert rep.counts["entity_all_total"] == 2 and rep.counts["entity_all_missed"] == 1
+
+
+def test_sample_seconds_sums_parts(tmp_path: Any) -> None:
+    """Thời gian của một hệ thống là tổng các phần theo mẫu; mẫu thiếu ở một phần bị bỏ."""
+    from lifemate.eval.asr_compare import sample_seconds
+
+    a, b = tmp_path / "a.jsonl", tmp_path / "b.jsonl"
+    a.write_text('{"id": "x", "w": {"E2": 1.0}}\n{"id": "y", "w": {"E2": 2.0}}\n', encoding="utf-8")
+    b.write_text('{"id": "x", "s": 0.5}\n', encoding="utf-8")
+    out = sample_seconds([f"m={a}:w.E2", f"m={b}:s"])
+    assert out["m"]["n"] == 1 and out["m"]["max"] == 1.5
+
+
+def test_read_number_round_trips_and_canonical_numbers() -> None:
+    """`read_number` đọc ngược đúng với `parse_number`; mọi cách viết cùng một số cho cùng một dạng chung."""
+    from lifemate.backends.asr_numbers import parse_number
+    from lifemate.eval.eval_asr import digitized_text, read_number
+
+    for n in [*range(0, 1200), 2005, 10_000, 15_500, 21_000, 105_000, 500_000, 1_000_000, 2_500_000, 1_234_567]:
+        assert parse_number(read_number(str(n)).split()) == n, n
+    same = {digitized_text(x) for x in ("giá 50.000 đồng", "giá 50 nghìn đồng", "giá năm mươi nghìn đồng")}
+    assert len(same) == 1
+    assert digitized_text("lúc 9h30") == digitized_text("lúc chín giờ ba mươi")
+    assert digitized_text("số 095-0536-0367") == digitized_text("số không chín năm không năm ba sáu không ba sáu bảy")
+    assert digitized_text("mua 2 cái") == digitized_text("mua hai cái")

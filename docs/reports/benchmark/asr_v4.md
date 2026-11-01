@@ -447,11 +447,11 @@ pipeline ghép bản 2 bằng bootstrap ghép cặp theo mẫu.
    `text.normalize` của tác giả) dưới 25%; chữ float32 trùng chữ kiểu số thấp ở ít nhất 9/10 file. Không đạt thì dừng,
    tìm lỗi cấu hình, không chạy dữ liệu thi.
 2. Chọn cấu hình trên `asr_tune` (thứ tự từ đơn giản: tham lam, KenLM không gợi ý, gợi ý 2, 4, 8): chỉ xét cấu hình có
-   thời gian giải mã thêm p95 ≤ 1 s mỗi câu; lấy cấu hình có WER thấp nhất; nếu CI của chênh lệch so với cấu hình đơn
+   thời gian giải mã thêm p95 ≤ 1 s mỗi câu; lấy cấu hình có WER đã đổi số (`wer_digits`) thấp nhất; nếu CI của chênh lệch so với cấu hình đơn
    giản hơn chứa 0 thì lấy cấu hình đơn giản hơn.
 3. Đo một lần trên `val_seen` với cấu hình đã chọn:
-   - **Thay RNNT** khi WER câu thuần Việt thấp hơn RNNT có ý nghĩa, F1 từ tiếng Anh (mục 6f) không thấp hơn có ý
-     nghĩa, giá trị tham số thiếu không cao hơn có ý nghĩa. Khi đó phải làm lại K5 và học lại H với VieGem làm phía A.
+   - **Thay RNNT** khi WER câu thuần Việt thấp hơn RNNT có ý nghĩa, F1 tiếng Anh, F1 số và
+     tham số thiếu không tệ hơn theo ngưỡng của mục 6f.3. Khi đó phải làm lại K5 và học lại H với VieGem làm phía A.
    - **Thay cả pipeline ghép** (bỏ whisper-large-v3, H-Anh, H-Việt): theo tiêu chí chung của mục 6f.
 
 ## 6e. PhoWhisper-large-CS dùng nguyên bản (chưa chạy)
@@ -482,7 +482,7 @@ biến thể câu mồi đặt trước: `N` và `E2`.
 2. Trên `asr_tune` (chữ large-v3 E2 của phiên K1 làm mốc): chọn giữa `N` và `E2` theo F1 từ tiếng Anh (mục 6f), trừ khi
    WER câu thuần Việt tệ hơn có ý nghĩa; hoà thì chọn `N` (đơn giản hơn).
 3. Thay large-v3 ở vai trò B khi, trên `val_seen` đo một lần, PhoWhisper-CS đứng riêng có F1 từ tiếng Anh cao hơn có
-   ý nghĩa, hoặc không thua mà số câu bị bộ lọc câu bịa cắt ít hơn. Khi đó làm lại K5 với PhoWhisper-CS (vừa chép phía B
+   ý nghĩa, hoặc không tệ hơn (ngưỡng mục 6f.3, cả WER thuần Việt và F1 số) mà số câu bị bộ lọc câu bịa cắt ít hơn. Khi đó làm lại K5 với PhoWhisper-CS (vừa chép phía B
    vừa chấm điểm âm thanh), học lại H-Anh và H-Việt, kiểm định chéo với tiêu chí của D67, rồi so pipeline ghép mới với
    bản 2.
 
@@ -498,34 +498,76 @@ câu hai đầu từ, đổi số đọc thành chữ số; `asr_compare --prepa
 g4 (chữ đã lưu của large-v3 E2 đã qua hai bước này). VieGem là CTC, không bịa câu phụ đề và không dùng câu mồi, nên không
 cần hai bước đó.
 
-**Thước đo từ tiếng Anh.** Recall, tức độ phủ (`en_word_recall`: phần từ tiếng Anh của đáp án mà ASR chép đúng) không phạt việc ASR
-viết thêm từ tiếng Anh sai, ví dụ "phòng" thành "phone". Vì vậy thêm precision, tức độ chính xác (`en_word_precision`: phần từ tiếng Anh
-ASR viết ra, ở mọi câu kể cả câu thuần Việt, có trong đáp án của cùng câu) và F1 (`en_word_f1`: trung bình điều hoà của
-recall và precision, chỉ cao khi cả hai cùng cao). F1 là thước đo tiếng Anh dùng để quyết định ở mục 6d, 6e và mục này. Bootstrap
-tính F1 từ recall và precision đã cộng dồn của mỗi vòng.
+### 6f.1. Thước đo
 
-**Mốc đã có** (`val_seen`, chấm lại chữ đã lưu, không chạy mô hình; phần trăm, chênh lệch so với bản 2 kèm CI 95%):
+| Thước đo | Đo gì | Vì sao cần |
+|---|---|---|
+| WER câu thuần Việt, đã đổi số (`vi_only_wer_digits`) | Tỉ lệ từ sai ở câu không có từ tiếng Anh | Chất lượng tiếng Việt |
+| WER lượt cuối, đã đổi số (`final_wer_digits`) | Như trên, chỉ lượt cuối, mọi câu | Lượt cuối quyết định lời gọi tool; WER gộp có 642 lượt trước so với 274 lượt cuối |
+| Recall (độ phủ), precision (độ chính xác), F1 từ tiếng Anh (`en_word_*`) | Recall: phần từ tiếng Anh của đáp án được chép đúng. Precision: phần từ tiếng Anh ASR viết ra là đúng, ở mọi câu kể cả câu thuần Việt. F1: trung bình điều hoà của hai số | Recall không phạt từ tiếng Anh viết thừa hoặc viết sai ("phòng" thành "phone") |
+| Recall, precision, F1 của số (`number_*`) | So các từ có chữ số của đáp án và của chữ ASR trong cùng câu (đếm lặp) | Số quyết định ngày, giờ, số tiền, số điện thoại trong tham số |
+| Tham số thiếu, mọi lượt (`entity_miss_rate_all`) | Giá trị tham số được nói ở bất kỳ lượt user nào mà chữ ASR không có | Bám sát điểm thi nhất, nhưng chỉ có 123 giá trị trên `val_seen` nên rất nhiễu |
+| Thời gian mỗi mẫu p50, p95 (`asr_compare --timing`) | Tổng thời gian ASR của mọi lượt; bản 2 gồm RNNT, Whisper và chấm điểm âm thanh | 18% mẫu của agent đang hết giờ |
 
-| Hệ thống | WER câu thuần Việt | WER | Recall (độ phủ) tiếng Anh | Precision (độ chính xác) tiếng Anh | F1 tiếng Anh | Tham số thiếu |
+**Dạng chung của số.** Đáp án và chữ ASR viết số theo nhiều kiểu: "50.000", "50 nghìn", "năm mươi nghìn"; "9h30",
+"chín giờ ba mươi"; "095-0536-0367"; bộ đổi số lại giữ nguyên chữ "hai" đứng riêng ("mua hai cái"), trong khi Whisper viết
+"2". Mọi thước đo "đã đổi số" và thước đo số vì vậy đưa cả hai phía về cùng một dạng (`eval_asr.digitized_text`): viết mọi
+chữ số thành chữ (`read_number`, kiểm tra đọc ngược đúng bằng `parse_number`), rồi đổi lại bằng đúng một bộ luật
+(`digitize`). Chênh lệch còn lại là do nghe. Trước khi đưa về dạng chung, precision số của large-v3 chỉ là 45%, vì
+"50.000" bị tách thành hai số và "2" không khớp "hai"; sau đó là 86%, và các chỗ lệch còn lại là nghe sai thật (25 thành
+35, 15 thành 30).
+
+Thước đo cũ (`wer`, `vi_only_wer`, `en_word_recall`, `entity_miss_rate` chỉ lượt cuối) vẫn được ghi để so với các lần
+trước, nhưng không dùng để quyết định ở mục 6d, 6e, 6f.
+
+### 6f.2. Mốc đã có
+
+`val_seen`, chấm lại chữ đã lưu, không chạy mô hình. Phần trăm, chênh lệch so với bản 2 kèm CI 95% (khoảng tin cậy:
+khoảng dao động của chênh lệch qua 1 000 lần lấy mẫu lại; chứa 0 nghĩa là chưa phân thắng thua):
+
+| Hệ thống | WER thuần Việt | WER lượt cuối | F1 tiếng Anh | F1 số | Tham số thiếu, mọi lượt | Thời gian p50 / p95 (s) |
 |---|---|---|---|---|---|---|
-| Bản 2 (mốc) | 18,56 | 19,62 | 76,42 | 82,14 | 79,18 | 23,85 |
-| RNNT đứng riêng | 19,16 [+0,20; +0,95] | 21,28 [+1,18; +2,14] | 49,85 [−32,56; −21,02] | 62,74 [−26,11; −13,20] | 55,56 [−29,58; −18,01] | 28,44 [−1,77; +10,92] |
-| large-v3 E2 đứng riêng | 26,75 [+7,11; +9,44] | 26,77 [+6,29; +8,14] | 74,93 [−4,61; +1,25] | 69,75 [−17,19; −7,88] | 72,24 [−10,28; −3,94] | 29,36 [−1,00; +12,04] |
+| Bản 2 (mốc) | 16,49 | 17,45 | 79,18 | 87,88 | 24,39 | 4,70 / 15,04 |
+| RNNT đứng riêng | 17,06 [+0,06; +0,99] | 19,05 [+0,83; +2,33] | 55,56 [−29,58; −18,01] | 86,21 [−3,77; +0,35] | 28,46 [−1,69; +9,38] | 1,51 / 3,57 |
+| large-v3 E2 đứng riêng | 24,27 [+6,45; +9,36] | 22,85 [+3,96; +7,00] | 72,24 [−10,28; −3,94] | 83,49 [−8,07; −1,07] | 28,46 [−1,59; +9,57] | 2,09 / 7,60 |
 
-large-v3 chép được gần đủ từ tiếng Anh như bản 2 (CI của recall chứa 0) nhưng viết sai nhiều hơn rõ rệt (precision
-thấp hơn 12 điểm). Nếu chỉ nhìn recall thì mô hình này bị đánh giá sai. Đó là lý do mục này dùng F1.
+Chi tiết tiếng Anh: recall 76,42 / 49,85 / 74,93 và precision 82,14 / 62,74 / 69,75 (bản 2 / RNNT / large-v3). large-v3
+chép được gần đủ từ tiếng Anh như bản 2 (CI của recall chứa 0) nhưng viết sai nhiều hơn rõ rệt; nếu chỉ nhìn recall thì
+mô hình này bị đánh giá sai. Thời gian của bản 2 cộng ba bước chạy nối tiếp; một mô hình đứng riêng bỏ được bước chấm
+điểm âm thanh, vốn chiếm phần lớn p95.
 
-**Tiêu chí đặt trước** (đo một lần trên `val_seen`, mốc là bản 2; "không tệ hơn có ý nghĩa" nghĩa là CI của chênh lệch
-không nằm hẳn về phía tệ):
+### 6f.3. Ngưỡng chấp nhận
 
-1. **Một mô hình thay cả pipeline** khi mô hình đó đứng riêng không tệ hơn bản 2 có ý nghĩa ở cả ba thước đo: WER câu
-   thuần Việt, F1 tiếng Anh, tham số thiếu. Nếu cả VieGem và PhoWhisper-CS đều đạt, chọn mô hình có WER thấp hơn; CI
-   chứa 0 thì chọn VieGem (ít tham số hơn, nhanh hơn).
+Với 274 mẫu, CI rộng tới mức "CI chứa 0" không đủ để gọi là "không thua": một hệ thống tệ hơn thật vẫn lọt qua. Vì vậy
+mọi điều kiện "không tệ hơn" ở mục 6d, 6e, 6f dùng ngưỡng đặt trước, áp lên cận phía tệ của CI của chênh lệch:
+
+| Thước đo | "Không tệ hơn" khi | Bề rộng CI của chênh lệch trên mốc |
+|---|---|---|
+| WER thuần Việt, đã đổi số | cận trên ≤ +1,0 điểm | khoảng 1 đến 3 điểm |
+| F1 tiếng Anh | cận dưới ≥ −3,0 điểm | khoảng 6 đến 12 điểm |
+| F1 số | cận dưới ≥ −3,0 điểm | khoảng 4 đến 7 điểm |
+| Tham số thiếu, mọi lượt | điểm đo không cao hơn mốc quá +2,0 điểm (không dùng CI: chỉ 123 giá trị, CI rộng khoảng 11 điểm) | khoảng 11 điểm |
+| Thời gian p95 | không cao hơn mốc | (không bootstrap) |
+
+"Tốt hơn có ý nghĩa" vẫn là CI của chênh lệch nằm hẳn về phía tốt. Theo bảng mốc, RNNT đứng riêng đạt ngưỡng WER (cận
+trên +0,99) nhưng trượt F1 tiếng Anh, nên không thay được bản 2: ngưỡng cho kết luận đúng với điều đã biết.
+
+### 6f.4. Tiêu chí đặt trước
+
+Đo một lần trên `val_seen`, mốc là bản 2:
+
+1. **Một mô hình thay cả pipeline** khi mô hình đó đứng riêng không tệ hơn bản 2 ở cả bốn thước đo của mục 6f.3 (WER
+   thuần Việt, F1 tiếng Anh, F1 số, tham số thiếu) và không chậm hơn. Nếu cả VieGem và PhoWhisper-CS đều đạt, chọn mô
+   hình có WER thuần Việt thấp hơn; CI chứa 0 thì chọn VieGem (ít tham số hơn, nhanh hơn).
 2. **Không mô hình nào đạt bước 1:** giữ pipeline ghép, xét thay vai theo mục 6d (VieGem thay RNNT) và 6e (PhoWhisper-CS
-   thay large-v3).
+   thay large-v3), với ngưỡng của mục 6f.3.
 3. **Cả hai cùng thay được vai đã định:** dựng đúng một pipeline VieGem (A) + PhoWhisper-CS (B), chấm điểm âm thanh lại,
    học lại H-Anh và H-Việt một lần, kiểm định chéo theo tiêu chí D67, rồi so với bản 2. Không thử các cặp lẻ khác.
-4. Bảng đủ năm hệ thống, kèm so từng cặp mô hình đứng riêng, được ghi để tham khảo; quyết định chỉ theo ba bước trên.
+4. **Xác nhận bằng điểm thi:** thước đo ASR chỉ là đại diện (lần 3: recall tiếng Anh tăng 25,6 điểm chỉ đổi được +0,4
+   điểm thi, CI chứa 0). Thay đổi được chọn ở bước 1, 2 hoặc 3 chỉ được nhận khi chạy agent trên `val_seen` với chữ của
+   hệ thống mới và của bản 2 (cùng cấu hình agent, ghép cặp theo mẫu) không cho kết quả tệ hơn có ý nghĩa (CI của chênh
+   lệch điểm thi không nằm hẳn dưới 0).
+5. Bảng đủ năm hệ thống, kèm so từng cặp mô hình đứng riêng, được ghi để tham khảo; quyết định chỉ theo các bước trên.
 
 **Lệnh chấm** (CPU, sau khi có chữ của hai mô hình mới):
 
@@ -534,8 +576,15 @@ python -m lifemate.eval.asr_compare --env local --ids configs/splits/val_seen.tx
   --system ban2=<k5>/analysis/v2_val_seen.hyps.jsonl --system rnnt=<k2_val_seen>/rnnt.hyps.jsonl \
   --system v3_E2=<k2_val_seen>/v3_E2.hyps.jsonl --system viegem=<viegem>/val_seen/<cấu hình>.hyps.jsonl \
   --system phowhisper_cs=<phowhisper_cs>/<biến thể>.hyps.jsonl \
-  --prepare rnnt --prepare v3_E2 --prepare viegem --prepare phowhisper_cs --out <thư mục>/standalone_val_seen.json
+  --prepare rnnt --prepare v3_E2 --prepare viegem --prepare phowhisper_cs \
+  --timing ban2=<k2_val_seen>/timing.jsonl:rnnt_s --timing ban2=<k2_val_seen>/timing.jsonl:whisper_s.E2 \
+  --timing ban2=<k5>/scores_val_seen.timing.jsonl:score_s --timing rnnt=<k2_val_seen>/timing.jsonl:rnnt_s \
+  --timing v3_E2=<k2_val_seen>/timing.jsonl:whisper_s.E2 --timing viegem=<viegem>/val_seen/timing.jsonl:seconds \
+  --timing phowhisper_cs=<phowhisper_cs>/timing.jsonl:whisper_s.<biến thể> --out <thư mục>/standalone_val_seen.json
 ```
+
+Thời gian giải mã KenLM của VieGem (nếu cấu hình chọn dùng KenLM) chạy trên CPU sau bước `dump`, nên được cộng thêm từ
+kết quả `decode`.
 
 ## 7. Kế hoạch
 
