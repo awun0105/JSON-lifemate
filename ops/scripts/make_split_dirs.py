@@ -2,9 +2,11 @@
 
 Cách dùng (từ gốc repo): python ops/scripts/make_split_dirs.py [--src data/train+public_test/train] [--out data/split]
 
-Mỗi `data/split/<tên>/` gồm `<tên>.jsonl` (các dòng của `train.jsonl` thuộc tập, giữ thứ tự gốc), `audio/<id>/`,
-`<tên>_environment/<id>/`, `<tên>_tools_catalog.json`, `zaic_tools/` và `ids.txt`; mọi lệnh của dự án chạy được bằng
-`--root data/split --split <tên>`. Danh sách id lấy từ `configs/splits/` (`make splits`).
+Tập con nằm trong thư mục của tập cha: `train/tune/`, `train/learn/`, `train/smoke/`; nhóm câu của `val_seen` nằm trong
+`val_seen/`. Mỗi thư mục tập `.../<tên>/` gồm `<tên>.jsonl` (các dòng của `train.jsonl` thuộc tập, giữ thứ tự gốc),
+`audio/<id>/`, `<tên>_environment/<id>/`, `<tên>_tools_catalog.json`, `zaic_tools/` và `ids.txt`. Mọi lệnh của dự án
+chạy được bằng `--root <thư mục cha> --split <tên>`, ví dụ `--root data/split --split val_seen` hoặc
+`--root data/split/train --split tune`. Danh sách id lấy từ `configs/splits/` (`make splits`).
 
 Cách hoạt động:
 - File âm thanh, thư mục trạng thái app, catalog và `zaic_tools` là hard link tới bản gốc: không tốn thêm dung lượng,
@@ -28,12 +30,12 @@ import os
 import shutil
 from pathlib import Path
 
-# tên thư mục -> file id trong configs/splits/
+# đường dẫn thư mục (tập con nằm trong tập cha, dựng sau tập cha) -> file id trong configs/splits/
 SPLITS = {
     "train": "train",  # 1 093 mẫu: dữ liệu học (fine-tune; bộ chọn H-Anh, H-Việt học trên cả tập); = tune + learn
-    "tune": "asr_tune",  # 300 mẫu của train: chọn cấu hình ASR
-    "learn": "asr_learn",  # 793 mẫu còn lại của train; tập học H của lần 3, từ D54 không còn vai riêng
-    "smoke": "smoke",  # 30 mẫu của train: chạy thử nhanh
+    "train/tune": "asr_tune",  # 300 mẫu của train: chọn cấu hình ASR
+    "train/learn": "asr_learn",  # 793 mẫu còn lại của train; tập học H của lần 3, từ D54 không còn vai riêng
+    "train/smoke": "smoke",  # 30 mẫu của train: chạy thử nhanh
     "val_seen": "val_seen",  # 274 mẫu: kiểm tra, mỗi ứng viên đo một lần
     "val_unseen": "val_unseen",  # 178 mẫu: KHOÁ, chỉ đo một lần cho cấu hình sắp nộp (D53)
 }
@@ -103,13 +105,14 @@ def main() -> int:
         if line.strip():
             rows[json.loads(line)["id"]] = line
     order = list(rows)
-    for name, ids_name in SPLITS.items():
+    for rel, ids_name in SPLITS.items():
+        name = Path(rel).name
         ids = {x.strip() for x in Path(f"configs/splits/{ids_name}.txt").read_text().splitlines() if x.strip()}
         missing = ids - set(rows)
         if missing:
             raise SystemExit(f"{name}: {len(missing)} id không có trong train.jsonl")
         keep = [i for i in order if i in ids]
-        d = args.out / name
+        d = args.out / rel
         if d.exists():
             shutil.rmtree(d)
         d.mkdir(parents=True)
@@ -119,7 +122,7 @@ def main() -> int:
         n_env = sum(link_tree(args.src / "train_environment" / i, d / f"{name}_environment" / i) for i in keep)
         os.link(args.src / "train_tools_catalog.json", d / f"{name}_tools_catalog.json")
         link_tree(args.src / "zaic_tools", d / "zaic_tools")
-        print(f"{name}: {len(keep)} mẫu, {n_audio} file âm thanh, {n_env} file trạng thái")
+        print(f"{rel}: {len(keep)} mẫu, {n_audio} file âm thanh, {n_env} file trạng thái")
         if name in SUBSET_SPLITS:
             print(f"  nhóm câu: {write_subsets(d, [json.loads(rows[i]) for i in keep])}")
     return 0
