@@ -49,7 +49,7 @@ phụ khi có lỗi hoặc không có gì để ghép.
 | Hình trụ | File cấu hình |
 
 Chữ ASR chưa phải là thứ đưa thẳng cho LLM. Khung «Sau ASR» ở cuối cho biết chữ đó được ghép vào hội thoại ChatML
-(`lifemate/agent/chatml.py › build_messages`) cùng lời dặn hệ thống, danh sách tool và các lượt cũ, rồi mới vào
+(`lifemate/agent/chatml.py › build_messages`) cùng lời dặn hệ thống (system prompt), danh sách tool và các lượt cũ của trợ lý, rồi mới vào
 Qwen3-4B. Phần này không thuộc pipeline ASR, vẽ kèm để thấy chữ ASR nằm ở đâu trong prompt.
 
 Sơ đồ dùng bố cục ELK (`layout: elk`) để tiêu đề khung không bị khung con đè lên; mermaid.live hỗ trợ. Trình xem nào
@@ -162,6 +162,74 @@ flowchart LR
 
 Lời trợ lý «Dạ, anh muốn nhắn cho ai ạ?» cũng là ví dụ minh hoạ. Điểm âm thanh và xác suất của H-Anh không ghi số vì
 không đo trên câu mẫu này.
+
+## Hai bộ chọn H-Anh và H-Việt: vấn đề, mục tiêu, cách làm
+
+### Vấn đề
+
+Hai mô hình chép bù nhau nhưng không mô hình nào đủ tốt khi chạy riêng (`val_seen`, mục "Kết quả benchmark"): RNNT
+có WER câu thuần Việt 17,06% nhưng F1 tiếng Anh chỉ 55,56; Whisper có F1 tiếng Anh 72,24 nhưng WER câu thuần Việt
+23,88%. Sau khi đặt hai bản cạnh nhau, mỗi câu có vài vùng khác nhau, và ở mỗi vùng phải chọn một bên. Lúc chạy thật
+không có đáp án, nên phải đoán bên nào đúng từ những tín hiệu có sẵn.
+
+Luật cố định không đoán tốt:
+
+- **Luôn giữ RNNT ở vùng chữ Việt** (cách của bản 1) bỏ lỡ những chỗ Whisper nghe đúng: trên train, Whisper đúng ở
+  34,6% số vùng chữ Việt có nhãn (1 900 / 5 489).
+- **Luôn lấy Whisper** thì sai ở 65,4% số vùng còn lại.
+- **Chỉ dựa vào điểm âm thanh** cũng sai: Whisper vừa chép vừa chấm điểm, nên thiên vị chữ do chính Whisper chép. Ở vùng chữ Việt
+  có nhãn trên train, điểm âm thanh nghiêng về chữ Whisper ở 71,6% số vùng, trong khi Whisper chỉ đúng ở 34,6%.
+- Ở vùng có từ tiếng Anh, Whisper đôi khi bịa từ tiếng Anh (ví dụ "MyGov is" ở mẫu train_0164, mục "Ví dụ thực tế"),
+  nên không thể lấy mọi từ tiếng Anh của Whisper.
+
+### Mục tiêu
+
+- Ở mỗi vùng, chọn bên gần lời chuẩn hơn, để giảm WER câu thuần Việt và giảm giá trị tham số bị thiếu, mà không làm
+  giảm recall tiếng Anh. Đây là tiêu chí đặt trước khi nhận bản 2 (D67), đo bằng kiểm định chéo trên train.
+- Rẻ: chỉ dùng tín hiệu đã có sau khi hai mô hình chép và chấm điểm, không thêm mô hình lớn (tổng tham số cả hệ thống
+  giữ 5,68B); mỗi quyết định là một phép tính nhỏ, không tốn thời gian đáng kể.
+
+### Cách làm
+
+1. **Dữ liệu học.** Mỗi vùng khác nhau của 1 083 mẫu train là một dòng (chữ RNNT, Whisper đã lưu ở phiên K1, K2; điểm âm
+   thanh ở phiên K5). Nhãn tự động: dựng hai câu ứng viên (giữ RNNT, hoặc lấy Whisper ở đúng vùng đó), so mỗi câu với lời
+   chuẩn đã qua bước chuẩn bị; nhãn 1 khi lấy Whisper ít lỗi hơn, 0 khi giữ RNNT ít lỗi hơn, vùng hoà bỏ khỏi dữ liệu
+   học. Còn 539 vùng `en` và 5 489 vùng `vi` có nhãn. File: `data/split/train/h_regions/regions.jsonl` (không lên git).
+2. **Hai bộ thay vì một**, vì hai loại vùng hỏi hai câu khác nhau. Vùng `en` hỏi "từ tiếng Anh Whisper viết có thật được
+   nói không", nên H-Anh dựa nhiều vào ngữ cảnh mẫu (app đã cài, catalog, lời trợ lý) và câu mồi. Vùng `vi` hỏi "bên nào
+   nghe đúng chữ Việt", nên H-Việt dựa vào điểm âm thanh, độ dài hai bên, khoảng cách ký tự và vị trí trong câu. Danh sách
+   tín hiệu: bảng "Câu mẫu qua từng bước", dòng ⑨a và ⑨b.
+3. **Mô hình: hồi quy logistic** (chuẩn hoá đầu vào, phạt L2), cho ra xác suất "nên lấy chữ Whisper". Chọn mô hình này vì
+   dữ liệu ít (539 vùng `en`), trọng số đọc được, kết quả tất định, không cần thư viện ngoài. Hệ số phạt và ngưỡng chọn
+   bằng kiểm định chéo bên trong; trọng số cuối dùng hệ số phạt 10 và ngưỡng 0,5 cho cả hai bộ.
+4. **Đánh giá trước khi nhận.** Kiểm định chéo 5 phần theo mẫu trên train: mỗi mẫu được quyết định bởi mô hình không học
+   trên chính mẫu đó, các câu gần trùng nằm cùng một phần. So "H-Anh + H-Việt" với "chỉ H-Anh" (vùng chữ Việt giữ RNNT).
+   Đạt tiêu chí thì học lại trên cả train, ghi `configs/asr_merge/h_v2.json`, rồi đo một lần trên `val_seen`.
+
+### Kết quả lúc nhận
+
+Số đo theo cách chấm lúc đó (WER chưa đưa số về dạng chung; tham số thiếu chỉ xét lượt cuối); số theo cách chấm hiện tại
+ở mục "Kết quả benchmark". Chênh lệch kèm CI 95%.
+
+| Kiểm định chéo trên train (1 083 mẫu) | Chỉ H-Anh | H-Anh + H-Việt | Chênh lệch |
+|---|---|---|---|
+| WER câu thuần Việt | 20,74% | 19,74% | −1,00 [−1,23; −0,79] |
+| Recall tiếng Anh | 73,95% | 74,02% | +0,08 [−0,43; +0,52] |
+| Tham số thiếu | 24,94% | 21,41% | −3,53 [−5,62; −1,72] |
+
+| Đo một lần trên `val_seen` (274 mẫu) | Bản 1 | Bản 2 | Chênh lệch |
+|---|---|---|---|
+| WER câu thuần Việt | 19,19% | 18,56% | −0,63 [−0,99; −0,24] |
+| WER | 20,28% | 19,62% | −0,67 [−1,00; −0,31] |
+| Recall tiếng Anh | 76,72% | 76,42% | −0,30 [−1,81; +1,21] |
+| Tham số thiếu | 26,61% | 23,85% | −2,75 [−8,25; +2,59] |
+
+### Hạn chế
+
+- H-Việt giữ đúng 89,5% số vùng RNNT đúng, nhưng chỉ lấy đúng 41,6% số vùng Whisper đúng (kiểm định chéo trên train):
+  hơn nửa số chỗ Whisper sửa được vẫn bị bỏ lỡ, như "báo thức" ở mẫu train_0008. Giới hạn nằm ở tín hiệu: điểm âm thanh
+  do chính Whisper chấm nên thiên vị chữ Whisper.
+- Hướng tiếp theo: thêm điểm do RNNT chấm cho từng câu ứng viên, để có một tín hiệu âm thanh không thiên vị phía Whisper.
 
 ## Ví dụ thực tế: 8 mẫu chạy thử
 

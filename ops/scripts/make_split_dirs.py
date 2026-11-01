@@ -14,6 +14,9 @@ Cách hoạt động:
   gốc, nên không sửa file trong `data/split/`.
 - Chỉ file `<tên>.jsonl` và `ids.txt` là file mới.
 - Dữ liệu thi của BTC: `data/` không lên git.
+- Dữ liệu học của hai bộ chọn H-Anh, H-Việt (`H_REGIONS`): khi đã có `data/derived/merge_v2/` (dựng bằng
+  `python -m lifemate.eval.merge_v2_report dataset`), `train/h_regions/` và `val_seen/h_regions/` chứa `regions.jsonl`
+  (mỗi vùng khác nhau giữa RNNT và Whisper một dòng, kèm tín hiệu và nhãn) và `regions.meta.json` (hard link).
 - Nhóm câu (`SUBSET_SPLITS`), chia theo lời chuẩn có hay không có từ tiếng Anh (`foreign_words.find_foreign_words`,
   đúng cách `eval_asr` tách `vi_only_*` và `en_mixed_*`): `<tên>/vi_only/`, `<tên>/en_mixed/` (câu người dùng ở mọi
   lượt) và `<tên>/final_vi_only/`, `<tên>/final_en_mixed/` (chỉ câu lượt cuối). Mỗi nhóm có `utterances.jsonl` (`id`,
@@ -42,6 +45,7 @@ SPLITS = {
 
 
 SUBSET_SPLITS = ("val_seen",)
+H_REGIONS = Path("data/derived/merge_v2")  # dữ liệu học của H-Anh, H-Việt; chỉ có train và val_seen
 
 
 def write_subsets(d: Path, rows: list[dict[str, object]]) -> dict[str, int]:
@@ -123,6 +127,12 @@ def main() -> int:
         os.link(args.src / "train_tools_catalog.json", d / f"{name}_tools_catalog.json")
         link_tree(args.src / "zaic_tools", d / "zaic_tools")
         print(f"{rel}: {len(keep)} mẫu, {n_audio} file âm thanh, {n_env} file trạng thái")
+        regions = H_REGIONS / f"{rel}_regions.jsonl"
+        if regions.is_file():
+            (d / "h_regions").mkdir()
+            os.link(regions, d / "h_regions" / "regions.jsonl")
+            os.link(H_REGIONS / "regions.meta.json", d / "h_regions" / "regions.meta.json")
+            print(f"  h_regions: {sum(1 for _ in regions.open(encoding='utf-8'))} vùng")
         if name in SUBSET_SPLITS:
             print(f"  nhóm câu: {write_subsets(d, [json.loads(rows[i]) for i in keep])}")
     return 0
