@@ -30,8 +30,9 @@ Ngày lập kế hoạch: 31/10/2026. Cập nhật: 01/11/2026. Trạng thái:
 | L0, L0v2 | Agent chạy trên lời chuẩn (ASR hoàn hảo), cấu hình agent cũ và mới: trần điểm thi khi ASR không sai |
 | J1, J5, J6 | J1: agent trên chữ RNNT. J5: chạy thật bản 2 trên âm thanh để kiểm tra chữ và đo thời gian. J6: agent trên chữ bản 2 |
 | `asr_tune`, `val_seen`, `val_unseen` | Tập dò cấu hình (300 mẫu của train); tập kiểm tra đo một lần mỗi ứng viên (274 mẫu); tập khoá, chỉ đo một lần khi nộp (D53) |
-| WER | Tỉ lệ từ chép sai trên tổng số từ của lời chuẩn |
-| Recall, precision, F1 | Recall (độ phủ): phần từ cần tìm được chép đúng. Precision (độ chính xác): phần từ chép ra là đúng. F1: trung bình điều hoà của hai số |
+| WER | Tỉ lệ từ chép sai trên tổng số từ của lời chuẩn. Là độ lỗi: **càng thấp càng tốt** |
+| Recall, precision, F1 | Recall (độ phủ): phần từ cần tìm (ví dụ từ tiếng Anh người nói có nói) được chép đúng. Precision (độ chính xác): phần từ chép ra là đúng. F1: trung bình điều hoà của recall và precision. Cả ba là độ đúng, thang 0 đến 100: **càng cao càng tốt**. F1 chỉ cao khi cả hai số cùng cao, vì trung bình điều hoà bị kéo về số thấp hơn: recall 80 và precision 80 cho F1 80, còn recall 100 và precision 10 cho F1 18 (trung bình cộng là 55) |
+| Tham số thiếu (`entity_miss_rate`) | Phần giá trị tham số của lời gọi đáp án (tên, số, giờ) được nói ra mà chữ ASR không có. Là độ lỗi: **càng thấp càng tốt** |
 | CI | Khoảng tin cậy 95% (confidence interval), tính bằng bootstrap ghép cặp theo mẫu; chênh lệch có CI chứa 0 là chưa phân thắng thua |
 
 Lần 3 ([`asr_v3.md`](asr_v3.md), mục "Nghiệm thu lần 3") kết thúc với ba số đếm trên `val_seen`:
