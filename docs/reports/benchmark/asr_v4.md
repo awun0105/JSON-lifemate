@@ -1,7 +1,38 @@
 # Báo cáo benchmark ASR lần 4: giá trị tham số trong chữ ASR (đổi số, sửa tên, dữ liệu fine-tune từ chữ ASR)
 
-Ngày lập kế hoạch: 31/10/2026. Trạng thái: **L1 đã đo và nhận (mục 3.4); L2 đã đo và loại (mục 4.4); L3a xong (mục
-5.2); code `MergedASR` xong (mục 6); L0, L3b và mọi việc cần GPU khác chưa chạy; L0, J1 xong (mục 2)**. Phần không cần GPU (L1, L2, L3a) làm trước trên máy dev; phần cần GPU ghi rõ và chờ phiên GPU.
+Ngày lập kế hoạch: 31/10/2026. Cập nhật: 01/11/2026. Trạng thái:
+
+| Phần | Trạng thái |
+|---|---|
+| L0, J1 (agent trên lời chuẩn và trên chữ RNNT) | Xong (mục 2) |
+| L1 đổi số | Đã đo, nhận (mục 3) |
+| L2 sửa tên | Đã đo, loại (mục 4) |
+| L3a dữ liệu fine-tune từ chữ ASR | Xong (mục 5); L3b (fine-tune) chờ lead |
+| Pipeline ghép bản 2 | Đã đo, nhận (mục 6c) |
+| VieGem-ASR, PhoWhisper-large-CS | Đã đo, không dùng (mục 6f.5) |
+| L0v2, J6, J5 (lần chạy agent và ASR cuối) | Chưa chạy, chờ GPU (mục 6b) |
+
+**Thuật ngữ dùng trong báo cáo.** Các tên dưới đây do dự án tự đặt; đọc bảng này trước khi đọc các mục sau.
+
+| Tên | Nghĩa |
+|---|---|
+| ASR | Chuyển giọng nói thành chữ (automatic speech recognition) |
+| RNNT | Mô hình ASR ChunkFormer RNNT, nghe tiếng Việt tốt, hay chép sai từ tiếng Anh |
+| large-v3 | Mô hình ASR whisper-large-v3 của OpenAI, chép tiếng Anh tốt hơn RNNT, kém hơn ở tiếng Việt |
+| Câu mồi, E2, N | Câu mồi (prompt) là đoạn chữ đưa trước cho Whisper để Whisper viết đúng các từ trong đó. E2 là câu mồi đang dùng: danh sách từ tiếng Anh cố định cộng lời trợ lý liền trước. N là không câu mồi |
+| Pipeline ghép | Chạy cả RNNT và large-v3, so khớp hai câu chép theo từng đoạn, và ở đoạn khác nhau thì một bộ chọn quyết định lấy theo bên nào |
+| H, H-Anh, H-Việt | Bộ chọn của pipeline ghép: mô hình hồi quy logistic nhỏ học trên train. H-Anh quyết định các đoạn có từ tiếng Anh, H-Việt quyết định các đoạn chỉ có tiếng Việt |
+| Bản 1 | Pipeline ghép chỉ có H-Anh; đoạn chỉ có tiếng Việt luôn lấy theo RNNT |
+| **Bản 2** | **Pipeline ASR đang dùng**: RNNT + large-v3 với câu mồi E2 + H-Anh + H-Việt + đổi số đọc thành chữ số (`configs/asr_merge/h_v2.json`, D67, D68) |
+| Đổi số | Đổi số đọc bằng chữ thành chữ số ("năm mươi nghìn" thành "50 nghìn"), luật trong `lifemate/backends/asr_numbers.py` (L1) |
+| Điểm âm thanh | Điểm Whisper (không câu mồi) chấm cho từng phương án của một đoạn khi nghe lại âm thanh; tín hiệu chính của H |
+| K1 đến K5 | Các phiên GPU trên Colab sinh dữ liệu ASR: K1, K2 chép bằng RNNT và large-v3 (K1 trên `asr_tune` với các câu mồi, K2 trên train và val); K3 chấm điểm âm thanh cho bản 1; K4 chạy agent của lần 3; K5 chấm điểm âm thanh cho bản 2 |
+| L0, L0v2 | Agent chạy trên lời chuẩn (ASR hoàn hảo), cấu hình agent cũ và mới: trần điểm thi khi ASR không sai |
+| J1, J5, J6 | J1: agent trên chữ RNNT. J5: chạy thật bản 2 trên âm thanh để kiểm tra chữ và đo thời gian. J6: agent trên chữ bản 2 |
+| `asr_tune`, `val_seen`, `val_unseen` | Tập dò cấu hình (300 mẫu của train); tập kiểm tra đo một lần mỗi ứng viên (274 mẫu); tập khoá, chỉ đo một lần khi nộp (D53) |
+| WER | Tỉ lệ từ chép sai trên tổng số từ của lời chuẩn |
+| Recall, precision, F1 | Recall (độ phủ): phần từ cần tìm được chép đúng. Precision (độ chính xác): phần từ chép ra là đúng. F1: trung bình điều hoà của hai số |
+| CI | Khoảng tin cậy 95% (confidence interval), tính bằng bootstrap ghép cặp theo mẫu; chênh lệch có CI chứa 0 là chưa phân thắng thua |
 
 Lần 3 ([`asr_v3.md`](asr_v3.md), mục "Nghiệm thu lần 3") kết thúc với ba số đếm trên `val_seen`:
 
