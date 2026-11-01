@@ -199,3 +199,53 @@ tiếng Anh: phần từ tiếng Anh của đáp án được chép đúng; prec
 
 Nguồn: [`docs/reports/benchmark/asr_v4.md`](../reports/benchmark/asr_v4.md) mục 6c (bản 2), 6f.5 (bảng so) và 6b (lần
 chạy thử 8 mẫu). Bước chấm điểm dùng lại whisper-large-v3, không nạp thêm mô hình; tổng tham số cả hệ thống 5,68B.
+
+## Kết quả benchmark trên val_seen
+
+Đo một lần trên `val_seen` (274 mẫu, 916 câu người dùng, đáp án là lời chuẩn của BTC), so pipeline đang dùng với từng
+mô hình chạy riêng. Mô hình chạy riêng qua cùng bước chuẩn bị (chữ thường, bỏ dấu câu hai đầu từ, đổi số); Whisper giữ
+bộ lọc câu bịa và bảo vệ g4. VieGem giải mã kèm mô hình ngôn ngữ KenLM (gợi ý từ ngữ cảnh, trọng số 4), PhoWhisper-CS
+dùng câu mồi E2; hai cấu hình này chọn trước trên tập dò `tune` (báo cáo `asr_v4.md` mục 6d, 6e). Dữ liệu câu theo nhóm:
+`data/split/val_seen/` (không lên git).
+
+**WER theo nhóm câu** (tỉ lệ từ sai, %, càng thấp càng tốt; số trong ngoặc ở hàng đầu là số từ đáp án của nhóm):
+
+| Hệ thống | Mọi câu (12 805) | Thuần Việt, mọi lượt (8 652) | Chêm tiếng Anh, mọi lượt (4 153) | Thuần Việt, lượt cuối (3 492) | Chêm tiếng Anh, lượt cuối (2 727) |
+|---|---|---|---|---|---|
+| **Pipeline đang dùng** | **17,18** | **16,34** | **18,93** | **16,21** | **18,56** |
+| Chỉ RNNT | 18,95 | 17,06 | 22,88 | 16,87 | 21,86 |
+| Chỉ whisper-large-v3 (câu mồi E2) | 23,76 | 23,88 | 23,50 | 21,51 | 23,32 |
+| Chỉ VieGem | 23,29 | 21,43 | 27,16 | 22,57 | 25,82 |
+| Chỉ PhoWhisper-CS | 25,77 | 24,98 | 27,43 | 24,57 | 26,18 |
+
+Số câu mỗi nhóm: 916 câu (mọi câu), 671 (thuần Việt, mọi lượt), 245 (chêm tiếng Anh, mọi lượt), 163 (thuần Việt, lượt
+cuối), 111 (chêm tiếng Anh, lượt cuối).
+
+**Từ tiếng Anh, số, giá trị tham số, thời gian:**
+
+| Hệ thống | Recall tiếng Anh | Precision tiếng Anh | F1 tiếng Anh | F1 số | Tham số thiếu, mọi lượt | Thời gian p50 / p95 mỗi mẫu |
+|---|---|---|---|---|---|---|
+| **Pipeline đang dùng** | **76,42** | **82,14** | **79,18** | **88,09** | **23,58%** | 4,7 / 15,0 s |
+| Chỉ RNNT | 49,85 | 62,74 | 55,56 | 86,21 | 28,46% | 1,5 / 3,6 s |
+| Chỉ whisper-large-v3 (câu mồi E2) | 74,93 | 69,75 | 72,24 | 83,76 | 27,64% | 2,1 / 7,6 s |
+| Chỉ VieGem | 41,19 | 77,78 | 53,86 | 86,86 | 26,02% | 0,2 / 0,6 s |
+| Chỉ PhoWhisper-CS | 69,55 | 50,22 | 58,32 | 82,95 | 36,59% | 2,0 / 7,4 s |
+
+Recall, precision, F1 và F1 số: càng cao càng tốt. Tham số thiếu: phần giá trị tham số của lời gọi tool đúng (tên, số,
+giờ) được người dùng nói ra mà chữ ASR không có, càng thấp càng tốt. Thời gian đo trên Colab T4, chưa kể LLM; thời gian
+của VieGem chưa gồm giải mã KenLM trên CPU (thêm khoảng 0,06 s mỗi câu ở p95).
+
+**Đọc kết quả.**
+
+- Pipeline đang dùng tốt nhất ở mọi nhóm câu và mọi thước đo chữ. So với chỉ RNNT, lợi lớn nhất ở câu chêm tiếng Anh
+  (WER 22,88 xuống 18,93, F1 tiếng Anh 55,56 lên 79,18) nhờ lấy từ tiếng Anh của Whisper; câu thuần Việt cũng giảm (17,06
+  xuống 16,34) nhờ H-Việt. Cái giá là thời gian: p95 15,0 s so với 3,6 s.
+- Whisper chạy riêng chép tiếng Anh gần bằng pipeline (recall 74,93) nhưng viết thừa và viết sai nhiều hơn (precision
+  69,75), và kém hẳn ở tiếng Việt.
+- VieGem nhanh nhất (p95 0,6 s) và precision tiếng Anh cao, nhưng tiếng Việt kém RNNT 4,37 điểm WER (CI [+3,42; +5,38]);
+  PhoWhisper-CS chêm thừa từ tiếng Anh (precision 50,22). Hai mô hình này không thay được phần nào của pipeline
+  (quyết định D73, báo cáo mục 6f.5).
+
+**Chạy thử liền một mạch** (Colab T4, engine `MergedASR` trên âm thanh thật, 8 mẫu `val_seen` chọn theo kiểu câu khó):
+chữ chạy thật trùng chữ đã lưu ở 16/16 câu; 8 mẫu mất 26,5 s, từ 1,4 s (một câu ngắn) đến 8,5 s (7 lượt người dùng) mỗi
+mẫu; bộ nhớ GPU đỉnh 3,5 GB. Kết quả trong `data/derived/lead_handoff/samples/asr_run/` (không lên git).
