@@ -302,8 +302,8 @@ vì vậy là thời gian khi ASR có GPU riêng. Thời gian của cả hệ th
 | 1 | Đo VieGem và PhoWhisper-CS: kiểm tra, chép `asr_tune` và `val_seen` (khoảng 2 đến 3 giờ), rồi chấm bảng mục 6f trên CPU | GPU, chỉ ASR | Kết quả quyết định pipeline ASR nào được chạy thật ở bước 5; không phụ thuộc lần chạy agent nào |
 | 2 | L0v2 | GPU, vLLM | Quyết định giữ hay tắt cấu hình agent mới (mục 6b.3); không phụ thuộc ASR; mọi lần chạy agent sau dùng cấu hình đã chốt ở bước này |
 | 3 | J6 trên chữ bản 2 đã lưu | GPU, vLLM | Điểm thi của bản 2 là mốc ở mọi kết cục, kể cả khi mô hình mới thắng (bước xác nhận của mục 6f.4) |
-| 4 | Agent trên chữ của mô hình mới, so với J6 (chỉ khi bước 1 chọn thay đổi) | GPU, vLLM | Xác nhận bằng điểm thi theo mục 6f.4 |
-| 5 | J5: chạy thật pipeline được chọn trên âm thanh `val_seen` (bản 2, hoặc pipeline mới nếu bước 4 nhận) | GPU, chỉ ASR | Chỉ có giá trị cho pipeline được chọn cuối cùng: kiểm tra chữ chạy thật trùng chữ offline và đo thời gian thật |
+| 4 | Agent trên chữ của mô hình mới, so với J6 (chỉ khi bước 1 chọn thay đổi) | GPU, vLLM | Xác nhận bằng điểm thi theo mục 6f.4. **Không cần**: bước 1 xong ngày 01/11/2026, không chọn thay đổi nào (mục 6f.5) |
+| 5 | J5: chạy thật pipeline được chọn trên âm thanh `val_seen` (bản 2, theo mục 6f.5) | GPU, chỉ ASR | Chỉ có giá trị cho pipeline được chọn cuối cùng: kiểm tra chữ chạy thật trùng chữ offline và đo thời gian thật |
 
 Gom theo loại máy: bước 1 chỉ cần ASR, các bước 2 đến 4 cùng dựng vLLM một lần.
 
@@ -649,6 +649,44 @@ python -m lifemate.eval.asr_compare --env local --ids configs/splits/val_seen.tx
 
 Thời gian giải mã KenLM của VieGem (nếu cấu hình chọn dùng KenLM) chạy trên CPU sau bước `dump`, nên được cộng thêm từ
 kết quả `decode`.
+
+### 6f.5. Kết quả (`val_seen`, đo một lần, 01/11/2026)
+
+Cấu hình đã chọn trên `asr_tune`: VieGem giải mã KenLM với gợi ý 4 (mục 6d), PhoWhisper-CS câu mồi `E2` (mục 6e). Phần
+trăm, chênh lệch so với bản 2 kèm CI 95%:
+
+| Hệ thống | WER thuần Việt | WER lượt cuối | F1 tiếng Anh | F1 số | Tham số thiếu, mọi lượt | Thời gian p50 / p95 (s) |
+|---|---|---|---|---|---|---|
+| Bản 2 (mốc) | 16,49 | 17,45 | 79,18 | 87,88 | 24,39 | 4,70 / 15,04 |
+| RNNT đứng riêng | 17,06 [+0,06; +0,99] | 19,05 [+0,83; +2,33] | 55,56 [−29,58; −18,01] | 86,21 [−3,77; +0,35] | 28,46 | 1,51 / 3,57 |
+| large-v3 E2 đứng riêng | 24,27 [+6,45; +9,36] | 22,85 [+3,96; +7,00] | 72,24 [−10,28; −3,94] | 83,49 [−8,07; −1,07] | 28,46 | 2,09 / 7,60 |
+| VieGem đứng riêng | 21,43 [+3,92; +6,06] | 23,99 [+5,17; +8,00] | 53,86 [−32,05; −18,87] | 86,86 [−4,18; +2,20] | 26,02 | 0,16 / 0,62 |
+| PhoWhisper-CS đứng riêng | 24,98 [+7,08; +10,00] | 25,28 [+6,31; +9,44] | 58,32 [−25,58; −16,62] | 82,95 [−8,83; −1,30] | 36,59 | 1,99 / 7,40 |
+
+Chi tiết tiếng Anh (recall / precision): VieGem 41,19 / 77,78; PhoWhisper-CS 69,55 / 50,22. Thời gian của VieGem là thời
+gian chạy mô hình; giải mã KenLM thêm khoảng 0,06 s mỗi câu ở p95 (CPU). Không hệ thống mới nào có câu bị bộ lọc câu bịa
+cắt hay câu rỗng (large-v3: 1 câu).
+
+So trực tiếp với mô hình ở vai định thay:
+
+| So sánh | WER thuần Việt | F1 tiếng Anh | F1 số | Tham số thiếu, mọi lượt |
+|---|---|---|---|---|
+| VieGem − RNNT | +4,37 [+3,42; +5,38] | −1,70 [−7,58; +4,55] | +0,65 [−2,86; +4,29] | −2,44 [−10,53; +5,83] |
+| PhoWhisper-CS − large-v3 E2 | +0,71 [−0,89; +2,19] | −13,92 [−19,00; −9,22] | −0,54 [−4,16; +3,19] | +8,13 [+0,76; +15,67] |
+
+**Áp tiêu chí mục 6f.4:**
+
+1. Thay cả pipeline: không mô hình nào đạt. VieGem tệ hơn bản 2 ở WER thuần Việt (cận dưới +3,92, vượt ngưỡng +1,0) và F1
+   tiếng Anh (cận dưới −32,05); PhoWhisper-CS tệ hơn ở mọi thước đo.
+2. Thay vai: không đạt. VieGem không có WER thuần Việt thấp hơn RNNT mà còn cao hơn có ý nghĩa (+4,37); tiếng Việt là lý
+   do duy nhất để thay RNNT. PhoWhisper-CS có F1 tiếng Anh thấp hơn large-v3 có ý nghĩa (−13,92), và tham số thiếu tăng
+   có ý nghĩa.
+3. và 4. Không áp dụng: không có thay đổi nào được chọn, nên không học lại H và không cần chạy agent xác nhận.
+
+**Kết luận: giữ pipeline ghép bản 2** (RNNT + large-v3 E2 + H-Anh + H-Việt). Hai điểm đáng ghi lại: VieGem nhanh hơn rất
+nhiều (p95 0,62 s so với 3,57 s của RNNT, 1,8 GB bộ nhớ GPU) và precision tiếng Anh cao (77,8), nhưng tiếng Việt trên dữ
+liệu thi kém RNNT; PhoWhisper-CS chêm thừa từ tiếng Anh thông dụng (precision 50,2), đúng rủi ro của một mô hình được
+fine-tune để ưu tiên câu chêm.
 
 ## 7. Kế hoạch
 
