@@ -1,7 +1,6 @@
 # Pipeline ASR hiện tại
 
-Chuỗi xử lý của `MergedASR` ([`lifemate/backends/asr_merged.py`](../../lifemate/backends/asr_merged.py)) cho một mẫu,
-bản đang dùng là **bản 2** (quyết định D67, D68). Mỗi mẫu có một hoặc nhiều câu người dùng (các câu trong lịch sử, rồi
+Chuỗi xử lý của `MergedASR` ([`lifemate/backends/asr_merged.py`](../../lifemate/backends/asr_merged.py)) cho một mẫu, Mỗi mẫu có một hoặc nhiều câu người dùng (các câu trong lịch sử, rồi
 câu cuối), mỗi câu là một file âm thanh; mọi câu đi qua cùng một chuỗi. Cấu hình ở
 [`configs/docker.toml`](../../configs/docker.toml) (bài nộp) và [`configs/v0.toml`](../../configs/v0.toml) (chạy thử),
 trọng số hai bộ chọn ở [`configs/asr_merge/h_v2.json`](../../configs/asr_merge/h_v2.json).
