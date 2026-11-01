@@ -12,6 +12,12 @@ Cách hoạt động:
   gốc, nên không sửa file trong `data/split/`.
 - Chỉ file `<tên>.jsonl` và `ids.txt` là file mới.
 - Dữ liệu thi của BTC: `data/` không lên git.
+- Nhóm câu (`SUBSET_SPLITS`), chia theo lời chuẩn có hay không có từ tiếng Anh (`foreign_words.find_foreign_words`,
+  đúng cách `eval_asr` tách `vi_only_*` và `en_mixed_*`): `<tên>/vi_only/`, `<tên>/en_mixed/` (câu người dùng ở mọi
+  lượt) và `<tên>/final_vi_only/`, `<tên>/final_en_mixed/` (chỉ câu lượt cuối). Mỗi nhóm có `utterances.jsonl` (`id`,
+  `turn` là "final" hoặc chỉ số lượt trong `history` như các file `hyps.jsonl`, `audio`, `ref`) và `audio/<id>/` (hard
+  link). Ở mức mẫu: `<tên>/samples_all_vi.txt` (mọi câu người dùng thuần Việt) và `<tên>/samples_with_en.txt` (có ít
+  nhất một câu chêm tiếng Anh).
 """
 
 from __future__ import annotations
@@ -31,6 +37,48 @@ SPLITS = {
     "val_seen": "val_seen",  # 274 mẫu: kiểm tra, mỗi ứng viên đo một lần
     "val_unseen": "val_unseen",  # 178 mẫu: KHOÁ, chỉ đo một lần cho cấu hình sắp nộp (D53)
 }
+
+
+SUBSET_SPLITS = ("val_seen",)
+
+
+def write_subsets(d: Path, rows: list[dict[str, object]]) -> dict[str, int]:
+    """Ghi nhóm câu thuần Việt / có tiếng Anh của một tập vào `d/vi_only/`, `d/en_mixed/` và hai danh sách mẫu."""
+    from lifemate.eval.foreign_words import find_foreign_words
+
+    names = ("vi_only", "en_mixed", "final_vi_only", "final_en_mixed")
+    groups: dict[str, list[dict[str, object]]] = {g: [] for g in names}
+    all_vi, with_en = [], []
+    for r in rows:
+        turns = [("final", r["audio"], r["audio_text"])] + [
+            (str(i), h.get("audio"), h.get("audio_text"))
+            for i, h in enumerate(r.get("history") or [])  # type: ignore[union-attr]
+            if h.get("role") == "user" and h.get("audio_text")
+        ]
+        has_en = False
+        for turn, audio, ref in turns:
+            if not ref:
+                continue
+            g = "en_mixed" if find_foreign_words(str(ref)) else "vi_only"
+            has_en |= g == "en_mixed"
+            item = {"id": r["id"], "turn": turn, "audio": audio, "ref": ref}
+            groups[g].append(item)
+            if turn == "final":
+                groups[f"final_{g}"].append(item)
+        (with_en if has_en else all_vi).append(str(r["id"]))
+    for g, items in groups.items():
+        gd = d / g
+        gd.mkdir()
+        (gd / "utterances.jsonl").write_text(
+            "".join(json.dumps(x, ensure_ascii=False) + "\n" for x in items), encoding="utf-8"
+        )
+        for x in items:
+            src = d / str(x["audio"])
+            (gd / str(x["audio"])).parent.mkdir(parents=True, exist_ok=True)
+            os.link(src, gd / str(x["audio"]))
+    (d / "samples_all_vi.txt").write_text("".join(i + "\n" for i in all_vi), encoding="utf-8")
+    (d / "samples_with_en.txt").write_text("".join(i + "\n" for i in with_en), encoding="utf-8")
+    return {**{g: len(v) for g, v in groups.items()}, "samples_all_vi": len(all_vi), "samples_with_en": len(with_en)}
 
 
 def link_tree(src: Path, dst: Path) -> int:
@@ -72,6 +120,8 @@ def main() -> int:
         os.link(args.src / "train_tools_catalog.json", d / f"{name}_tools_catalog.json")
         link_tree(args.src / "zaic_tools", d / "zaic_tools")
         print(f"{name}: {len(keep)} mẫu, {n_audio} file âm thanh, {n_env} file trạng thái")
+        if name in SUBSET_SPLITS:
+            print(f"  nhóm câu: {write_subsets(d, [json.loads(rows[i]) for i in keep])}")
     return 0
 
 
