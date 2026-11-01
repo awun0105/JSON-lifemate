@@ -26,8 +26,9 @@ chữ của Whisper không:
 | H-Anh, H-Việt | Hai bộ chọn: mô hình hồi quy logistic nhỏ học trên 1 093 mẫu train; mỗi vùng cho ra một xác suất, từ 0,5 trở lên thì lấy chữ B |
 | Bản 1 | Phiên bản trước: chỉ có H-Anh, chỉ xét vùng có từ tiếng Anh, đổi số ở cuối (`h_v1.json`, còn giữ để tái lập số đo cũ) |
 
-Câu mẫu minh hoạ (không trích từ dữ liệu): người dùng nói «Nhắn Zalo cho Minh, 5 rưỡi chiều mai đi đá bóng». Chữ in đậm
-trong sơ đồ là chỗ thay đổi qua từng bước.
+Câu mẫu minh hoạ (không trích từ dữ liệu): người dùng nói «Nhắn Zalo cho Minh, 5 rưỡi chiều mai đi đá bóng». RNNT nghe
+nhầm "Zalo" thành "da lô"; Whisper nghe nhầm "rưỡi" thành "bưởi". Câu mẫu vì vậy có đủ hai loại vùng: một vùng `en` cho
+H-Anh và một vùng `vi` cho H-Việt. Chữ in đậm trong sơ đồ là chỗ thay đổi qua từng bước; một vùng viết `{chữ A | chữ B}`.
 
 ## Sơ đồ
 
@@ -114,24 +115,24 @@ flowchart LR
   apps --> ctx
   asst --> ctx
   pfile --> prompt
-  rnnt --> sanA
+  rnnt -- "A: nhắn <b>da lô</b> cho minh <b>năm rưỡi</b> chiều mai…" --> sanA
   prompt -- "câu mồi" --> whisper
-  whisper -- "B: Nhắn <b>Zalo</b> cho Minh <b>5</b> rưỡi…" --> g4
-  sanA -- "A: nhắn <b>da lô</b> cho minh <b>năm</b> rưỡi…" --> prep
-  g4 -- "B" --> prep
+  whisper -- "B: Nhắn <b>Zalo</b> cho Minh, <b>5 bưởi</b> chiều mai…" --> g4
+  sanA -- "A không đổi (không lặp):<br/>nhắn da lô cho minh năm rưỡi chiều mai…" --> prep
+  g4 -- "B không đổi (không lặp câu mồi, không câu bịa):<br/>Nhắn Zalo cho Minh, 5 bưởi chiều mai…" --> prep
   g4 -. "B hỏng: chỉ chuẩn bị A, giữ A" .-> asm
-  prep -- "A: …minh <b>5</b> rưỡi… · B: nhắn <b>zalo</b>…" --> align
-  align -- "vùng: da lô ↔ zalo" --> has
+  prep -- "A′: nhắn da lô cho minh <b>5</b> rưỡi chiều mai…<br/>B′: <b>nhắn zalo</b> cho minh 5 bưởi chiều mai…" --> align
+  align -- "2 vùng: <b>{da lô | zalo}</b> loại en,<br/><b>{rưỡi | bưởi}</b> loại vi" --> has
   has -- "có" --> score
   has -. "không: giữ A" .-> asm
-  score -- "điểm A, B" --> Hen
-  score -- "điểm A, B" --> Hvi
+  score -- "vùng en {da lô | zalo}<br/>+ điểm A, điểm B" --> Hen
+  score -- "vùng vi {rưỡi | bưởi}<br/>+ điểm A, điểm B" --> Hvi
   ctx --> Hen
   ctx --> Hvi
   hfile --> Hen
   hfile --> Hvi
-  Hen -- "lấy zalo" --> asm
-  Hvi -. "vùng vi (câu mẫu không có)" .-> asm
+  Hen -- "{da lô | zalo}: <b>lấy zalo</b>" --> asm
+  Hvi -- "{rưỡi | bưởi}: <b>giữ rưỡi</b>" --> asm
   asm -- "nhắn <b>zalo</b> cho minh 5 rưỡi…" --> build
   build -- "messages" --> llm
 
@@ -148,20 +149,20 @@ flowchart LR
 | Bước | Làm gì | Vào | Ra (câu mẫu) |
 |---|---|---|---|
 | ① ChunkFormer RNNT | Mô hình tiếng Việt 0,11B chép câu | Âm thanh | A = `nhắn da lô cho minh năm rưỡi chiều mai đi đá bóng` |
-| ② Cắt đoạn lặp | Bộ lọc chung `sanitize` của bộ chép lời, bật cho mọi mô hình (`sanitize = true`). Bộ lọc làm hai việc: cắt câu phụ đề bịa ("hãy subscribe kênh…"), lỗi chỉ Whisper mắc; và gộp đoạn lặp vô hạn, lỗi RNNT cũng mắc. Trên 4 509 câu RNNT của train và `val_seen`, bộ lọc sửa 3 câu, cả 3 vì lặp (ví dụ mẫu train_0664 bên dưới), không câu nào vì phụ đề | A | A, không đổi |
+| ② Cắt đoạn lặp | Bộ lọc chung `sanitize` của bộ chép lời, bật cho mọi mô hình (`sanitize = true`). Bộ lọc làm hai việc: cắt câu phụ đề bịa ("hãy subscribe kênh…"), lỗi chỉ Whisper mắc; và gộp đoạn lặp vô hạn, lỗi RNNT cũng mắc. Trên 4 509 câu RNNT của train và `val_seen`, bộ lọc sửa 3 câu, cả 3 vì lặp (ví dụ mẫu train_0664 bên dưới), không câu nào vì phụ đề | A | A, không đổi (không có đoạn lặp) |
 | ③ Dựng câu mồi E2 | Ghép câu mồi cố định (94 từ, chứa 44 từ tiếng Anh, tên riêng, từ mượn hay gặp, có "Zalo"; nguyên văn ở mục "Câu mồi của Whisper"), tên tiếng Việt của app đã cài, lời trợ lý ngay trước | File câu mồi, app đã cài, lời trợ lý trước | `[câu mồi cố định] Ứng dụng đã cài: Tin nhắn SMS, Báo thức, Lịch… Dạ, anh muốn nhắn cho ai ạ?` |
-| ④ whisper-large-v3 | Mô hình 1,55B chép lại câu, có câu mồi | Âm thanh + câu mồi | B = `Nhắn Zalo cho Minh 5 rưỡi chiều mai đi đá bóng.` |
-| ⑤ Bảo vệ g4 + lọc câu bịa | Nếu B lặp 4 từ liền của câu mồi hoặc lặp vô hạn thì chép lại không câu mồi; nếu B bị cắt hoặc rỗng thì bỏ B, câu ra chỉ là A đã chuẩn bị (bước ⑥) | B | B, không đổi |
-| ⑥ Chuẩn bị hai bản | Viết thường, bỏ dấu câu dính hai đầu từ, đổi số đọc thành chữ số; làm trước khi gióng, nên "năm" (A) và "5" (B) khớp nhau thay vì thành một vùng giả. Luật đổi số giữ "năm nay", "thứ tư", "một lít" | A, B | A = `nhắn da lô cho minh 5 rưỡi chiều mai đi đá bóng`, B = `nhắn zalo cho minh 5 rưỡi chiều mai đi đá bóng` |
-| ⑦ Gióng A với B, tách vùng | Đặt hai bản cạnh nhau từng từ (so trên chữ bỏ dấu); mỗi chỗ khác nhau là một vùng, kể cả hai từ chỉ khác dấu thanh ("tắt" và "tất"). Vùng mà B có từ tiếng Anh mới là vùng `en`, còn lại là vùng `vi` | A, B | 1 vùng `en`: `da lô` ↔ `zalo` |
-| ⑧ Chấm điểm âm thanh | whisper-large-v3 không câu mồi nghe lại âm thanh và chấm câu A và mỗi câu "A nhưng lấy B ở đúng một vùng"; không sinh chữ mới | Âm thanh, các câu ứng viên | Điểm của A và của `nhắn zalo cho minh…` |
-| ⑨a H-Anh | Vùng `en`. 10 tín hiệu: từ có trong ngữ cảnh mẫu không (app đã cài, catalog, các lượt trợ lý), có trong câu mồi cố định không, độ tin cậy của từ câu mồi (tỉ lệ Whisper viết từ đó đúng trên train khi RNNT không có), độ tin cậy trung bình của Whisper, xác suất không có tiếng nói, số từ mỗi bên, phần từ phía A là chữ Việt, có phải lượt cuối không, chênh điểm âm thanh | Vùng, điểm, ngữ cảnh mẫu, `h_v2.json` | Lấy `zalo` |
-| ⑨b H-Việt | Vùng `vi`. 11 tín hiệu: chênh điểm âm thanh, chênh số token, số từ mỗi bên, khoảng cách ký tự giữa hai bên, B chèn thêm hay bỏ bớt từ, vùng ở cuối câu không, có trong ngữ cảnh mẫu không, độ tin cậy trung bình của Whisper, có phải lượt cuối không | Vùng, điểm, ngữ cảnh mẫu, `h_v2.json` | Câu mẫu không có vùng `vi` |
-| ⑩ Lắp câu | Ghép lại câu từ A và các vùng đã chọn; chữ đã ở dạng chữ thường và chữ số, không cần đổi số thêm | A + quyết định | `nhắn zalo cho minh 5 rưỡi chiều mai đi đá bóng` |
+| ④ whisper-large-v3 | Mô hình 1,55B chép lại câu, có câu mồi | Âm thanh + câu mồi | B = `Nhắn Zalo cho Minh, 5 bưởi chiều mai đi đá bóng.` |
+| ⑤ Bảo vệ g4 + lọc câu bịa | Nếu B lặp 4 từ liền của câu mồi hoặc lặp vô hạn thì chép lại không câu mồi; nếu B bị cắt hoặc rỗng thì bỏ B, câu ra chỉ là A đã chuẩn bị (bước ⑥) | B | B, không đổi (không lặp câu mồi, không lặp vô hạn, không câu bịa) |
+| ⑥ Chuẩn bị hai bản | Viết thường, bỏ dấu câu dính hai đầu từ, đổi số đọc thành chữ số; làm trước khi gióng, nên "năm" (A) và "5" (B) khớp nhau thay vì thành một vùng giả. Luật đổi số giữ "năm nay", "thứ tư", "một lít" | A, B | A′ = `nhắn da lô cho minh 5 rưỡi chiều mai đi đá bóng`, B′ = `nhắn zalo cho minh 5 bưởi chiều mai đi đá bóng` |
+| ⑦ Gióng A với B, tách vùng | Đặt hai bản cạnh nhau từng từ (so trên chữ bỏ dấu); mỗi chỗ khác nhau là một vùng, kể cả hai từ chỉ khác dấu thanh ("tắt" và "tất"). Vùng mà B có từ tiếng Anh mới là vùng `en`, còn lại là vùng `vi` | A′, B′ | 2 vùng: `{da lô \| zalo}` loại `en` (B có từ tiếng Anh mới), `{rưỡi \| bưởi}` loại `vi` |
+| ⑧ Chấm điểm âm thanh | whisper-large-v3 không câu mồi nghe lại âm thanh và chấm câu A và mỗi câu "A nhưng lấy B ở đúng một vùng"; không sinh chữ mới | Âm thanh, các câu ứng viên | Điểm của ba câu: A′, `nhắn zalo cho minh 5 rưỡi…` (lấy B ở vùng `en`), `nhắn da lô cho minh 5 bưởi…` (lấy B ở vùng `vi`) |
+| ⑨a H-Anh | Vùng `en`. 10 tín hiệu: từ có trong ngữ cảnh mẫu không (app đã cài, catalog, các lượt trợ lý), có trong câu mồi cố định không, độ tin cậy của từ câu mồi (tỉ lệ Whisper viết từ đó đúng trên train khi RNNT không có), độ tin cậy trung bình của Whisper, xác suất không có tiếng nói, số từ mỗi bên, phần từ phía A là chữ Việt, có phải lượt cuối không, chênh điểm âm thanh | Vùng, điểm, ngữ cảnh mẫu, `h_v2.json` | `{da lô \| zalo}`: lấy `zalo` ("Zalo" có trong câu mồi và trong app đã cài) |
+| ⑨b H-Việt | Vùng `vi`. 11 tín hiệu: chênh điểm âm thanh, chênh số token, số từ mỗi bên, khoảng cách ký tự giữa hai bên, B chèn thêm hay bỏ bớt từ, vùng ở cuối câu không, có trong ngữ cảnh mẫu không, độ tin cậy trung bình của Whisper, có phải lượt cuối không | Vùng, điểm, ngữ cảnh mẫu, `h_v2.json` | `{rưỡi \| bưởi}`: giữ `rưỡi` |
+| ⑩ Lắp câu | Ghép lại câu từ A và các vùng đã chọn; chữ đã ở dạng chữ thường và chữ số, không cần đổi số thêm | A′ + quyết định | `nhắn zalo cho minh 5 rưỡi chiều mai đi đá bóng` (lấy B ở vùng `en`, giữ A ở vùng `vi`) |
 | Sau ASR · dựng prompt | Chuẩn hoá NFC, gộp khoảng trắng; ghép thành hội thoại: system (lời dặn, giờ, múi giờ, hồ sơ, vị trí, tools của app đã cài), các lượt cũ (lượt user là chữ ASR của câu đó, lượt trợ lý giữ nguyên lời gọi tool, kết quả, lời đáp), lượt user cuối là chữ ASR của câu cuối | Chữ ASR mọi câu + mẫu | Danh sách tin nhắn ChatML đưa vào Qwen3-4B |
 
-Lời trợ lý «Dạ, anh muốn nhắn cho ai ạ?» cũng là ví dụ minh hoạ. Điểm âm thanh và xác suất của H-Anh không ghi số vì
-không đo trên câu mẫu này.
+Lời trợ lý «Dạ, anh muốn nhắn cho ai ạ?» và chỗ nghe nhầm "bưởi" cũng là ví dụ minh hoạ. Điểm âm thanh và xác suất của
+H-Anh, H-Việt không ghi số vì không đo trên câu mẫu này; số thật của 8 mẫu đã chạy ở mục "Ví dụ thực tế".
 
 ## Câu mồi của Whisper
 
