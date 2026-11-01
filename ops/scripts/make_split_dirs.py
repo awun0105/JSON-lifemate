@@ -24,9 +24,9 @@ from pathlib import Path
 
 # tên thư mục -> file id trong configs/splits/
 SPLITS = {
-    "train": "train",  # 1 093 mẫu: dữ liệu học (fine-tune, học bộ chọn H); = tune + learn
+    "train": "train",  # 1 093 mẫu: dữ liệu học (fine-tune; bộ chọn H-Anh, H-Việt học trên cả tập); = tune + learn
     "tune": "asr_tune",  # 300 mẫu của train: chọn cấu hình ASR
-    "learn": "asr_learn",  # 793 mẫu còn lại của train: học bộ chọn H
+    "learn": "asr_learn",  # 793 mẫu còn lại của train; tập học H của lần 3, từ D54 không còn vai riêng
     "smoke": "smoke",  # 30 mẫu của train: chạy thử nhanh
     "val_seen": "val_seen",  # 274 mẫu: kiểm tra, mỗi ứng viên đo một lần
     "val_unseen": "val_unseen",  # 178 mẫu: KHOÁ, chỉ đo một lần cho cấu hình sắp nộp (D53)
