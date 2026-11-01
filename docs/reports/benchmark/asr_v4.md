@@ -290,10 +290,22 @@ Phân tích lỗi của L0 trên `val_seen` cho thấy điểm mất chủ yếu
 |---|---|---|---|
 | **J5** | Engine `MergedASR` (RNNT, large-v3 câu mồi E2, điểm âm thanh, H, đổi số) trên âm thanh thật của 274 mẫu `val_seen`, bằng `python -m lifemate.train.asr_cache` | Chữ từng câu (`.hyps.jsonl`), thời gian từng mẫu và từng phần (`.timing.jsonl`), bộ nhớ GPU đỉnh | Sau khi chạy: WER, chép đúng từ tiếng Anh, giá trị tham số thiếu so với lời chuẩn; đối chiếu chữ với bản ghép offline (phải trùng, trừ sai khác số học của GPU); thời gian p50, p95, tối đa |
 | **L0v2** | Lời chuẩn qua agent với cấu hình mới (6b.1) | Run agent | Bộ chấm của BTC; so với L0 (cấu hình cũ, cùng 274 mẫu) |
-| **J6** | Chữ của J5 qua cùng agent | Run agent | Bộ chấm của BTC; so với L0v2 (ASR còn làm mất bao nhiêu) và với J1 (pipeline ghép lấy lại được bao nhiêu so với RNNT) |
+| **J6** | Chữ bản 2 đã lưu (`v2_val_seen.hyps.jsonl`) qua cùng agent; engine `MergedASR` phát lại trùng từng byte với bản offline (`tests/test_asr_merge_v2.py`), nên không cần chờ J5 | Run agent | Bộ chấm của BTC; so với L0v2 (ASR còn làm mất bao nhiêu) và với J1 (pipeline ghép lấy lại được bao nhiêu so với RNNT) |
 
 J5 chạy riêng ASR trên T4 (hai mô hình ASR khoảng 3,6 GB), không cùng vLLM, vì T4 không chứa nổi cả hai; thời gian ASR
 vì vậy là thời gian khi ASR có GPU riêng. Thời gian của cả hệ thống (ASR cùng vLLM, đọc trước) cần GPU từ 24 GB, đo sau.
+
+**Thứ tự chạy**, gộp với benchmark hai mô hình mới (mục 6d, 6e, 6f):
+
+| Thứ tự | Lần chạy | Máy | Vì sao ở vị trí này |
+|---|---|---|---|
+| 1 | Đo VieGem và PhoWhisper-CS: kiểm tra, chép `asr_tune` và `val_seen` (khoảng 2 đến 3 giờ), rồi chấm bảng mục 6f trên CPU | GPU, chỉ ASR | Kết quả quyết định pipeline ASR nào được chạy thật ở bước 5; không phụ thuộc lần chạy agent nào |
+| 2 | L0v2 | GPU, vLLM | Quyết định giữ hay tắt cấu hình agent mới (mục 6b.3); không phụ thuộc ASR; mọi lần chạy agent sau dùng cấu hình đã chốt ở bước này |
+| 3 | J6 trên chữ bản 2 đã lưu | GPU, vLLM | Điểm thi của bản 2 là mốc ở mọi kết cục, kể cả khi mô hình mới thắng (bước xác nhận của mục 6f.4) |
+| 4 | Agent trên chữ của mô hình mới, so với J6 (chỉ khi bước 1 chọn thay đổi) | GPU, vLLM | Xác nhận bằng điểm thi theo mục 6f.4 |
+| 5 | J5: chạy thật pipeline được chọn trên âm thanh `val_seen` (bản 2, hoặc pipeline mới nếu bước 4 nhận) | GPU, chỉ ASR | Chỉ có giá trị cho pipeline được chọn cuối cùng: kiểm tra chữ chạy thật trùng chữ offline và đo thời gian thật |
+
+Gom theo loại máy: bước 1 chỉ cần ASR, các bước 2 đến 4 cùng dựng vLLM một lần.
 
 ### 6b.3. Chỉ số và cách so
 
