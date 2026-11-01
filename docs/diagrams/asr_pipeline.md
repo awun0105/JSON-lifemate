@@ -80,7 +80,7 @@ flowchart LR
   subgraph S1["Giai đoạn 1 · Chép chữ (RNNT trước, Whisper sau)"]
     subgraph L1["Làn 1 · RNNT"]
       rnnt[["① ChunkFormer RNNT"]]
-      sanA[\"② Lọc câu bịa"/]
+      sanA[\"② Cắt đoạn lặp<br/>(bộ lọc chung với Whisper)"/]
     end
     subgraph L2["Làn 2 · Whisper"]
       pfile[("Câu mồi cố định<br/>en_full_v1.txt")]
@@ -148,7 +148,7 @@ flowchart LR
 | Bước | Làm gì | Vào | Ra (câu mẫu) |
 |---|---|---|---|
 | ① ChunkFormer RNNT | Mô hình tiếng Việt 0,11B chép câu | Âm thanh | A = `nhắn da lô cho minh năm rưỡi chiều mai đi đá bóng` |
-| ② Lọc câu bịa | Cắt câu kiểu phụ đề bịa ("hãy subscribe kênh…") | A | A, không đổi |
+| ② Cắt đoạn lặp | Bộ lọc chung `sanitize` của bộ chép lời, bật cho mọi mô hình (`sanitize = true`). Bộ lọc làm hai việc: cắt câu phụ đề bịa ("hãy subscribe kênh…"), lỗi chỉ Whisper mắc; và gộp đoạn lặp vô hạn, lỗi RNNT cũng mắc. Trên 4 509 câu RNNT của train và `val_seen`, bộ lọc sửa 3 câu, cả 3 vì lặp (ví dụ mẫu train_0664 bên dưới), không câu nào vì phụ đề | A | A, không đổi |
 | ③ Dựng câu mồi E2 | Ghép câu mồi cố định (94 từ, chứa 44 từ tiếng Anh, tên riêng, từ mượn hay gặp, có "Zalo"; nguyên văn ở mục "Câu mồi của Whisper"), tên tiếng Việt của app đã cài, lời trợ lý ngay trước | File câu mồi, app đã cài, lời trợ lý trước | `[câu mồi cố định] Ứng dụng đã cài: Tin nhắn SMS, Báo thức, Lịch… Dạ, anh muốn nhắn cho ai ạ?` |
 | ④ whisper-large-v3 | Mô hình 1,55B chép lại câu, có câu mồi | Âm thanh + câu mồi | B = `Nhắn Zalo cho Minh 5 rưỡi chiều mai đi đá bóng.` |
 | ⑤ Bảo vệ g4 + lọc câu bịa | Nếu B lặp 4 từ liền của câu mồi hoặc lặp vô hạn thì chép lại không câu mồi; nếu B bị cắt hoặc rỗng thì bỏ B, câu ra chỉ là A đã chuẩn bị (bước ⑥) | B | B, không đổi |
@@ -302,7 +302,7 @@ Nhận xét: Cả hai mô hình đều nghe kém câu này. "Zalo" có ở cả 
 |---|---|
 | Đáp án | Xem hộ tôi có cảnh báo gì ở cửa kho phụ không, nếu báo là cửa đang mở thì khóa ngay lại, xong gọi cho số trực 09889990002 nhé. |
 | A (RNNT) | xem hộ tôi có cảnh báo gì ở cửa kho phụ không nếu báo là cửa đang mở thì khóa ngay lại xong gửi cho số trực không chín tám chín chín … (lặp «chín» 193 lần) … không không hai nhé |
-| A sau lọc câu bịa | xem hộ tôi có cảnh báo gì ở cửa kho phụ không nếu báo là cửa đang mở thì khóa ngay lại xong gửi cho số trực không chín tám chín không không hai nhé |
+| A sau cắt đoạn lặp | xem hộ tôi có cảnh báo gì ở cửa kho phụ không nếu báo là cửa đang mở thì khóa ngay lại xong gửi cho số trực không chín tám chín không không hai nhé |
 | B (Whisper) | Xem hộ tôi có cảnh báo gì ở cửa kho phụ không? Nếu báo là cửa đang mở thì khóa ngay lại, xong gọi cho số trực 0988 999 0002 nhé. |
 | A′ | xem hộ tôi có cảnh báo gì ở cửa kho phụ không nếu báo là cửa đang mở thì khóa ngay lại xong gửi cho số trực 0989002 nhé |
 | B′ | xem hộ tôi có cảnh báo gì ở cửa kho phụ không nếu báo là cửa đang mở thì khóa ngay lại xong gọi cho số trực 0988 999 0002 nhé |
@@ -310,7 +310,7 @@ Nhận xét: Cả hai mô hình đều nghe kém câu này. "Zalo" có ở cả 
 | Vùng `vi` | 0989002 ↔ 0988 999 0002: H-Việt 0,763 → **lấy B** |
 | **Ra** | **xem hộ tôi có cảnh báo gì ở cửa kho phụ không nếu báo là cửa đang mở thì khóa ngay lại xong gọi cho số trực 0988 999 0002 nhé** |
 
-Nhận xét: RNNT lặp vô hạn chữ "chín" khi đọc số điện thoại; bộ lọc câu bịa cắt đoạn lặp nhưng số còn lại (0989002) sai. Whisper chép đúng số (viết thành cụm 0988 999 0002) và đúng "gọi". H-Việt lấy cả hai vùng của Whisper (0,698 và 0,763), câu ra đúng nội dung; số viết thành cụm, bộ chấm coi là đúng sau khi đưa về dạng chung.
+Nhận xét: RNNT lặp vô hạn chữ "chín" khi đọc số điện thoại; bước ② cắt đoạn lặp nhưng số còn lại (0989002) sai. Whisper chép đúng số (viết thành cụm 0988 999 0002) và đúng "gọi". H-Việt lấy cả hai vùng của Whisper (0,698 và 0,763), câu ra đúng nội dung; số viết thành cụm, bộ chấm coi là đúng sau khi đưa về dạng chung.
 
 ### 3. train_0007: Giờ tương đối, người nói tự sửa lại
 
@@ -506,7 +506,7 @@ Nhận xét: Chỉ khác "giùm" (RNNT) và "dùm" (Whisper), hai cách nói cù
 
 | Khối | Code |
 |---|---|
-| ① RNNT, ② lọc câu bịa | `lifemate/backends/asr.py › ASRTranscriber`, `lifemate/backends/asr_sanitizer.py › sanitize` |
+| ① RNNT, ② cắt đoạn lặp (và lọc câu bịa của Whisper ở ⑤) | `lifemate/backends/asr.py › ASRTranscriber`, `lifemate/backends/asr_sanitizer.py › sanitize` |
 | ③ Dựng câu mồi | `lifemate/backends/asr_prompt.py › build_sample_prompts` |
 | ⑤ Bảo vệ g4 | `lifemate/backends/asr_guard.py › needs_retry` |
 | ⑥ Chuẩn bị hai bản | `lifemate/eval/asr_merge_v2.py › prepare` (đổi số: `lifemate/backends/asr_numbers.py › digitize`) |
