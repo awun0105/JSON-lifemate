@@ -95,21 +95,35 @@ def stage_check(args: argparse.Namespace) -> dict[str, Any]:
     import torch
 
     low = "bfloat16" if torch.cuda.is_available() and torch.cuda.get_device_capability(0) >= (8, 0) else "float16"
-    lowp = ViegemASR(_cfg("greedy", low))
+    # Kiểu số thấp chỉ để đối chiếu: engine dùng bf16 trên sm80 trở lên, float32 trên GPU cũ hơn. Trên T4, float16
+    # tràn số trong attention của encoder Gemma (giá trị che mặt nạ vượt giới hạn float16), nên ghi lỗi và đi tiếp.
+    lowp: Any = ViegemASR(_cfg("greedy", low))
     rows = []
     tot = {"fp32": [0, 0], low: [0, 0]}
     same = 0
     for e in meta:
         ref = text.normalize(e["ref"])
-        h32, hlo = fp32.transcribe_audio(audio[e["file"]]), lowp.transcribe_audio(audio[e["file"]])
-        same += h32 == hlo
-        for name, h in (("fp32", h32), (low, hlo)):
-            err, n = _wer(ref, h)
-            tot[name][0] += err
-            tot[name][1] += n
-        rows.append({"file": e["file"], "ref": ref, "fp32": h32, low: hlo})
-    res["greedy_wer"] = {k: v[0] / max(1, v[1]) for k, v in tot.items()}
-    res["fp32_equals_" + low] = f"{same}/{len(meta)}"
+        h32 = fp32.transcribe_audio(audio[e["file"]])
+        row = {"file": e["file"], "ref": ref, "fp32": h32}
+        err, n = _wer(ref, h32)
+        tot["fp32"][0] += err
+        tot["fp32"][1] += n
+        if lowp is not None:
+            try:
+                hlo = lowp.transcribe_audio(audio[e["file"]])
+            except RuntimeError as exc:
+                res[f"{low}_error"] = str(exc)[:200]
+                lowp = None
+            else:
+                same += h32 == hlo
+                err, n = _wer(ref, hlo)
+                tot[low][0] += err
+                tot[low][1] += n
+                row[low] = hlo
+        rows.append(row)
+    res["greedy_wer"] = {k: v[0] / max(1, v[1]) for k, v in tot.items() if v[1]}
+    if lowp is not None:
+        res["fp32_equals_" + low] = f"{same}/{len(meta)}"
     try:
         lm = ViegemASR(_cfg("lm", "float32"))
         e_lm = [0, 0]
