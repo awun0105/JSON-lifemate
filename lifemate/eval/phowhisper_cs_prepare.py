@@ -34,6 +34,14 @@ ADAPTER_REVISION = "a98f55e0f42b2c4f1e71b3348a2b917fac0a7328"
 COPY_FILES = ("tokenizer.json", "preprocessor_config.json")
 
 
+def _numel(shape: Sequence[int]) -> int:
+    """Số phần tử của một tensor có kích thước `shape`."""
+    n = 1
+    for d in shape:
+        n *= int(d)
+    return n
+
+
 def prepare(out: Path) -> dict[str, Any]:
     """Gộp LoRA và chuyển sang CTranslate2; trả số tham số và đường dẫn."""
     import ctranslate2
@@ -42,14 +50,22 @@ def prepare(out: Path) -> dict[str, Any]:
     from peft import PeftModel
     from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
-    base_dir = snapshot_download(BASE, revision=BASE_REVISION)
-    adapter_dir = snapshot_download(ADAPTER, revision=ADAPTER_REVISION)
-    model = WhisperForConditionalGeneration.from_pretrained(base_dir, torch_dtype=torch.float32)
-    model = PeftModel.from_pretrained(model, adapter_dir).merge_and_unload()
+    base_dir = Path(snapshot_download(BASE, revision=BASE_REVISION))
     merged = out / "merged"
-    model.to(torch.float16).save_pretrained(merged, safe_serialization=True)
-    WhisperProcessor.from_pretrained(base_dir).save_pretrained(merged)
-    n_params = sum(p.numel() for p in model.parameters())
+    if not (merged / "model.safetensors").is_file():  # bước gộp chạy lại được: bỏ qua khi đã có bản gộp
+        adapter_dir = snapshot_download(ADAPTER, revision=ADAPTER_REVISION)
+        model = WhisperForConditionalGeneration.from_pretrained(base_dir, torch_dtype=torch.float32)
+        model = PeftModel.from_pretrained(model, adapter_dir).merge_and_unload()
+        model.to(torch.float16).save_pretrained(merged, safe_serialization=True)
+        WhisperProcessor.from_pretrained(base_dir).save_pretrained(merged)
+    # transformers 5 lưu cấu hình processor thành `processor_config.json`; CTranslate2 và faster-whisper cần đúng file
+    # `preprocessor_config.json` (80 kênh mel) và `tokenizer.json`, nên chép nguyên bản từ mô hình gốc.
+    for name in COPY_FILES:
+        shutil.copyfile(base_dir / name, merged / name)
+    from safetensors import safe_open
+
+    with safe_open(str(merged / "model.safetensors"), framework="pt") as f:
+        n_params = sum(_numel(f.get_slice(k).get_shape()) for k in f.keys())  # noqa: SIM118 (safe_open không phải dict)
     ct2 = out / "ct2"
     if ct2.exists():
         shutil.rmtree(ct2)
